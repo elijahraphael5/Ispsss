@@ -1,0 +1,277 @@
+// Prisma schema — ISP Management Platform
+// Precision notes vs original spec:
+// - RBAC roles enumerated explicitly (was a loose list in the spec)
+// - Subscriber vs User separated: `User` = portal identity/auth, `Subscriber` = ISP account/service record
+// - Billing normalized: Invoice -> InvoiceLine, separate Payment ledger
+// - Soft-delete via `deletedAt` on core entities for audit-log compliance
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  CEO
+  OPERATIONS_MANAGER
+  NOC_ENGINEER
+  CUSTOMER_SUPPORT
+  BILLING_OFFICER
+  SALES_AGENT
+  FIELD_ENGINEER
+  CUSTOMER
+}
+
+enum SubscriberType {
+  RESIDENTIAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SubscriberStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_KYC
+  TERMINATED
+}
+
+enum PlanType {
+  UNLIMITED
+  CAPPED
+  CORPORATE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  FLUTTERWAVE
+  MONNIFY
+  REMITA
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+  REFUNDED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  WARNING
+  CRITICAL
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  phone         String?   @unique
+  passwordHash  String
+  role          Role
+  twoFaEnabled  Boolean   @default(false)
+  twoFaSecret   String?
+  subscriber    Subscriber?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  auditLogs     AuditLog[]
+
+  @@index([role])
+}
+
+model Subscriber {
+  id             String            @id @default(uuid())
+  user           User              @relation(fields: [userId], references: [id])
+  userId         String            @unique
+  type           SubscriberType
+  status         SubscriberStatus  @default(PENDING_KYC)
+  kycVerified    Boolean           @default(false)
+  branchId       String?
+  branch         Branch?           @relation(fields: [branchId], references: [id])
+  subscriptions  Subscription[]
+  invoices       Invoice[]
+  tickets        Ticket[]
+  devices        Cpe[]
+  contracts      Contract[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
+
+  @@index([status])
+  @@index([branchId])
+}
+
+model Branch {
+  id          String       @id @default(uuid())
+  name        String
+  region      String
+  subscribers Subscriber[]
+  createdAt   DateTime     @default(now())
+}
+
+model Plan {
+  id            String         @id @default(uuid())
+  name          String
+  type          PlanType
+  speedMbps     Int
+  dataCapGb     Int?           // null = unlimited
+  fairUsageGb   Int?
+  priceKobo     Int            // stored in kobo (NGN minor unit) to avoid float rounding
+  isActive      Boolean        @default(true)
+  subscriptions Subscription[]
+  createdAt     DateTime       @default(now())
+}
+
+model Subscription {
+  id             String       @id @default(uuid())
+  subscriber     Subscriber   @relation(fields: [subscriberId], references: [id])
+  subscriberId   String
+  plan           Plan         @relation(fields: [planId], references: [id])
+  planId         String
+  autoRenew      Boolean      @default(true)
+  startedAt      DateTime     @default(now())
+  expiresAt      DateTime
+  suspendedAt    DateTime?
+  cancelledAt    DateTime?
+
+  @@index([subscriberId])
+  @@index([expiresAt])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  subscriber    Subscriber    @relation(fields: [subscriberId], references: [id])
+  subscriberId  String
+  status        InvoiceStatus @default(DRAFT)
+  amountKobo    Int
+  vatKobo       Int           @default(0)
+  dueAt         DateTime
+  issuedAt      DateTime?
+  paidAt        DateTime?
+  lines         InvoiceLine[]
+  payments      Payment[]
+  createdAt     DateTime      @default(now())
+
+  @@index([subscriberId, status])
+}
+
+model InvoiceLine {
+  id          String  @id @default(uuid())
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  invoiceId   String
+  description String
+  amountKobo  Int
+  quantity    Int     @default(1)
+}
+
+model Payment {
+  id            String          @id @default(uuid())
+  invoice       Invoice         @relation(fields: [invoiceId], references: [id])
+  invoiceId     String
+  provider      PaymentProvider
+  status        PaymentStatus   @default(PENDING)
+  amountKobo    Int
+  reference     String          @unique
+  paidAt        DateTime?
+  createdAt     DateTime        @default(now())
+
+  @@index([status])
+}
+
+model Ticket {
+  id            String         @id @default(uuid())
+  subscriber    Subscriber     @relation(fields: [subscriberId], references: [id])
+  subscriberId  String
+  assignedToId  String?
+  subject       String
+  status        TicketStatus   @default(OPEN)
+  priority      TicketPriority @default(MEDIUM)
+  slaDueAt      DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([status, priority])
+}
+
+model Cpe {
+  id            String       @id @default(uuid())
+  subscriber    Subscriber   @relation(fields: [subscriberId], references: [id])
+  subscriberId  String
+  macAddress    String       @unique
+  ipAddress     String?
+  status        DeviceStatus @default(OFFLINE)
+  lastSeenAt    DateTime?
+
+  @@index([status])
+}
+
+model NetworkDevice {
+  id           String       @id @default(uuid())
+  name         String
+  type         String       // router | switch | olt | ap
+  vendor       String?
+  ipAddress    String       @unique
+  status       DeviceStatus @default(OFFLINE)
+  branchId     String?
+  updatedAt    DateTime     @updatedAt
+}
+
+model InventoryItem {
+  id           String   @id @default(uuid())
+  sku          String   @unique
+  name         String
+  category     String   // router | switch | olt | ont | fiber | spare
+  quantity     Int      @default(0)
+  branchId     String?
+  updatedAt    DateTime @updatedAt
+}
+
+model Contract {
+  id            String     @id @default(uuid())
+  subscriber    Subscriber @relation(fields: [subscriberId], references: [id])
+  subscriberId  String
+  documentUrl   String     // object storage key
+  signedAt      DateTime?
+  createdAt     DateTime   @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actor      User     @relation(fields: [actorId], references: [id])
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}

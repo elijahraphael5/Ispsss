@@ -1,0 +1,45 @@
+{
+  "name": "customer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@isp/shared": "workspace:*",
+    "@number-flow/react": "^0.6.2",
+    "@paysortadev/paysorta": "^1.0.4",
+    "@tanstack/react-query": "^5.56.0",
+    "@visx/curve": "4.0.1-alpha.0",
+    "@visx/event": "4.0.1-alpha.0",
+    "@visx/gradient": "4.0.1-alpha.0",
+    "@visx/grid": "4.0.1-alpha.0",
+    "@visx/group": "4.0.1-alpha.0",
+    "@visx/pattern": "4.0.1-alpha.0",
+    "@visx/responsive": "4.0.1-alpha.0",
+    "@visx/scale": "4.0.1-alpha.0",
+    "@visx/shape": "4.0.1-alpha.0",
+    "clsx": "^2.1.1",
+    "d3-array": "^3.2.4",
+    "d3-shape": "^3.2.0",
+    "motion": "^12.42.2",
+    "next": "15.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^3.10.0",
+    "socket.io-client": "^4.8.3",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^3.4.10",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.0",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.22",
+    "typescript": "^5.5.0"
+  }
+}

@@ -1,0 +1,850 @@
+// Prisma schema — ISP Management Platform
+// Precision notes vs original spec:
+// - RBAC roles enumerated explicitly (was a loose list in the spec)
+// - Subscriber vs User separated: `User` = portal identity/auth, `Subscriber` = ISP account/service record
+// - Billing normalized: Invoice -> InvoiceLine, separate Payment ledger
+// - Soft-delete via `deletedAt` on core entities for audit-log compliance
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SubscriberType {
+  RESIDENTIAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SubscriberStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_KYC
+  TERMINATED
+}
+
+enum PlanType {
+  FIBER
+  RADIO
+  ENTERPRISE
+  CUSTOM
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum InvoiceType {
+  SUBSCRIPTION
+  INSTALLATION
+  ONE_TIME
+  MANUAL
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  FLUTTERWAVE
+  MONNIFY
+  REMITA
+  BANK_TRANSFER
+  PAYSORTA
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+  REFUNDED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCommentAuthor {
+  CUSTOMER
+  AGENT
+  SYSTEM
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  WARNING
+  CRITICAL
+}
+
+enum ConnectionType {
+  PPPOE
+  STATIC_IP
+}
+
+model Tenant {
+  id          String        @id @default(uuid())
+  name        String
+  slug        String        @unique
+  isActive    Boolean       @default(true)
+  users       User[]
+  subscribers Subscriber[]
+  plans       Plan[]
+  devices     NetworkDevice[]
+  customRoles CustomRole[]
+  actionQueue ActionQueue[]
+  chatSessions      ChatSession[]
+  tickets           Ticket[]
+  cannedResponses   CannedResponse[]
+  agentPresences    AgentPresence[]
+  routerSnapshots   RouterSnapshot[]
+  routerMetrics     RouterMetric[]
+  routerUsageDays   RouterUsageDay[]
+  createdAt   DateTime      @default(now())
+}
+
+model CustomRole {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  permissions Permission[]
+  users       User[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([tenantId])
+}
+
+model Permission {
+  id        String      @id @default(uuid())
+  roleId    String
+  role      CustomRole  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module    String
+  canView   Boolean     @default(true)
+  canCreate Boolean     @default(false)
+  canEdit   Boolean     @default(false)
+  canDelete Boolean     @default(false)
+
+  @@unique([roleId, module])
+}
+
+model User {
+  id            String      @id @default(uuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id])
+  email         String      @unique
+  name          String?
+  phone         String?     @unique
+  passwordHash  String
+  isSuperAdmin  Boolean     @default(false)
+  customRoleId  String?
+  customRole    CustomRole? @relation(fields: [customRoleId], references: [id])
+  twoFaEnabled  Boolean     @default(false)
+  twoFaSecret   String?
+  subscriber    Subscriber?
+  agentSessions     ChatSession[]     @relation("ChatSessionAgent")
+  assignedTickets  Ticket[]          @relation("TicketAssignedAgent")
+  agentPresence    AgentPresence?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  deletedAt     DateTime?
+  auditLogs     AuditLog[]
+
+  @@index([tenantId])
+}
+
+model Subscriber {
+  id             String            @id @default(uuid())
+  tenantId       String
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  user           User              @relation(fields: [userId], references: [id])
+  userId         String            @unique
+  type           SubscriberType
+  status         SubscriberStatus  @default(PENDING_KYC)
+  kycVerified    Boolean           @default(false)
+  address        String?
+  networkType    String?           // RADIO, FIBER, DIA — display override, falls back to plan.technology
+  subscriptions  Subscription[]
+  invoices       Invoice[]
+  tickets        Ticket[]
+  chatSessions   ChatSession[]
+  devices        Cpe[]
+  contracts      Contract[]
+  wallet         Wallet?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
+
+  @@index([status])
+  @@index([tenantId])
+}
+
+model Plan {
+  id                  String         @id @default(uuid())
+  tenantId            String
+  tenant              Tenant         @relation(fields: [tenantId], references: [id])
+  name                String
+  type                PlanType
+  technology          String         // RADIO, FIBER, DIA
+  category            String         // PERSONAL, HOME, SME, DIA_BRONZE, DIA_SILVER, DIA_GOLD, DIA_PLATINUM
+  speedMbps           Int
+  speedLabel          String?        // display string, e.g. "2–5 Mbps", "Custom"
+  targetUsers         Int?           // max number of users
+  dataCapGb           Int?           // null = unlimited
+  fairUsageGb         Int?
+  priceKobo           Int
+  installationFeeKobo Int            @default(0)
+  contentionRatio     String?        // e.g. "1:1"
+  staticIp            Boolean        @default(false)
+  sla                 Int?           // e.g. 999 for 99.9%
+  routerIncluded      Boolean        @default(false)
+  contractDuration    Int?           // months
+  description         String?
+  features            String?        // JSON string of features list
+  isActive            Boolean        @default(true)
+  subscriptions       Subscription[]
+  createdAt           DateTime       @default(now())
+
+  @@index([tenantId])
+}
+
+model Subscription {
+  id             String       @id @default(uuid())
+  subscriber     Subscriber   @relation(fields: [subscriberId], references: [id])
+  subscriberId   String
+  plan           Plan         @relation(fields: [planId], references: [id])
+  planId         String
+  autoRenew          Boolean      @default(true)
+  installationFeeKobo Int?
+  routerProvided     Boolean?
+  routerCostKobo     Int?
+  startedAt          DateTime     @default(now())
+  expiresAt          DateTime
+  suspendedAt        DateTime?
+  cancelledAt        DateTime?
+
+  @@index([subscriberId])
+  @@index([expiresAt])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique
+  subscriber    Subscriber    @relation(fields: [subscriberId], references: [id])
+  subscriberId  String
+  type          InvoiceType   @default(SUBSCRIPTION)
+  status        InvoiceStatus @default(DRAFT)
+  amountKobo    Int
+  subtotalKobo  Int
+  vatKobo       Int           @default(0)
+  discountKobo  Int           @default(0)
+  dueAt         DateTime
+  issuedAt      DateTime?
+  paidAt        DateTime?
+  notes         String?
+  lines         InvoiceLine[]
+  payments      Payment[]
+  receipts      Receipt[]
+  creditNotes   CreditNote[]
+  refunds       Refund[]
+  createdAt     DateTime      @default(now())
+
+  @@index([invoiceNumber])
+  @@index([subscriberId, status])
+  @@index([status, dueAt])
+}
+
+model InvoiceLine {
+  id          String  @id @default(uuid())
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  invoiceId   String
+  description String
+  amountKobo  Int
+  quantity    Int     @default(1)
+}
+
+model Payment {
+  id                String          @id @default(uuid())
+  invoice           Invoice         @relation(fields: [invoiceId], references: [id])
+  invoiceId         String
+  provider          PaymentProvider
+  status            PaymentStatus   @default(PENDING)
+  amountKobo        Int
+  reference         String          @unique
+  providerReference String?
+  feesKobo          Int             @default(0)
+  paidAt            DateTime?
+  refunds           Refund[]
+  createdAt         DateTime        @default(now())
+
+  @@index([status])
+  @@index([providerReference])
+}
+
+model Receipt {
+  id                 String   @id @default(uuid())
+  receiptNumber      String   @unique
+  invoice            Invoice  @relation(fields: [invoiceId], references: [id])
+  invoiceId          String
+  amountKobo         Int
+  paymentMethod      String
+  transactionRef     String
+  paidAt             DateTime
+  createdAt          DateTime @default(now())
+
+  @@index([receiptNumber])
+}
+
+model Quotation {
+  id                String          @id @default(uuid())
+  quotationNumber   String          @unique
+  subscriberId      String?
+  subscriberName    String
+  subscriberEmail   String?
+  subscriberPhone   String?
+  subscriberAddress String?
+  status            QuotationStatus @default(DRAFT)
+  validUntil        DateTime?
+  subtotalKobo      Int
+  vatKobo           Int             @default(0)
+  discountKobo      Int             @default(0)
+  totalKobo         Int
+  notes             String?
+  items             QuotationItem[]
+  createdBy         String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([quotationNumber])
+  @@index([status])
+}
+
+model QuotationItem {
+  id            String    @id @default(uuid())
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationId   String
+  description   String
+  quantity      Int       @default(1)
+  unitPriceKobo Int
+  amountKobo    Int
+}
+
+model CreditNote {
+  id               String   @id @default(uuid())
+  creditNoteNumber String   @unique
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id])
+  invoiceId        String
+  amountKobo       Int
+  reason           String
+  createdAt        DateTime @default(now())
+
+  @@index([creditNoteNumber])
+}
+
+model Refund {
+  id             String        @id @default(uuid())
+  refundNumber   String        @unique
+  payment        Payment       @relation(fields: [paymentId], references: [id])
+  paymentId      String
+  invoiceId      String
+  amountKobo     Int
+  reason         String?
+  status         String        @default("PENDING") // PENDING, APPROVED, REJECTED, PROCESSED, COMPLETED
+  approvedById   String?
+  approvedAt     DateTime?
+  processedAt    DateTime?
+  invoice        Invoice       @relation(fields: [invoiceId], references: [id])
+  createdAt      DateTime      @default(now())
+
+  @@index([status])
+}
+
+model Wallet {
+  id             String             @id @default(uuid())
+  subscriberId   String             @unique
+  subscriber     Subscriber         @relation(fields: [subscriberId], references: [id])
+  balanceKobo    Int                @default(0)
+  transactions   WalletTransaction[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([subscriberId])
+}
+
+model WalletTransaction {
+  id          String   @id @default(uuid())
+  wallet      Wallet   @relation(fields: [walletId], references: [id])
+  walletId    String
+  type        String   // CREDIT, DEBIT, PAYMENT, REFUND, PROMO, ADJUSTMENT
+  amountKobo  Int
+  balanceKobo Int      // balance after transaction
+  reference   String
+  description String?
+  invoiceId   String?
+  createdAt   DateTime @default(now())
+
+  @@index([walletId])
+}
+
+model VirtualAccount {
+  id            String   @id @default(uuid())
+  subscriberId  String
+  bankName      String
+  accountNumber String
+  accountName   String
+  provider      String   @default("PAYSTACK")
+  isActive      Boolean  @default(true)
+  assignedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@unique([subscriberId, provider])
+}
+
+model PaymentAttempt {
+  id        String   @id @default(uuid())
+  paymentId String
+  provider  String
+  reference String
+  status    String   // PENDING, SUCCESSFUL, FAILED
+  response  Json?
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+}
+
+model PaymentReconciliation {
+  id             String   @id @default(uuid())
+  referenceDate  DateTime
+  gatewayAmountKobo  Int  @default(0)
+  bankAmountKobo     Int  @default(0)
+  invoiceAmountKobo  Int  @default(0)
+  varianceKobo   Int      @default(0)
+  status         String   @default("PENDING") // PENDING, MATCHED, DISCREPANCY
+  notes          String?
+  resolvedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([referenceDate])
+}
+
+model Ticket {
+  id                  String           @id @default(uuid())
+  tenantId            String
+  tenant              Tenant           @relation(fields: [tenantId], references: [id])
+  subscriber          Subscriber       @relation(fields: [subscriberId], references: [id])
+  subscriberId        String
+  assignedAgentId     String?
+  assignedAgent       User?            @relation("TicketAssignedAgent", fields: [assignedAgentId], references: [id])
+  subject             String
+  description         String?
+  category            String?
+  status              TicketStatus     @default(OPEN)
+  priority            TicketPriority   @default(MEDIUM)
+  slaDueAt            DateTime?
+  resolvedAt          DateTime?
+  sourceChatSessionId String?          @unique
+  sourceChatSession   ChatSession?     @relation(fields: [sourceChatSessionId], references: [id])
+  comments            TicketComment[]
+  uploads             FileUpload[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, priority])
+  @@index([status, priority])
+}
+
+model TicketComment {
+  id         String              @id @default(uuid())
+  ticket     Ticket              @relation(fields: [ticketId], references: [id])
+  ticketId   String
+  authorId   String?
+  author     String?             // email or name display snapshot
+  authorType TicketCommentAuthor @default(CUSTOMER)
+  body       String
+  internal   Boolean             @default(false)
+  createdAt  DateTime            @default(now())
+  attachments FileUpload[]
+
+  @@index([ticketId])
+}
+
+enum ChatStatus {
+  ACTIVE
+  WAITING
+  CLOSED
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum MessageSender {
+  CUSTOMER
+  AGENT
+}
+
+
+model ChatSession {
+  id              String        @id @default(uuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  subscriberId    String?
+  subscriber      Subscriber?   @relation(fields: [subscriberId], references: [id])
+  agentId         String?
+  agent           User?         @relation("ChatSessionAgent", fields: [agentId], references: [id])
+  status          ChatStatus    @default(WAITING)
+  department      String?
+  customerName    String?
+  customerEmail   String?
+  firstResponseAt DateTime?
+  csat            Int?          // post-chat satisfaction rating 1-5
+  closedAt        DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  messages        ChatMessage[]
+  tickets         Ticket[]
+  uploads         FileUpload[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, agentId])
+}
+
+model ChatMessage {
+  id          String        @id @default(uuid())
+  session     ChatSession   @relation(fields: [sessionId], references: [id])
+  sessionId   String
+  senderId    String?
+  senderName  String?
+  senderType  MessageSender @default(CUSTOMER)
+  body        String
+  status      MessageStatus @default(SENT)
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime      @default(now())
+  attachments FileUpload[]
+
+  @@index([sessionId, createdAt])
+}
+
+model FileUpload {
+  id              String         @id @default(uuid())
+  tenantId        String
+  sessionId       String?        // chat session the file belongs to
+  messageId       String?        // chat message the file is attached to
+  ticketId        String?        // ticket the file is for (before comment linking)
+  ticketCommentId String?        // ticket comment the file is attached to
+  uploadedById    String?        // user who uploaded
+  fileName        String
+  mimeType        String
+  sizeBytes       Int
+  storedPath      String         // path on disk relative to upload root
+  createdAt       DateTime       @default(now())
+  session         ChatSession?   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message         ChatMessage?   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  ticket          Ticket?        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketComment   TicketComment? @relation(fields: [ticketCommentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([sessionId])
+  @@index([messageId])
+  @@index([ticketId])
+  @@index([ticketCommentId])
+}
+
+enum AgentPresenceStatus {
+  ONLINE
+  AWAY
+  OFFLINE
+}
+
+model AgentPresence {
+  id         String              @id @default(uuid())
+  tenantId   String
+  tenant     Tenant              @relation(fields: [tenantId], references: [id])
+  userId     String              @unique
+  user       User                @relation(fields: [userId], references: [id])
+  status     AgentPresenceStatus @default(OFFLINE)
+  lastSeenAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@index([tenantId, status])
+}
+
+model CannedResponse {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  title      String
+  body       String
+  category   String?
+  usageCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model Cpe {
+  id              String         @id @default(uuid())
+  subscriber      Subscriber     @relation(fields: [subscriberId], references: [id])
+  subscriberId    String
+  name            String?        // location or description (e.g. "Main Office", "Branch 1")
+  macAddress      String         @unique
+  ipAddress       String?
+  status          DeviceStatus   @default(OFFLINE)
+  connectionType  ConnectionType @default(STATIC_IP)
+  installerName   String?
+  lastSeenAt      DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@index([status])
+}
+
+model NetworkDevice {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  type         String   // router | switch | olt | ap | nas
+  vendor       String?
+  ipAddress    String   @unique
+  status       String   @default("OFFLINE") // ONLINE, OFFLINE, WARNING
+  location     String?
+  cpu          Float?
+  memory       Float?
+  sessions     Int      @default(0)
+  secret           String?  // for NAS devices
+  routerosUsername String?
+  routerosPassword String?
+  routerosPort     Int?     @default(443)
+  updatedAt        DateTime @updatedAt
+  routerHealth     RouterHealth?
+  routerSnapshots  RouterSnapshot[]
+  routerMetrics    RouterMetric[]
+  routerUsageDays  RouterUsageDay[]
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model RouterHealth {
+  id          String        @id @default(uuid())
+  deviceId    String        @unique
+  device      NetworkDevice @relation(fields: [deviceId], references: [id])
+  linkStatus  String        @default("unknown") // up | unreachable | degraded | unknown
+  lastSeenAt  DateTime?
+  lastErrorAt DateTime?
+  lastError   String?
+  updatedAt   DateTime      @updatedAt
+}
+
+model Contract {
+  id            String     @id @default(uuid())
+  subscriber    Subscriber @relation(fields: [subscriberId], references: [id])
+  subscriberId  String
+  documentUrl   String     // object storage key
+  signedAt      DateTime?
+  createdAt     DateTime   @default(now())
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  family    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actor       User     @relation(fields: [actorId], references: [id])
+  actorId     String
+  action      String
+  entityType  String
+  entityId    String
+  beforeData  Json?
+  afterData   Json?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Notification {
+  id           String    @id @default(uuid())
+  tenantId     String
+  subscriberId String?
+  type         String    // INFO, WARNING, ERROR
+  title        String
+  message      String
+  link         String?
+  read         Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, read])
+  @@index([createdAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model ActionQueue {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  type       String    // suspend | kick | plan-change
+  deviceId   String
+  targetId   String    // secretId or cpeId depending on type
+  payload    Json
+  status     String    @default("pending") // pending | applied | failed
+  errorMsg   String?
+  createdAt  DateTime  @default(now())
+  appliedAt  DateTime?
+
+  @@index([tenantId, status])
+  @@index([createdAt])
+}
+
+model RouterSnapshot {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  tenant               Tenant   @relation(fields: [tenantId], references: [id])
+  deviceId             String
+  device               NetworkDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  username             String
+  secretId             String?  // RouterOS .id, e.g. "*1"
+  profile              String?
+  comment              String?
+  disabled             Boolean  @default(false)
+  lastCallerId         String?
+  lastLoggedOut        String?
+  lastDisconnectReason String?
+  ipAddress            String?  // from active session
+  isOnline             Boolean  @default(false)
+  name                 String?  // editable profile stored in DB (survives router outage)
+  email                String?
+  phone                String?
+  address              String?
+  installerName        String?
+  plan                 String?  // editable customer-facing plan label (survives router outage)
+  dueAt                DateTime? // editable payment due date (survives router outage)
+  raw                  Json?
+  capturedAt           DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([tenantId, deviceId, username])
+}
+
+model RouterMetric {
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  deviceId      String
+  device        NetworkDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  username      String
+  isOnline      Boolean   @default(false)
+  ipAddress     String?
+  profile       String?
+  comment       String?
+  disabled      Boolean   @default(false)
+  lastCallerId  String?
+  sessionId     String?
+  sessionUptime String?
+  queueName     String?
+  queueTarget   String?
+  queueMaxLimit String?
+  queueBytes    BigInt?
+  queueRate     String?
+  raw           Json?
+  capturedAt    DateTime  @default(now())
+
+  @@index([tenantId, username, capturedAt])
+  @@index([capturedAt])
+}
+
+model RouterUsageDay {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  deviceId    String
+  device      NetworkDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  username    String
+  date        DateTime
+  usageBytes  BigInt   @default(0)
+  peakRateBps BigInt   @default(0)
+  peakDownBps BigInt   @default(0)
+  peakUpBps   BigInt   @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, deviceId, username, date])
+  @@index([tenantId, username, date])
+}
+
+model PppoeSession {
+  id              String   @id @default(uuid())
+  username        String
+  sessionId       String   @unique
+  nasIpAddress    String?
+  nasName         String?
+  callerId        String?
+  callingStationId String?
+  framedIpAddress String?
+  assignedPool    String?
+  profile         String?
+  serviceType     String?
+  startTime       DateTime?
+  sessionDuration Int?
+  downloadBytes   BigInt?
+  uploadBytes     BigInt?
+  downloadRate    Int?
+  uploadRate      Int?
+  subscriberId    String?
+  isActive        Boolean  @default(true)
+  lastSyncedAt    DateTime @default(now())
+
+  @@index([username])
+  @@index([nasIpAddress])
+  @@index([isActive])
+}
+

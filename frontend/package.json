@@ -1,0 +1,18 @@
+{
+  "name": "isp-platform",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "prisma:generate": "pnpm --filter api prisma generate",
+    "prisma:migrate": "pnpm --filter api prisma migrate dev"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
