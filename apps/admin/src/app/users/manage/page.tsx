@@ -74,6 +74,11 @@ interface StaticConn {
   status: string;
   subscriberName: string | null;
   lastSeen: string | null;
+  customer?: string | null;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
 }
 
 interface Customer {
@@ -82,6 +87,7 @@ interface Customer {
   email: string | null;
   phone: string | null;
   address: string | null;
+  status: string | null;
   networkType: string | null;
   plan: string | null;
   dueAt: string | null;
@@ -97,7 +103,7 @@ function badge(label: string, color: string) {
   return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: color + '18', color }}>{label}</span>;
 }
 
-function planFee(planId: string, networkType: string): string {
+function planFee(plans: any[], planId: string, networkType: string): string {
   const p = plans.find((x: any) => x.id === planId);
   if (p?.installationFeeKobo) return String(Math.round(p.installationFeeKobo / 100));
   return networkType === 'FIBER' ? '50000' : '120000';
@@ -684,7 +690,7 @@ export default function CustomerPage() {
               </div>
               <div>
                 <label style={lbl}>Network type</label>
-                <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(f.planId, nt) } : {}) })); }} style={inp}>
+                <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(plans, f.planId, nt) } : {}) })); }} style={inp}>
                   <option value="FIBER">FIBER</option>
                   <option value="RADIO">RADIO</option>
                   <option value="PPPOE">PPPoE</option>
@@ -697,7 +703,7 @@ export default function CustomerPage() {
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={lbl}>Plan</label>
-                <select value={createForm.planId} onChange={e => { const pid = e.target.value; setCreateForm(f => ({ ...f, planId: pid, ...(f.includeInstallation ? { fee: planFee(pid, f.networkType) } : {}) })); }} style={inp}>
+                <select value={createForm.planId} onChange={e => { const pid = e.target.value; setCreateForm(f => ({ ...f, planId: pid, ...(f.includeInstallation ? { fee: planFee(plans, pid, f.networkType) } : {}) })); }} style={inp}>
                   <option value="">— No plan —</option>
                   {plans.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.technology ?? p.type})</option>)}
                 </select>
@@ -715,7 +721,7 @@ export default function CustomerPage() {
                 <input type="date" value={createForm.expiry} onChange={e => setCreateForm({ ...createForm, expiry: e.target.value })} style={inp} />
               </div>
               <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={createForm.includeInstallation} onChange={e => { const on = e.target.checked; setCreateForm(f => ({ ...f, includeInstallation: on, fee: on ? planFee(f.planId, f.networkType) : f.fee })); }} style={{ width: 16, height: 16 }} />
+                <input type="checkbox" checked={createForm.includeInstallation} onChange={e => { const on = e.target.checked; setCreateForm(f => ({ ...f, includeInstallation: on, fee: on ? planFee(plans, f.planId, f.networkType) : f.fee })); }} style={{ width: 16, height: 16 }} />
                 <span>Include installation fee</span>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
