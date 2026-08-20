@@ -16,7 +16,8 @@
 | Generate Prisma client | `pnpm prisma:generate` (delegates to `pnpm --filter api prisma generate`) |
 | Run migrations / push schema | `pnpm prisma:migrate` (dev) or `cd apps/api && npx prisma db push --accept-data-loss` |
 | Seed DB | `pnpm --filter api prisma:seed` (uses `tsx`; deletes + recreates demo data incl. chat/tickets) |
-| Full stack (Docker) | `docker compose up -d --build` — Postgres, Redis, MariaDB+FreeRADIUS, api + all 6 services, admin/customer (Next), nginx reverse proxy |
+| Full stack (Docker) | `docker compose -f docker-compose.dev.yml up -d --build` — Postgres, Redis, MariaDB+FreeRADIUS, api + all 6 services, admin/customer (Next), nginx reverse proxy |
+| Prod deploy (Coolify) | `docker-compose.yaml` at repo root is the production compose (Coolify auto-detects this exact filename); env values in `.env.production` |
 | RADIUS e2e check | `scripts/phase2-integration.sh` (docker stack required; verifies radtest Accept/Reject, CoA capture) |
 
 **Prisma client must be regenerated after any schema change before `nest build` passes.** The schema is duplicated across all 7 apps — see Architecture.
