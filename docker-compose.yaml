@@ -267,6 +267,9 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: always
+    networks:
+      - default
+      - coolify
     environment:
       NGINX_ADMIN_HOST: ${NGINX_ADMIN_HOST}
       NGINX_CUSTOMER_HOST: ${NGINX_CUSTOMER_HOST}
