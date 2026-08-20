@@ -80,11 +80,6 @@ COPY --from=build /repo/apps/customer/.next ./apps/customer/.next
 COPY --from=build /repo/apps/customer/package.json ./apps/customer/package.json
 COPY --from=build /repo/apps/customer/next.config.js ./apps/customer/next.config.js
 COPY --from=build /repo/apps/customer/public ./apps/customer/public
-COPY --from=build /repo/apps/auth-service/.env ./apps/auth-service/.env
-COPY --from=build /repo/apps/payments-service/.env ./apps/payments-service/.env
-COPY --from=build /repo/apps/billing-service/.env ./apps/billing-service/.env
-COPY --from=build /repo/apps/support-service/.env ./apps/support-service/.env
-COPY --from=build /repo/apps/api/.env ./.env
 COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
 EXPOSE 4000 4101 4102 4103 4104 4105 4106 3000 3001
 CMD ["node", "apps/api/dist/main.js"]
