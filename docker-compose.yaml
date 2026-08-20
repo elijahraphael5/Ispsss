@@ -55,7 +55,7 @@ services:
 
   init:
     <<: *app
-    command: sh -c "npx prisma migrate deploy && npx tsx apps/api/prisma/seed-prod.ts"
+    command: sh -c "pnpm --filter api exec prisma migrate deploy && pnpm --filter api exec tsx prisma/seed-prod.ts"
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://isp_user:${POSTGRES_PASSWORD}@postgres:5432/isp_platform
