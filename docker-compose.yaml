@@ -292,6 +292,12 @@ services:
       - admin
       - customer
 
+networks:
+  default:
+    name: isp-platform-default
+  coolify:
+    external: true
+
 volumes:
   pgdata:
   radiusdb:
