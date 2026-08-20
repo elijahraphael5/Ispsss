@@ -36,6 +36,20 @@ function getAccessToken(): string | null {
   return localStorage.getItem('accessToken');
 }
 
+async function errorMessage(res: Response): Promise<string> {
+  let text: string;
+  try { text = await res.text(); } catch { return res.statusText; }
+  try {
+    const json = JSON.parse(text);
+    if (json && typeof json === 'object') {
+      const m = (json as any).message;
+      if (typeof m === 'string') return m;
+      if (typeof m?.message === 'string') return m.message;
+    }
+  } catch { /* not JSON */ }
+  return text || res.statusText;
+}
+
 export async function api<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const { skipAuth, ...fetchOpts } = options;
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(fetchOpts.headers as Record<string, string>) };
@@ -52,7 +66,7 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
     if (newToken) {
       headers['Authorization'] = newToken;
       const retryRes = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers, credentials: 'include' });
-      if (!retryRes.ok) { let m: string; try { const j = await retryRes.json(); m = j.message?.message || j.message || retryRes.statusText; } catch { m = await retryRes.text(); } throw new ApiError(retryRes.status, m); }
+      if (!retryRes.ok) throw new ApiError(retryRes.status, await errorMessage(retryRes));
       return retryRes.json();
     }
     localStorage.removeItem('accessToken');
@@ -63,9 +77,7 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
   }
 
   if (!res.ok) {
-    let msg: string;
-    try { const json = await res.json(); msg = json.message?.message || json.message || res.statusText; } catch { msg = await res.text(); }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json();
 }
@@ -78,9 +90,7 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   if (token) headers['Authorization'] = token;
   const res = await fetch(`${API_BASE}${path}`, { method: 'POST', body: form, headers });
   if (!res.ok) {
-    let msg: string;
-    try { const json = await res.json(); msg = json.message?.message || json.message || res.statusText; } catch { msg = await res.text(); }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json();
 }

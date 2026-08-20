@@ -16,22 +16,17 @@ function CallbackContent() {
       return;
     }
 
-    const ref = searchParams.get('reference') || searchParams.get('paymentCode') || '';
+    const ref = searchParams.get('reference') || searchParams.get('trxref') || '';
     const result = searchParams.get('status') || '';
-    const txRef = searchParams.get('trxref') || searchParams.get('reference') || '';
 
     const processPayment = async () => {
-      try {
-        await api('/payments/webhook/paysorta', {
-          method: 'POST',
-          body: JSON.stringify({
-            reference: ref || txRef,
-            status: result === 'success' ? 'success' : 'failed',
-            metadata: { providerReference: searchParams.get('transaction') || txRef },
-          }),
-          skipAuth: true,
-        });
+      if (!ref) {
         setStatus(result === 'success' ? 'success' : 'failed');
+        return;
+      }
+      try {
+        const res = await api<{ status: string }>('/payments/customer/verify?reference=' + encodeURIComponent(ref));
+        setStatus(res?.status === 'SUCCESSFUL' ? 'success' : 'failed');
       } catch {
         setStatus('failed');
       }

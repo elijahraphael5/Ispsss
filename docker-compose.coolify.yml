@@ -1,0 +1,279 @@
+# Coolify production compose for the ISP platform.
+# Paste this into a Coolify "Docker Compose" resource, then set the ${VAR} env
+# values (see .env.production in the repo). Traefik routes the three domains
+# to the nginx service, which splits /api/v1 + /socket.io to the gateway and
+# the rest to the admin/customer apps (same-origin API, baked NEXT_PUBLIC_API_URL=/api/v1).
+# The init service applies prisma migrations + boots the tenant/admin/plans seed.
+# Only FreeRADIUS UDP ports are published (NAS auth). DBs stay internal.
+name: isp-platform
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      NEXT_PUBLIC_API_URL: /api/v1
+      NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
+  restart: always
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+x-common-env: &common-env
+  NODE_ENV: production
+  CORS_ORIGINS: ${CORS_ORIGINS}
+  DATABASE_URL: postgresql://isp_user:${POSTGRES_PASSWORD}@postgres:5432/isp_platform
+  REDIS_URL: redis://redis:6379
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+  WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: isp_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: isp_platform
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U isp_user -d isp_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  init:
+    <<: *app
+    command: sh -c "npx prisma migrate deploy && npx tsx apps/api/prisma/seed-prod.ts"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://isp_user:${POSTGRES_PASSWORD}@postgres:5432/isp_platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["node", "apps/api/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4000"
+      CUSTOMER_URL: ${CUSTOMER_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      MAIL_FROM: ${MAIL_FROM}
+      AUTH_SERVICE_URL: http://auth-service:4101
+      PAYMENTS_SERVICE_URL: http://payments-service:4102
+      BILLING_SERVICE_URL: http://billing-service:4103
+      SUPPORT_SERVICE_URL: http://support-service:4104
+      CUSTOMER_SERVICE_URL: http://customer-service:4105
+      RADIUS_SERVICE_URL: http://radius-service:4106
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  auth-service:
+    <<: *app
+    command: ["node", "apps/auth-service/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4101"
+      FRONTEND_URL: ${FRONTEND_URL}
+      TWO_FA_ISSUER: Hikonnect
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  payments-service:
+    <<: *app
+    command: ["node", "apps/payments-service/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4102"
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      CUSTOMER_URL: ${CUSTOMER_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      MAIL_FROM: ${MAIL_FROM}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  billing-service:
+    <<: *app
+    command: ["node", "apps/billing-service/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4103"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  support-service:
+    <<: *app
+    command: ["node", "apps/support-service/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4104"
+      UPLOAD_DIR: /repo/uploads
+    volumes:
+      - uploads:/repo/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  customer-service:
+    <<: *app
+    command: ["node", "apps/customer-service/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4105"
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      SUPPORT_SERVICE_URL: http://support-service:4104
+      CUSTOMER_URL: ${CUSTOMER_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+
+  mariadb:
+    image: mariadb:11
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: radius
+      MARIADB_USER: radius
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    volumes:
+      - ./radius/initdb:/docker-entrypoint-initdb.d:ro
+      - radiusdb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  freeradius:
+    build:
+      context: ./radius
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    environment:
+      RADIUS_DB_HOST: mariadb
+      RADIUS_DB_PORT: "3306"
+      RADIUS_DB_USER: radius
+      RADIUS_DB_PASSWORD: ${MARIADB_PASSWORD}
+      RADIUS_DB_NAME: radius
+      RADIUS_NAS_IP: ${RADIUS_NAS_IP}
+      RADIUS_SHARED_SECRET: ${RADIUS_SHARED_SECRET}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "command -v freeradius >/dev/null 2>&1 && freeradius -C || radiusd -C"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  radius-service:
+    <<: *app
+    command: ["node", "apps/radius-service/dist/main.js"]
+    environment:
+      <<: *common-env
+      APP_PORT: "4106"
+      RADIUS_DB_HOST: mariadb
+      RADIUS_DB_PORT: "3306"
+      RADIUS_DB_USER: radius
+      RADIUS_DB_PASSWORD: ${MARIADB_PASSWORD}
+      RADIUS_DB_NAME: radius
+      RADIUS_NAS_IP: ${RADIUS_NAS_IP}
+      RADIUS_NAS_PORT: "3799"
+      RADIUS_SHARED_SECRET: ${RADIUS_SHARED_SECRET}
+      RADIUS_DEFAULT_PASSWORD: ${RADIUS_DEFAULT_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      freeradius:
+        condition: service_started
+      init:
+        condition: service_completed_successfully
+
+  admin:
+    <<: *app
+    command: ["node", "apps/admin/node_modules/.bin/next", "start", "-p", "3000"]
+    environment:
+      API_PROXY_TARGET: http://api:4000
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  customer:
+    <<: *app
+    command: ["node", "apps/customer/node_modules/.bin/next", "start", "-p", "3000"]
+    environment:
+      API_PROXY_TARGET: http://api:4000
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: always
+    environment:
+      NGINX_ADMIN_HOST: ${NGINX_ADMIN_HOST}
+      NGINX_CUSTOMER_HOST: ${NGINX_CUSTOMER_HOST}
+      NGINX_API_HOST: ${NGINX_API_HOST}
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.isp-web-http.rule=Host(`${NGINX_ADMIN_HOST}`) || Host(`${NGINX_CUSTOMER_HOST}`) || Host(`${NGINX_API_HOST}`)
+      - traefik.http.routers.isp-web-http.entrypoints=http
+      - traefik.http.routers.isp-web-http.middlewares=isp-redirect
+      - traefik.http.middlewares.isp-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.isp-web.rule=Host(`${NGINX_ADMIN_HOST}`) || Host(`${NGINX_CUSTOMER_HOST}`) || Host(`${NGINX_API_HOST}`)
+      - traefik.http.routers.isp-web.entrypoints=https
+      - traefik.http.routers.isp-web.tls=true
+      - traefik.http.routers.isp-web.tls.certresolver=letsencrypt
+      - traefik.http.services.isp-web.loadbalancer.server.port=80
+    depends_on:
+      - api
+      - admin
+      - customer
+
+volumes:
+  pgdata:
+  radiusdb:
+  uploads:

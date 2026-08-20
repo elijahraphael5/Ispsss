@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, api } from '@isp/shared';
+import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonTable } from '../components/Skeleton';
 
-function fmtK(k: number) { return `\u20A6${(k / 100).toLocaleString()}`; }
+function fmtK(k: number) { return formatNaira(k); }
 function fmtD(d: string) { return new Date(d).toLocaleDateString('en-GB'); }
 
 function badge(label: string, color: string, bg?: string) {

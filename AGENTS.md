@@ -5,102 +5,118 @@
 | Action | Command |
 |---|---|
 | Install deps | `pnpm install` |
-| Dev (all) | `pnpm dev` |
-| Dev (API only) | `pnpm --filter api dev` |
-| Dev (admin only) | `pnpm --filter admin dev` (port 3000) |
-| Dev (customer only) | `pnpm --filter customer dev` (port 3001) |
+| Dev (all) | `pnpm dev` (turbo parallel) |
+| Dev (API gateway only) | `pnpm --filter api dev` (port 4000) |
+| Dev (admin/customer) | `pnpm --filter admin dev` (3000) / `pnpm --filter customer dev` (3001) |
+| Dev (a service) | `pnpm --filter auth-service dev` etc. — one of `auth-service`(4101) `payments-service`(4102) `billing-service`(4103) `support-service`(4104) `customer-service`(4105) `radius-service`(4106) |
 | Build all | `pnpm build` |
 | Build API | `pnpm --filter api build` (uses `nest build`) |
-| Lint | `pnpm lint` (references eslint but no config files exist — effectively no-op) |
-| Test (API only) | `pnpm --filter api test` |
-| Push schema (dev) | `cd apps/api && npx prisma db push --accept-data-loss` |
-| Generate Prisma client | `pnpm --filter api prisma:generate` |
-| Run migrations | `pnpm --filter api prisma:migrate` (runs `prisma migrate dev`) |
-| Seed DB | `pnpm --filter api prisma:seed` (uses `tsx`) |
+| Lint | `pnpm lint` (no eslint config files exist — effectively no-op) |
+| Test (API only) | `pnpm --filter api test` (each app/service has its own `jest` + `test` script) |
+| Generate Prisma client | `pnpm prisma:generate` (delegates to `pnpm --filter api prisma generate`) |
+| Run migrations / push schema | `pnpm prisma:migrate` (dev) or `cd apps/api && npx prisma db push --accept-data-loss` |
+| Seed DB | `pnpm --filter api prisma:seed` (uses `tsx`; deletes + recreates demo data incl. chat/tickets) |
+| Full stack (Docker) | `docker compose up -d --build` — Postgres, Redis, MariaDB+FreeRADIUS, api + all 6 services, admin/customer (Next), nginx reverse proxy |
+| RADIUS e2e check | `scripts/phase2-integration.sh` (docker stack required; verifies radtest Accept/Reject, CoA capture) |
 
-Prisma client **must** be regenerated after schema changes before `nest build` passes.
-Note: `pnpm prisma:generate` (root) is broken — it runs `prisma generate` as a script name and fails with "None of the selected packages has a 'prisma' script". Use `pnpm --filter api prisma:generate`.
-
-## Gotchas
-
-- **Stale `.next` cache** — if admin/customer crashes after rebuild (`__webpack_modules__[moduleId] is not a function`), `rm -rf apps/<app>/.next` and restart the dev server
-- **API crashes silently** — check `/tmp/api-*.log`; 500s are usually Prisma unique constraint violations from duplicate emails
-- **Server must survive tool timeout** — use `python3 -c "import subprocess, os; f=open('/tmp/api.log','a'); subprocess.Popen(['node','apps/api/dist/main.js'], stdout=f, stderr=f, start_new_session=True, cwd=os.getcwd())"`
-- **Admin login fails after schema changes** — clear `localStorage.accessToken` and log in fresh
-- **Auth header uses raw token** — `api<T>()` from `@isp/shared` sends `Authorization: <token>` (no "Bearer " prefix)
-- **Money in kobo** — all values are integers (kobo), never floats. VAT = `Math.round(priceKobo * 0.075)`
-- **BullMQ jobs are conditional** — `REDIS_URL=none` (default) skips `JobsModule` entirely; no Redis needed for basic dev. Redis is installed locally (`/opt/homebrew/bin/redis-server`; brew service broken by a missing redisbloom module — run the binary directly with `--save "" --appendonly no`); with Redis on, `data-simulator` fires every 60s and creates fake sessions/invoices/payments
-- **`timeAgo()` in `@isp/shared`** — relative-time util exported from `packages/shared/src/format.ts`; use for stale/health timestamps
-- **Delete is HARD delete** — cascades through all related records via `prisma.$transaction`
-- **Both apps proxy `/api/v1/*` to `localhost:4000`** — `next.config.js` rewrites avoid CORS during dev
-- **No docker-compose.yml in repo** despite docs referencing it; must be created locally if needed
-- **No CI/CD** — `.github/` does not exist
-- **`api()` body must be a string** — `RequestInit.body` type rejects object literals; always `body: JSON.stringify({...})` or the build fails typecheck
-- **`useToast` is NOT a chained API** — `toast(msg, type, toasts, setToasts)` with a local `toasts` state + `<ToastContainer toasts={toasts}/>`; `toast.success()`/`.error()` do not exist
+**Prisma client must be regenerated after any schema change before `nest build` passes.** The schema is duplicated across all 7 apps — see Architecture.
 
 ## Architecture
 
-- **Monorepo** — pnpm workspaces + Turborepo v2
-- **Apps** — `apps/api/` (NestJS 10, port 4000), `apps/admin/` (Next.js 15, port 3000), `apps/customer/` (Next.js 15, port 3001)
-- **Shared** — `packages/shared/`: fetch wrapper (`api.ts`) + Zustand auth store (`auth.ts`)
-- **`frontend/`** — separate/older monorepo with the same 3 apps but mock-data-based frontends; for UI review without API
-- **DB** — PostgreSQL via Prisma 5; 36 models + 17 enums; schema at `apps/api/prisma/schema.prisma`
-- **Tenant isolation** — `AsyncLocalStorage`-based, injected via global interceptor; every core entity has `tenantId`
-- **Tenant IDs are UUIDs, not slugs** — look up with `prisma.tenant.findFirst({ where: { slug: 'default' } })`; never assume `tenantId: 'default'`
-- **Global ValidationPipe** — `whitelist: true, forbidNonWhitelisted: true, transform: true` (unknown fields → 400)
-- **Global exception filter** — returns `{ statusCode, path, message, timestamp }`; Prisma errors → 500
-- **Auth** — 15min JWT access token + 7d httpOnly refresh cookie; speakeasy TOTP 2FA; `User.isSuperAdmin` bypasses all guards; otherwise `@Roles('NAME')` checks `user.customRole.name`
-- **Billing state machine** — `DRAFT → ISSUED → PAID | OVERDUE | VOID`; `ISSUED → PAID` only via Paystack webhook
-- **18 domain modules** (`src/modules/`) + 1 separate `OwnerModule` (`src/owner/`)
-- **No ESLint/Prettier configs** — lint commands reference `eslint` / `next lint` but no config files exist; no formatter configured
-- **Frontend tsconfig has `strict: false`** — admin and customer apps have relaxed type checking
-- **Scheduled jobs** (BullMQ, need Redis): `invoice-generator` (daily 02:00), `overdue` (hourly), `suspension` (hourly :30), `data-simulator` (every 60s)
-- **DB model count** has grown — schema now includes `ChatSession`, `ChatMessage`, `Ticket`, `TicketComment`, `CannedResponse`, `AgentPresence` (all tenant-scoped; see Support/Chat section)
+- **Monorepo** — pnpm workspaces (`apps/*`, `packages/*`) + Turborepo v2.
+- **The old monolith was split into a gateway + 6 microservices.** All 7 NestJS apps share ONE Postgres DB (`isp_platform`) and ONE JWT secret (`change-me` if env unset). Each service loads its own `apps/<app>/.env` via `envFilePath` resolved from `dist/` (`../../.env` = `apps/<app>/.env`); `customer-service`/`radius-service` have no `.env` and rely on defaults.
 
-## Support: Live Chat + Tickets (`src/modules/support/`)
+| Port | App | Owns (controllers) |
+|---|---|---|
+| 4000 | `api` (gateway) | `users`, `network`, `routeros`, `router-health`, `noc`, `audit-logs`, `reports`, `custom-roles`, `notifications`, `admin`, `owner`, `mail` + **all socket.io proxying** |
+| 4101 | `auth-service` | `auth` (login/register/refresh/2FA via speakeasy), `mail` |
+| 4102 | `payments-service` | `payments` (Paystack initialize/webhook), `billing`, `radius`, `audit-logs`, `notifications` |
+| 4103 | `billing-service` | `billing` (invoices), `radius`, `audit-logs`, `notifications` + jobs (`invoice-generator` daily, `overdue` hourly) |
+| 4104 | `support-service` | `support` + `chat` + Socket.IO gateway, `audit-logs`, `notifications` |
+| 4105 | `customer-service` | `customer`, `subscriptions`, `crm`, `mail`, `audit-logs`, `notifications` |
+| 4106 | `radius-service` | `customers/:id/radius/*` (activate/deactivate/change-plan/usage) + `/internal/radius/*` |
 
-- **Module layout** — `support.module.ts` exports `SupportService`, `SupportController` (`/api/v1/support/*`, agent-facing, `@Roles` VIEW: SUPER_ADMIN/SUPPORT_AGENT/CUSTOMER_SUPPORT/OPERATIONS_MANAGER/NOC_ENGINEER, WRITE: SUPER_ADMIN/SUPPORT_AGENT/CUSTOMER_SUPPORT), `SupportCustomerController` (`/api/v1/chat/*`, any authenticated user), and `SupportGateway` (Socket.IO, namespace `/chat`)
-- **Socket auth** — gateway accepts `auth.token` or `query.token` (strips optional `"Bearer "` prefix, verifies via `JWT_ACCESS_SECRET`), falls back to `query.userId` legacy style. Tenant is always read from the DB user record, never trusted from client claims. `query.role: 'agent'` REQUIRED to get agent identity (`AGENT_ROLES = ['SUPPORT_AGENT','CUSTOMER_SUPPORT']`, isSuperAdmin bypasses); otherwise the socket is a customer
-- **Socket events (client→server)** — `chat:getAgents` (→ `agent:count`), `chat:join(sessionId)` / `chat:leave`, `chat:typing {sessionId,isTyping}`, `chat:message {sessionId, body, attachmentIds?}` (sender derived from identity — DO NOT trust client sender fields), `chat:read(sessionId)`
-- **Socket broadcasts (server→client)** — `chat:message` (ChatMessage, to session room), `chat:new` / `chat:changed` / `chat:activity` (to `agents` room), `chat:assigned {sessionId,agentId}`, `chat:sessionChanged` (to session room), `chat:read {sessionId,senderType,readAt}`, `chat:typing`, `agent:online`/`agent:offline`
-- **Rooms** — `agents` (all agents), `customers`, `session:${id}`. Agents auto-join `agents` on connect; customers must `chat:join` per session (access-checked: agent role + tenant, assigned or unassigned; customer must be the session owner)
-- **Message shape** — `{id, sessionId, senderId, senderName, senderType: CUSTOMER|AGENT, body, status: SENT|DELIVERED|READ, deliveredAt, readAt, createdAt, attachments?}`. Field is `body` (**not** `message`), and staff flag is `senderType === 'AGENT'` (**not** `isStaff`) — the old pre-rewrite frontends used `message`/`isStaff` and must not be copied
-- **Attachments** — `FileUpload` model (tenant-scoped, `sessionId?`/`messageId?`/`ticketId?`/`ticketCommentId?` relations with `onDelete: Cascade`; `storedPath` is relative to `UPLOAD_DIR` env or `uploads/` at repo root — gitignored). Upload: `POST /chat/sessions/:id/attachments` (multipart field `file`, 15 MB cap via memoryStorage; agent or session owner) and `POST /support/tickets/:id/attachments` (WRITE roles, agents). Download: single `GET /chat/attachments/:id` (any authenticated user; access = agent role OR subscriber owns session/ticket/comment; streams with `Content-Disposition: inline`). Link files to messages/comments by sending `attachmentIds: string[]` in `POST /chat/sessions/:id/messages`, `chat:message` socket payload, or `POST /support/tickets/:id/comments` — server filters to rows uploaded by the sender (`uploadedById`, unlinked `messageId`/`ticketCommentId` null). `FileUpload` is in `TENANT_MODELS` + audit `MODEL_MAP`. Frontends use `apiUpload(path, File)` / `apiFileUrl(uploadId)` from `@isp/shared` (FormData + blob object URL; don't use `api()` for these — it forces `Content-Type: application/json`)
-- **Session lifecycle** — `createSession` returns an **open (WAITING/ACTIVE) session for the same subscriber instead of creating a duplicate**. Agent reply sets status ACTIVE + `firstResponseAt` + auto-assigns `agentId`; `PATCH close` sets CLOSED + closedAt; customer can rate 1–5 once (`csat`) after close; `1stResponseAt`/readAt feed performance metrics
-- **Agent endpoints** — `GET /support/sessions?scope=queue|assigned|closed` (rows incl. `lastMessage` + `unreadCount`), `GET /support/sessions/:id` (full detail incl. subscriber context: plan, devices, invoices, tickets), `POST /sessions/:id/pick-up`, `reassign {agentId}`, `/read`, `PATCH /close`, `POST /convert-ticket` (creates Ticket with `sourceChatSessionId`; idempotent — returns existing), `GET /support/agents`, `PATCH /support/presence` (`ONLINE|AWAY|OFFLINE`), `GET/POST/PATCH/DELETE /support/canned`, `GET /support/customers?search=` (tenant-scoped subscriber lookup for ticketing — supports the SUPPORT_AGENT role, which cannot call `GET /users`), `GET/POST /support/tickets`, `PATCH /support/tickets/:id` (audits before/after + sets `resolvedAt` on RESOLVED/CLOSED), `POST /support/tickets/:id/comments` (agents only; `internal: true` → internal note), `GET /support/performance?range=today|week|month`, `GET /support/history`
-- **Customer-side endpoints** — `POST /chat/sessions` (+migration to `GET /chat/sessions`), `GET /chat/sessions/:id`, `POST /chat/sessions/:id/messages {body}`,`PATCH /chat/sessions/:id/close` (customer or owner), `POST /chat/sessions/:id/rating {rating}`; tickets: `GET /customer/tickets`, `GET /customer/tickets/:id`, `POST /customer/tickets` (`{subject, description?, category?, priority?}`), `POST /customer/tickets/:id/reply {message}` (customer-only reply)
-- **SLA** — `LOW:48h, MEDIUM:24h, HIGH:8h, URGENT:2h` (map `SLA_HOURS` in `support.service.ts`); `slaDueAt` is set on ticket/create/convert; `POST /support/tickets` of HIGH/URGENT also creates a notification
-- **Admin UI** — `/tickets` (nav "Support", module `Support`) is the hub: tabs `Live Chat | Tickets | Canned Replies | Performance`; `socket.io-client` connects with `{auth:{token}, query:{role:'agent'}}`; canned replies insert into composer; tickets/open from either table or drawer; performance table + CSAT + resolution metrics
-- **Customer UI** — `/support` page: Live Chat tab (start chat / resume previous sessions list), ticket table + creation drawer, ticket detail with thread + description, customers cannot see internal notes (`filter c => !c.internal`)
-- **No calls** — the WebRTC call module (`CallSession` model, `call:*` socket events, `CallManager`, call stores/overlays, Calls tab) was **removed** in Aug 2026; don't reintroduce it without asking
-- **Seed data** — same `agent1@ap-example`/`agent2@ap-example` demo + `support@isp.local` users; canned responses; 2 WAITING/2 ACTIVE/4 CLOSED sessions with timestamps; 5 tickets; `SUPPORT_AGENT` role in ROLE_PERMISSIONS
-- If the DB was re-seeded with `--force-reset`, chat/ticket content resets too
+- **Gateway proxy** — `apps/api/src/gateway/service-proxy.middleware.ts` forwards: `/api/v1/auth`→4101, `/api/v1/payments`→4102, `/api/v1/billing`→4103, `/api/v1/chat`, `/api/v1/support`, `/socket.io`→4104, `/api/v1/customer`, `/api/v1/subscriptions`, `/api/v1/crm`→4105, `/api/v1/customers`→4106. Everything else is handled locally. `main.ts` also hand-rolls a socket.io WebSocket proxy (`setupSocketProxy`) and mounts `/metrics`, `/healthz`, `/readyz`, plus a sliding-window IP rate limiter (`@isp/rate-limit`) on top of Nest's `ThrottlerModule`.
+- **Prisma schema** — `apps/api/prisma/schema.prisma` has 40 models + 17 enums, and the **exact same file is copied into all 6 services' `prisma/` dirs** (verified identical). All point at the same DB. A schema change must be copied to all 7 apps and `prisma generate` run per app; `db push`/`migrate` only needs to run once (from api).
+- **Shared packages** — `@isp/shared` (`api.ts` fetch wrapper + auto-refresh, `auth.ts` Zustand store, `format.ts` `timeAgo`). New infra packages used by the gateway: `@isp/logger`, `@isp/metrics`, `@isp/health`, `@isp/rate-limit`, `@isp/cache` (each with its own jest config).
+- **`frontend/`** — separate, older monorepo (same app names, mock-data based; admin on :3001, customer on :3000). For UI review without a backend; don't confuse its file paths with `apps/`.
+- **Cross-cutting** — tenant isolation via `AsyncLocalStorage` interceptor; every core entity has `tenantId`. Tenant IDs are UUIDs — look up via `prisma.tenant.findFirst({ where: { slug: 'default' } })`, never assume `'default'`. Global ValidationPipe (`whitelist`, `forbidNonWhitelisted`, `transform` — unknown fields → 400). Global exception filter returns `{ statusCode, path, message, timestamp }`; Prisma errors → 500.
+- **Auth** — 15min JWT access + 7d refresh token stored hashed in DB (token family rotation); speakeasy TOTP 2FA. `User.isSuperAdmin` bypasses all guards; otherwise `@Roles('NAME')` checks `user.customRole.name`. All services verify JWTs via `passport-jwt` `ExtractJwt.fromAuthHeaderAsBearerToken()` and load the user (and tenant) from the DB on every request.
+- **Billing state machine** — `DRAFT → ISSUED → PAID | OVERDUE | VOID`; `ISSUED → PAID` only via Paystack webhook (handled in payments-service).
+- **Invoice/quotation PDFs + email** — billing-service (and the identical payments-service copy) has a `PdfService` (`pdfkit`) generating branded A4 invoice/quotation PDFs and a `MailModule` (nodemailer, SMTP env). `PATCH /billing/:id/issue` (optional body `{email}` — overrides subscriber email) emails the invoice PDF; `PATCH /billing/quotations/:id/status` with `SENT` emails the quotation PDF to `subscriberEmail` (or the subscriber's user email). `GET /billing/:id/pdf` streams the invoice PDF for download (returns raw buffer via `res.end` — do NOT use `@Res({passthrough:true})` + return Buffer, Nest JSON-serializes it). Route-order gotcha: parameterized `GET /billing/:id` MUST stay after static routes (`quotations`, `payments`, `receipts`, `dashboard`) or the static ones 404 as `:id` lookups. Admin `/billing` has Download PDF buttons + an optional email field on the invoice create form.
+- **BullMQ jobs are conditional** — `REDIS_URL=none` (set in every `.env`) skips `JobsModule` and swaps in `NoopCacheClient`; no Redis needed for basic dev. Jobs live in the service that owns the domain: api (`suspension` hourly :30, `data-simulator` every 60s, `router-heartbeat` every 30s), billing (`invoice-generator` daily, `overdue` hourly).
 
-## RouterOS / Connections
+## Gotchas
 
-- **ARP sync** — `POST /routeros/sync-arp` (optional `deviceId` in body) fetches ARP entries from a `NetworkDevice` with RouterOS creds, creates User + Subscriber + Cpe with `connectionType: STATIC_IP`. No deviceId → falls back to newest device with `routerosUsername`/`routerosPassword` set; throws if none. `GET /routeros/arp-entries` (same `?deviceId=`) returns raw entries
-- **Self-signed cert** — `arpFetch()` sets `process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'` around requests (restores prior value in `finally`); don't remove
-- **Router health** — `RouterHealth` model (1:1 with `NetworkDevice`); BullMQ job `router-heartbeat` (every 30s, Redis only) pings each RouterOS-configured device via `/system/resource`, writes `linkStatus: up|unreachable` + `lastSeenAt`/`lastErrorAt`. Devices without RouterOS creds are skipped. `GET /api/v1/router-health` returns rows with `device` included; dashboard + `/users/manage` show a `stale · <timeAgo>` chip + banner when the active device isn't `up`
-- **`/network/connections` semantics** — `totalPppoe` counts **active** PPPoE sessions only; `totalStatic` counts **all** STATIC_IP CPEs. For true PPPoE totals use `/routeros/devices/{id}/subscribers` (`active` boolean per secret)
-- **`Cpe.connectionType` enum** — `PPPOE | STATIC_IP`; static IP CPEs are the only source of truth for static customers
+- **Stale `.next` cache** — if admin/customer crashes after rebuild (`__webpack_modules__[moduleId] is not a function`), `rm -rf apps/<app>/.next` and restart the dev server.
+- **API crashes silently** — check `/tmp/api-*.log`; 500s are usually Prisma unique-constraint violations from duplicate emails.
+- **Server must survive tool timeout** — start detached: `python3 -c "import subprocess, os; f=open('/tmp/api.log','a'); subprocess.Popen(['node','apps/api/dist/main.js'], stdout=f, stderr=f, start_new_session=True, cwd=os.getcwd())"` (build first with `pnpm --filter api build`). Same pattern for `apps/<svc>/dist/main.js` (ports 4101–4106). If a turbo `pnpm dev` nest-watch already owns a port, kill the stale watcher+child first.
+- **SMTP: use port 465, not 587** — 587 is network-blocked (ETIMEDOUT). MailService computes `secure: Number(port) === 465`; `SMTP_PORT` is a string via ConfigService so a bare `secure: port === 465` bug breaks delivery. `MailService.send()` swallows errors (logs "Mail sent…"/"Failed to send mail…" in `/tmp/api.log`) — a 200 launch/test response does NOT prove delivery. Gateway reads the ROOT `.env` (cwd = repo root, no envFilePath).
+- **Launch customer logins** — `POST /users/launch` (SUPER_ADMIN/OPERATIONS_MANAGER) returns `{jobId}` immediately; `GET /users/launch/:jobId` polls progress; `{testEmail}` = sync dry-run. Emails every customer reset credentials (skips `@local`). Settings → Launch tab in admin. Don't run the full launch without explicit user confirmation (~hundreds of real customers).
+- **NOC/RADIUS stats** — `GET /api/v1/radius/stats` (roles SUPER_ADMIN/OPERATIONS_MANAGER/NOC_ENGINEER) in radius-service: `RadiusStatsController` lives in `radius.controller.ts` and MUST be listed in `radius.module.ts` `controllers` too (Nest doesn't register same-file controllers automatically). Admin NOC page (`/noc`) tabs: Overview / RouterOS / RADIUS / Connections; RouterOS creds editable via `PATCH /network/devices/:id` (accepts arbitrary body incl. routerosUsername/routerosPassword).
+- **Admin login fails after schema changes** — clear `localStorage.accessToken` and log in fresh.
+- **Auth header quirk** — `auth-service` `issueTokens` returns `accessToken` ALREADY prefixed with `"Bearer "`; the frontend stores that string verbatim and `api()` from `@isp/shared` sends `Authorization: <token>` unchanged. Do NOT add another `Bearer ` prefix; all strategies use `fromAuthHeaderAsBearerToken()`. (`api()` also auto-refreshes on 401 and redirects to `/login`.)
+- **Money in kobo** — all money values are integers (kobo), never floats. VAT = `Math.round(priceKobo * 0.075)`.
+- **`api()` body must be a string** — `RequestInit.body` type rejects object literals; always `body: JSON.stringify({...})`.
+- **`useToast` is NOT chained** — `toast(msg, type, toasts, setToasts)` with local `toasts` state + `<ToastContainer toasts={toasts}/>`; `toast.success()`/`.error()` don't exist.
+- **Delete is HARD delete** — cascades through related records via `prisma.$transaction`.
+- **`timeAgo()`** — relative-time util from `@isp/shared` (`packages/shared/src/format.ts`); use for stale/health timestamps.
+- **`.env.example` mentions `docker compose up -d ... minio`** but `docker-compose.yml` has NO MinIO service — S3/S3_* env vars are currently unused.
+- **No CI/CD** — `.github/` does not exist. No ESLint/Prettier configs; frontend tsconfigs have `strict: false` (relaxed type checking).
+
+## Production hardening (already in code)
+
+- **`assertProdEnv`** (`@isp/logger`) — every app's `main.ts` calls it; in `NODE_ENV=production` it refuses to boot with missing or dev-default values (e.g. `JWT_ACCESS_SECRET=change-me`, `WEBHOOK_SERVICE_TOKEN` unset, `RADIUS_SHARED_SECRET=testing123`). `docker-compose.yml` still sets dev defaults — override all of them in real deploys.
+- **CORS** — all apps read `CORS_ORIGINS` (comma-separated; default `http://localhost:3000,http://localhost:3001`).
+- **Throttling** — gateway reads `THROTTLE_TTL_MS`/`THROTTLE_LIMIT` (defaults 60000/100).
+- **`data-simulator` is OFF by default** — api only registers/schedules it when `ENABLE_DATA_SIMULATOR=true`.
+- **Paystack is the ONLY payment gateway** — the Paystack webhook (`POST /api/v1/payments/webhook/paystack`) is HMAC-SHA512 verified server-side (`x-paystack-signature` vs `PAYSTACK_SECRET_KEY`) in `handlePaystackWebhook`; unknown references are ignored. Customer self-service checkout (`POST /payments/customer/initialize`, `GET /payments/customer/verify`) creates an ISSUED invoice + PENDING payment up front, then `completeCustomerPayment` (idempotent, called from both webhook and verify) applies the subscription action, marks the invoice PAID via `billing.markPaid`, creates a receipt, and triggers RADIUS activation. Amounts are kobo (Paystack's API unit — do NOT divide by 100). The browser widget is Paystack inline JS (`https://js.paystack.co/v1/inline.js`) with `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`. `assertProdEnv` requires `PAYSTACK_SECRET_KEY` on payments-service and customer-service; the customer callback page verifies via `GET /payments/customer/verify?reference=`. Register the webhook URL at Paystack: `<NGINX_API_HOST>/api/v1/payments/webhook/paystack`.
+- **Internal endpoints fail closed in prod** — radius internal controller + billing `PATCH :id/paid` reject requests when `WEBHOOK_SERVICE_TOKEN` is unset.
+- **Docker stack** — `docker-compose.yml` builds one image containing all 9 apps (frontends via `next start` with `API_PROXY_TARGET`), plus nginx (`infra/nginx/nginx.conf`, templated from `NGINX_*_HOST` env) routing `/api/v1` + `/socket.io` to the gateway. `uploads/` is a named volume on support-service. **Live domains (prod stack):** `admin.hikonnectng.com` (admin), `my.hikonnectng.com` (customer), `api.hikonnectng.com` (API) — set in root `.env` as `NGINX_*_HOST` + `CUSTOMER_URL` + `CORS_ORIGINS` (applied to all 7 backend services via compose).
+
+## Support: Live Chat + Tickets (`apps/support-service/src/modules/support/`)
+
+- **Layout** — `support.service.ts` (+ `SLA_HOURS = { LOW:48, MEDIUM:24, HIGH:8, URGENT:2 }`, `AGENT_ROLES = ['SUPER_ADMIN','SUPPORT_AGENT','CUSTOMER_SUPPORT']`), `support.controller.ts` (agent-facing `/api/v1/support/*`, WRITE roles: SUPER_ADMIN/SUPPORT_AGENT/CUSTOMER_SUPPORT), `support-customer.controller.ts` (`/api/v1/chat/*`, any authenticated user), `support.gateway.ts` (Socket.IO namespace `/chat`, proxied through the api gateway).
+- **Socket auth** — gateway accepts `auth.token` or `query.token` (strips optional `"Bearer "` prefix, verifies via `JWT_ACCESS_SECRET`), falls back to legacy `query.userId`. Tenant is always read from the DB user record, never trusted from client claims. `query.role: 'agent'` REQUIRED for agent identity; otherwise the socket is a customer.
+- **Socket events (client→server)** — `chat:getAgents` (→ `agent:count`), `chat:join(sessionId)`/`chat:leave`, `chat:typing {sessionId,isTyping}`, `chat:message {sessionId, body, attachmentIds?}` (sender derived from identity — DO NOT trust client sender fields), `chat:read(sessionId)`.
+- **Socket broadcasts (server→client)** — `chat:message` (to session room), `chat:new`/`chat:changed`/`chat:activity` (to `agents` room), `chat:assigned`, `chat:sessionChanged`, `chat:read {sessionId,senderType,readAt}`, `chat:typing`, `agent:online`/`agent:offline`.
+- **Rooms** — `agents` (agents auto-join on connect), `customers`, `session:${id}` (access-checked: agent role + tenant, or the session-owner customer).
+- **Message shape** — `{id, sessionId, senderId, senderName, senderType: CUSTOMER|AGENT, body, status: SENT|DELIVERED|READ, deliveredAt, readAt, createdAt, attachments?}`. Field is `body` (**not** `message`), staff flag is `senderType === 'AGENT'` (**not** `isStaff`) — old pre-rewrite frontends used `message`/`isStaff` and must not be copied.
+- **Attachments** — `FileUpload` model (tenant-scoped, `sessionId?`/`messageId?`/`ticketId?`/`ticketCommentId?` with `onDelete: Cascade`; `storedPath` relative to `UPLOAD_DIR` env or `uploads/` at repo root — gitignored). Upload via `POST /chat/sessions/:id/attachments` or `POST /support/tickets/:id/attachments` (multipart field `file`, 15 MB cap). Download via `GET /chat/attachments/:id` (any authenticated user; agent OR owner of the session/ticket). Link by sending `attachmentIds: string[]` in message/comment create calls or the `chat:message` payload; server filters to rows the sender uploaded (unlinked `messageId`/`ticketCommentId` null). Frontends use `apiUpload(path, File)` / `apiFileUrl(uploadId)` from `@isp/shared` — never `api()` for uploads (it forces `Content-Type: application/json`).
+- **Session lifecycle** — `createSession` returns an **open (WAITING/ACTIVE) session for the same subscriber instead of creating a duplicate**. Agent reply sets ACTIVE + `firstResponseAt` + auto-assigns `agentId`; `PATCH close` sets CLOSED + closedAt; customer rates 1–5 once (`csat`) after close.
+- **Endpoints** — agent: `GET /support/sessions?scope=queue|assigned|closed` (rows incl. `lastMessage`+`unreadCount`), `GET /support/sessions/:id` (full detail incl. subscriber context), `POST /sessions/:id/pick-up`, `reassign`, `/read`, `PATCH /close`, `POST /convert-ticket` (idempotent, sets `sourceChatSessionId`), `GET /support/agents`, `PATCH /support/presence`, `GET/POST/PATCH/DELETE /support/canned`, `GET /support/customers?search=` (tenant-scoped subscriber lookup — SUPPORT_AGENT can't call `GET /users`), `GET/POST /support/tickets`, `PATCH /support/tickets/:id` (audits before/after, sets `resolvedAt` on RESOLVED/CLOSED), `POST /support/tickets/:id/comments` (`internal: true` → note), `GET /support/performance?range=today|week|month`, `GET /support/history`. Customer: `POST /chat/sessions`, `GET /chat/sessions`, `GET/POST /chat/sessions/:id/messages`, `PATCH /chat/sessions/:id/close`, `POST /chat/sessions/:id/rating`; `GET /customer/tickets`, `GET /customer/tickets/:id`, `POST /customer/tickets` (`{subject, description?, category?, priority?}`), `POST /customer/tickets/:id/reply` (customer-only).
+- **SLA** — `slaDueAt` set on ticket create/convert; HIGH/URGENT ticket creation also fires a notification.
+- **Admin UI** — `/tickets` (nav "Support", module `Support`) hub with tabs `Live Chat | Tickets | Canned Replies | Performance`; `socket.io-client` connects with `{auth:{token}, query:{role:'agent'}}`.
+- **Customer UI** — `/support` page: Live Chat tab, ticket table + creation drawer, thread view; customers cannot see internal notes (`filter c => !c.internal`).
+- **No calls** — the WebRTC call module (`CallSession`, `call:*` events, `CallManager`, Calls tab) was **removed**; don't reintroduce it.
+- **Seed** — demo users (`agent1@isp.local`, `agent2@isp.local`, `support@isp.local`), canned responses, 8 chat sessions, 5 tickets, `SUPPORT_AGENT` role. Re-running the seed (`--force-reset` on `db push`/`migrate reset`) wipes chat/ticket content.
+
+## RouterOS / Connections / RADIUS
+
+- **ARP sync** — `POST /routeros/sync-arp` (optional `deviceId`) fetches ARP entries from a `NetworkDevice` with RouterOS creds, creates User + Subscriber + Cpe with `connectionType: STATIC_IP`; no deviceId → newest device with RouterOS creds, throws if none. `GET /routeros/arp-entries` returns raw entries. `arpFetch()` sets `NODE_TLS_REJECT_UNAUTHORIZED=0` around requests (restores in `finally`) — don't remove.
+- **Router health** — `RouterHealth` model (1:1 with `NetworkDevice`); BullMQ job `router-heartbeat` (30s, Redis only) pings `/system/resource`, writes `linkStatus: up|unreachable` + `lastSeenAt`/`lastErrorAt`; devices without creds are skipped. `GET /api/v1/router-health` returns rows with `device` included; dashboard + `/users/manage` show a `stale · <timeAgo>` chip/banner when the active device isn't `up`.
+- **`/network/connections` semantics** — `totalPppoe` counts **active** PPPoE sessions only; `totalStatic` counts **all** STATIC_IP CPEs. For true PPPoE totals use `/routeros/devices/{id}/subscribers` (`active` boolean per secret). `Cpe.connectionType` enum is `PPPOE | STATIC_IP`; static IP CPEs are the only source of truth for static customers.
+- **RADIUS** — `radius-service` (4106) bridges Postgres subscribers to FreeRADIUS+MariaDB (`radius/` dir: Dockerfile, `conf/` overrides, `initdb/schema.sql` for radcheck/radacct). Public routes under `/api/v1/customers/:id/radius/*` (JWT auth) and internal `/api/v1/internal/radius/*` (guarded by `WEBHOOK_SERVICE_TOKEN`): activate (writes radcheck), deactivate, change-plan (sends CoA packet with Mikrotik-Rate-Limit), usage (aggregates radacct). **All routes live under the `api/v1` global prefix** — internal calls from the gateway must include it. `radius-mutation.guard.ts` enforces ownership. `scripts/phase2-integration.sh` exercises the full flow with `radtest`. `activate(customerId, {password?, expiresAt?})` writes `Cleartext-Password :=` + `Expiration := "YYYY-MM-DD HH:MM:SS"` radcheck rows (delete-then-insert), so expiry is enforced by FreeRADIUS at session start. **Rate-limiter gotcha** — radius-service's sliding-window limiter (mutation tier: 60/min/IP) applies to all non-GET routes; bulk operations like the import's per-row activations would 429 after 60 — `/api/v1/internal/*` routes are exempted in `main.ts`, keep them that way.
+- **Customer import from Excel** — `POST /users/import` (api gateway, roles SUPER_ADMIN/OPERATIONS_MANAGER, `FileInterceptor('file')`, 5MB, `xlsx` dep). Column detection is case-insensitive; real-world Mikrotik export maps: `ID`/`ID2` → `pppoeUsername`, `PASSWORD` → RADIUS password, `PORTAL PASSWORD` → app login password (falls back to random hash), `FIRST NAME`+`LAST NAME` → name (fallback `COMPANY NAME`, then bare `Name`), `CONTACT NUMBER` → phone, `STATION` → address fallback, `EXPIRY DATE` → `Subscription.expiresAt` (fallback +30d), `USER TYPE` → PPPOE/STATIC, `IP ADDRESS` → note only (no CPE — requires macAddress). Plan names are the source of truth — missing plans are created (FIBER defaults). Per-row `$transaction`; response `{created, skipped, errors, total, rows[]}` with per-row reason. **Missing details are left blank (NULL)** — no `+30d` expiry fallback, no email-derived name, no plan → no subscription; the app login password hash is a random value when PORTAL PASSWORD is blank (required field; admin resets it later). `Subscription.expiresAt` is nullable (`DateTime?`). **The import WIPES all existing customer data first** (users with subscribers, subscribers, subscriptions, invoices/payments/receipts, quotations, chat/tickets, plans) so re-uploading the list always starts clean — staff users are preserved. The import runs as a background job: `POST /users/import` returns `{jobId}` immediately, `GET /users/import/:jobId` returns live progress (`status, stage, total, processed, created, skipped, errors, rows`), and the admin upload drawer polls it to show a progress bar. For PPPoE rows the gateway then calls `POST {RADIUS_SERVICE_URL}/api/v1/internal/radius/customers/{id}/activate` with `x-webhook-token: WEBHOOK_SERVICE_TOKEN` (skipped with a note when the token is unset; note text "static IP user · <ip> — no RADIUS activation" for STATIC; `expiresAt` omitted from the call when the row has no expiry so no `Expiration` radcheck attribute is written). No welcome emails on import — admin issues logins via Settings → Admin Users → Reset Password. Admin UI: Import Excel button + result-report drawer on `/users/manage`.
 
 ## Audit logs (before/after + rollback)
 
-- `AuditLog` model has `beforeData` / `afterData` JSON fields (plus legacy `metadata`); pass them to `audit.log({ beforeData, afterData })`
-- Only `users.service.ts` currently captures snapshots (email/phone/customRoleId/isSuperAdmin). Other services log metadata only — extend before expecting diffs
-- **Rollback** — `POST /audit-logs/:id/rollback` (SUPER_ADMIN only). `*_CREATED` → delete entity; `*_UPDATED` with `beforeData` → restore snapshot; `*_DELETED` with `afterData` → re-create. Runs in `prisma.$transaction`; supports entity types in `MODEL_MAP` in `audit.service.ts`
-- Frontend `/audit-logs` shows inline diff (red strikethrough before → green after) + Rollback button for eligible entries
+- `AuditLog` model has `beforeData`/`afterData` JSON fields (plus legacy `metadata`); pass them to `audit.log({ beforeData, afterData })`. Each service that audits carries its own copy of the audit-logs module (api, payments, billing, support, customer).
+- Only `users.service.ts` captures full snapshots (email/phone/customRoleId/isSuperAdmin); other services log metadata only — extend before expecting diffs.
+- **Rollback** — `POST /audit-logs/:id/rollback` (SUPER_ADMIN only). `*_CREATED` → delete entity; `*_UPDATED` with `beforeData` → restore snapshot; `*_DELETED` with `afterData` → re-create. Runs in `prisma.$transaction`; supports entities in `MODEL_MAP` in `audit.service.ts`.
+- Frontend `/audit-logs` shows inline diff (red strikethrough before → green after) + Rollback button for eligible entries.
 
 ## Frontend conventions
 
-- Orange primary (`#F15925` / `#FF6224`), pill buttons (20px radius), `.data-card` (24px radius), right-side sliding drawers
-- Auth init via `AuthInit` component reads `localStorage` after mount (never at module init — prevents SSR hydration errors)
-- Charts use both Recharts (Dashboard) and @visx (analytics)
-- **Nav** — `apps/admin/src/components/Sidebar.tsx`: `navItems` array, per-item `module` matched against `customRole.permissions` for view filtering; `superAdminOnly` for Owner; Settings is last item
-- **Settings page** — `/settings`: Admin Users tab (role dropdown, super-admin toggle, reset password via `POST /users/:id/reset-password` which returns `{ newPassword }`), Roles tab (permission dots), Security tab (change own password via `PATCH /users/:id`)
-- **Customer page** (`/users/manage`) merges RouterOS PPPoE secrets + static IP CPEs into one table with `All | PPPoE | Static IP` filter tabs
-- **Dashboard** — PPPoE stats come from RouterOS secrets (all, not just active); Static IP stats from `/network/connections` filtered by type; 4-segment Connections Distribution donut (PPPoE Active/Disabled, Static Active/Offline); Traffic & Connections chart polls every 5s via `Promise.all` of bandwidth + sessions + connections + system
-- Customer create flow: `POST /users` → `POST /subscriptions` (with address) → `POST .../subscriptions` (planId, installationFeeKobo, routerProvided) → `POST .../cpes` → `POST .../send-welcome`
+- Orange primary (`#F15925`/`#FF6224`), pill buttons (20px radius), `.data-card` (24px radius), right-side sliding drawers.
+- Auth init via `AuthInit` component reads `localStorage` after mount (never at module init — prevents SSR hydration errors).
+- Charts use both Recharts (Dashboard) and @visx (analytics).
+- **Nav** — `apps/admin/src/components/Sidebar.tsx`: `navItems` array, per-item `module` matched against `customRole.permissions` for view filtering; `superAdminOnly` for Owner; Settings is last.
+- **Settings** — `/settings`: Admin Users tab (role dropdown, super-admin toggle, reset password via `POST /users/:id/reset-password` returning `{ newPassword }`), Roles tab (permission dots), Security tab (change own password via `PATCH /users/:id`).
+- **Customer page** (`/users/manage`) merges RouterOS PPPoE secrets + static IP CPEs into one table with `All | PPPoE | Static IP` filter tabs.
+- **Dashboard** — PPPoE stats from RouterOS secrets (all, not just active); Static IP stats from `/network/connections` filtered by type; 4-segment Connections Distribution donut; Traffic & Connections chart polls every 5s via `Promise.all` of bandwidth + sessions + connections + system.
+- Customer create flow: `POST /users` → `POST /subscriptions` (with address) → `POST .../subscriptions` (planId, installationFeeKobo, routerProvided) → `POST .../cpes` → `POST .../send-welcome`.
+- **Flexible billing customers** — `POST /billing` and `POST /billing/quotations` accept EITHER `subscriberId` (existing DB customer; quotation contact fields auto-fill from the subscriber + its user) OR `newCustomer: {name?, email, phone?, address?}` (mutually exclusive; 400 if email exists). `newCustomer` auto-creates a User (bcrypt temp hash) + Subscriber (RESIDENTIAL/ACTIVE) via `TenantService.resolveTenant()` before creating the invoice; admin `/billing` has Existing/New Customer toggles on both drawers. `GET /subscriptions` (customer-service) returns `{data, total, skip, take}` — admin unwraps `.data`.
 
 ## Default login
 

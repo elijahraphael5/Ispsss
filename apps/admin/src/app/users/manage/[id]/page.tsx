@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@isp/shared';
+import { api, formatNaira } from '@isp/shared';
 import { useParams, useRouter } from 'next/navigation';
 import { SkeletonTable } from '../../../../components/Skeleton';
 import EditableCustomerFields from '../../../../components/EditableCustomerFields';
@@ -42,7 +42,7 @@ interface CustomerDetail {
   createdAt: string;
 }
 
-const naira = (kobo: number) => `₦${(kobo / 100).toLocaleString('en-NG')}`;
+const naira = (kobo: number) => formatNaira(kobo);
 const priceDisplay = (kobo: number | null) => (kobo ? naira(kobo) : 'On request');
 
 function Field({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {

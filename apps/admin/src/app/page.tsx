@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, api, timeAgo } from '@isp/shared';
+import { useAuthStore, api, timeAgo, formatNaira } from '@isp/shared';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
   PieChart, Pie, Cell,
@@ -260,7 +260,7 @@ export default function Dashboard() {
         {[
           { label: 'Total Connections', value: totalConnections || '—', change: '', positive: true, stale: !!staleDevice, icon: '<path d="M4 20h16M4 4h16v12H4z"/>' },
           { label: 'Active Connections', value: activeConnections || '—', change: '', positive: true, stale: !!staleDevice, icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
-          { label: 'Due Amount', value: stats ? `₦${(stats.revenueThisMonth / 100).toLocaleString()}` : '—', change: '', positive: true, stale: false, icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
+          { label: 'Due Amount', value: stats ? formatNaira(stats.revenueThisMonth) : '—', change: '', positive: true, stale: false, icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
           { label: 'PPPoE', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', change: '', positive: true, stale: !!staleDevice, icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
           { label: 'Static IP', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', change: '', positive: true, stale: false, icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>' },
         ].map((card) => (
@@ -486,7 +486,7 @@ export default function Dashboard() {
               ) : payments.map((p) => (
                 <tr key={p.id}>
                   <td style={{ padding: '12px 0', fontWeight: 600 }}>{p.subscriber?.email ?? '—'}</td>
-                  <td style={{ padding: '12px 0' }}>₦{(p.amount / 100).toFixed(2)}</td>
+                  <td style={{ padding: '12px 0' }}>{formatNaira(p.amount)}</td>
                   <td style={{ padding: '12px 0' }}>
                     <span style={{
                       backgroundColor: p.status === 'SUCCESSFUL' ? 'var(--badge-green-bg)' : 'var(--badge-red-bg)',

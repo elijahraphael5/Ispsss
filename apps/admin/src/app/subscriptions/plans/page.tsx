@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api } from '@isp/shared';
+import { api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from '../../../components/Skeleton';
 
 interface Plan {
@@ -27,11 +27,9 @@ interface Plan {
   createdAt: string;
 }
 
-const CATEGORIES = ['ALL', 'PERSONAL', 'HOME', 'SME', 'DIA'];
-const TECHNOLOGIES = ['RADIO', 'FIBER', 'DIA'];
 const CATEGORY_OPTIONS = ['PERSONAL', 'HOME', 'SME', 'DIA_BRONZE', 'DIA_SILVER', 'DIA_GOLD', 'DIA_PLATINUM'];
 
-function fmtKobo(k: number) { return k ? `₦${(k / 100).toLocaleString()}` : 'On request'; }
+function fmtKobo(k: number) { return k ? formatNaira(k) : 'On request'; }
 
 function badge(label: string, color: string) {
   return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 8, fontSize: '0.7rem', fontWeight: 600, backgroundColor: color + '20', color }}>{label}</span>;
@@ -41,7 +39,6 @@ export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState('ALL');
   const [showForm, setShowForm] = useState(false);
   const [editPlan, setEditPlan] = useState<Plan | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -105,19 +102,7 @@ export default function PlansPage() {
     } catch { setError('Failed to update plan'); }
   }
 
-  const filtered = tab === 'ALL' ? plans : plans.filter(p => p.category.startsWith(tab));
-
-  const catLabels: Record<string, string> = {
-    ALL: 'All Plans', PERSONAL: 'Personal', HOME: 'Home', SME: 'SME', DIA: 'Dedicated',
-  };
-
-  const catIcons: Record<string, string> = {
-    ALL: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
-    PERSONAL: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-    HOME: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 0 0 1 1h3m10-11l2 2m-2-2v10a1 1 0 0 1-1 1h-3m-4 0a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1m-6 0h6"/></svg>',
-    SME: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
-    DIA: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
-  };
+  const filtered = plans;
 
   if (loading) {
     return (
@@ -151,17 +136,6 @@ export default function PlansPage() {
           <button onClick={() => setError('')} style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#DC2626', fontWeight: 600 }}>Dismiss</button>
         </div>
       )}
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {CATEGORIES.map(c => (
-          <button key={c} onClick={() => setTab(c)} style={{
-            padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem',
-            backgroundColor: tab === c ? 'var(--primary)' : '#fff', color: tab === c ? '#fff' : 'var(--text-color)', transition: 'all 0.15s',
-          }}>
-            <span dangerouslySetInnerHTML={{ __html: catIcons[c] }} /> {catLabels[c]}
-          </button>
-        ))}
-      </div>
 
       {filtered.length === 0 ? (
         <div className="data-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -236,7 +210,7 @@ export default function PlansPage() {
                 <div>
                   <label style={lbl}>Technology</label>
                   <select value={form.technology} onChange={e => setForm(f => ({ ...f, technology: e.target.value }))} style={sel}>
-                    {TECHNOLOGIES.map(t => <option key={t} value={t}>{t}</option>)}
+                    {['RADIO', 'FIBER', 'DIA'].map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>

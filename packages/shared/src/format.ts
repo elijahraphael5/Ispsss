@@ -1,3 +1,8 @@
+export function formatNaira(kobo: number | null | undefined): string {
+  if (kobo === null || kobo === undefined || Number.isNaN(kobo)) return '₦0.00';
+  return '₦' + (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return 'unknown';
   const then = new Date(iso).getTime();

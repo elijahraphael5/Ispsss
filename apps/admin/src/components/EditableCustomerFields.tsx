@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@isp/shared';
+import { api, formatNaira } from '@isp/shared';
 
 const NETWORK_OPTIONS = [
   { value: 'RADIO', label: 'Radio' },
@@ -111,7 +111,7 @@ export default function EditableCustomerFields({ customer, onSaved }: { customer
             {options.length === 0 && <option value="">—</option>}
             {options.map(p => (
               <option key={p.name} value={p.name}>
-                {p.name}{p.speedLabel ? ` · ${p.speedLabel}` : ''}{p.priceKobo ? ` · ₦${(p.priceKobo / 100).toLocaleString()}` : ' · On request'}
+                {p.name}{p.speedLabel ? ` · ${p.speedLabel}` : ''}{p.priceKobo ? ` · ${formatNaira(p.priceKobo)}` : ' · On request'}
               </option>
             ))}
           </select>

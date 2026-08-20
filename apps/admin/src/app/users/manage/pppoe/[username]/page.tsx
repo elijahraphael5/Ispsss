@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { api } from '@isp/shared';
+import { api, formatNaira } from '@isp/shared';
 import { useParams, useRouter } from 'next/navigation';
 import { SkeletonTable } from '../../../../../components/Skeleton';
 import EditableCustomerFields from '../../../../../components/EditableCustomerFields';
@@ -87,6 +87,62 @@ export default function PppoeDetailPage() {
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<'details' | 'edit'>('details');
   const [statusBusy, setStatusBusy] = useState(false);
+  const [radiusUsage, setRadiusUsage] = useState<any | null>(null);
+  const [radiusLoading, setRadiusLoading] = useState(false);
+  const [radiusPlan, setRadiusPlan] = useState('');
+  const [radiusBusy, setRadiusBusy] = useState(false);
+
+  const radiusCustomerId = cust?.id as string | undefined;
+
+  async function loadRadiusUsage() {
+    if (!radiusCustomerId) return;
+    setRadiusLoading(true);
+    try {
+      setRadiusUsage(await api<any>(`/customers/${radiusCustomerId}/radius/usage`));
+    } catch {
+      setRadiusUsage(null);
+    } finally {
+      setRadiusLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (radiusCustomerId) {
+      void loadRadiusUsage();
+    }
+  }, [radiusCustomerId]);
+
+  async function radiusAction(action: 'activate' | 'deactivate') {
+    if (!radiusCustomerId) return;
+    setRadiusBusy(true);
+    try {
+      await api(`/customers/${radiusCustomerId}/radius/${action}`, { method: 'POST', body: '{}' });
+      setToast(`${action === 'activate' ? 'Activated' : 'Deactivated'} on RADIUS`);
+      void loadRadiusUsage();
+    } catch (e: any) {
+      setToast(`${action} failed: ${e?.message ?? e}`);
+    } finally {
+      setRadiusBusy(false);
+    }
+  }
+
+  async function radiusApplyPlan() {
+    if (!radiusCustomerId || !radiusPlan.trim()) return;
+    setRadiusBusy(true);
+    try {
+      await api(`/customers/${radiusCustomerId}/radius/change-plan`, {
+        method: 'POST',
+        body: JSON.stringify({ rateLimit: radiusPlan.trim() }),
+      });
+      setToast(`Rate limit set to ${radiusPlan.trim()}`);
+      setRadiusPlan('');
+      void loadRadiusUsage();
+    } catch (e: any) {
+      setToast(`change-plan failed: ${e?.message ?? e}`);
+    } finally {
+      setRadiusBusy(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -490,9 +546,9 @@ export default function PppoeDetailPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                   <Field label="Started" value={cust.startedAt ? new Date(cust.startedAt).toLocaleDateString() : null} />
                   <Field label="Expires" value={cust.expiresAt ? new Date(cust.expiresAt).toLocaleDateString() : null} />
-                  <Field label="Monthly Price" value={cust.priceKobo ? `₦${(cust.priceKobo / 100).toLocaleString('en-NG')}` : 'On request'} />
+                  <Field label="Monthly Price" value={cust.priceKobo ? formatNaira(cust.priceKobo) : 'On request'} />
                   <Field label="Speed" value={cust.speedLabel || (cust.speedMbps ? `${cust.speedMbps} Mbps` : null)} />
-                  <Field label="Due Amount" value={cust.dueAmountKobo ? `₦${(cust.dueAmountKobo / 100).toLocaleString('en-NG')}` : null} />
+                  <Field label="Due Amount" value={cust.dueAmountKobo ? formatNaira(cust.dueAmountKobo) : null} />
                 </div>
               </div>
             </>
@@ -599,7 +655,7 @@ export default function PppoeDetailPage() {
                       const opts = has ? plans : [{ name: current || '', speedLabel: null, priceKobo: 0 }, ...plans];
                       return opts.map(p => (
                         <option key={p.name} value={p.name}>
-                          {p.name || '— Select plan —'}{p.speedLabel ? ` · ${p.speedLabel}` : ''}{p.priceKobo ? ` · ₦${(p.priceKobo / 100).toLocaleString()}` : ' · On request'}
+                          {p.name || '— Select plan —'}{p.speedLabel ? ` · ${p.speedLabel}` : ''}{p.priceKobo ? ` · ${formatNaira(p.priceKobo)}` : ' · On request'}
                         </option>
                       ));
                     })()}
@@ -805,6 +861,90 @@ export default function PppoeDetailPage() {
       </div>
 
       <UsageHistoryCard username={username} />
+
+      <div className="data-card" style={{ padding: 24, marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>RADIUS (FreeRADIUS)</span>
+            {radiusUsage && badge(radiusUsage.online ? 'LIVE' : 'OFFLINE', radiusUsage.online ? '#16A34A' : '#94A3B8')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {radiusCustomerId && (
+              <>
+                <input
+                  value={radiusPlan}
+                  onChange={(e) => setRadiusPlan(e.target.value)}
+                  placeholder="10M/10M"
+                  style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: '0.8rem', fontFamily: 'monospace', width: 110 }}
+                />
+                <button onClick={radiusApplyPlan} disabled={radiusBusy || !radiusPlan.trim()}
+                  style={{ padding: '7px 12px', borderRadius: 20, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                  Apply plan
+                </button>
+                <button onClick={() => radiusAction('deactivate')} disabled={radiusBusy}
+                  style={{ padding: '7px 12px', borderRadius: 20, border: 'none', background: '#DC2626', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                  Deactivate
+                </button>
+                <button onClick={() => radiusAction('activate')} disabled={radiusBusy}
+                  style={{ padding: '7px 12px', borderRadius: 20, border: 'none', background: '#16A34A', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                  Activate
+                </button>
+              </>
+            )}
+            <button onClick={loadRadiusUsage} disabled={radiusLoading}
+              style={{ padding: '7px 12px', borderRadius: 20, border: '1px solid #E5E7EB', background: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {radiusLoading && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading usage…</div>}
+
+        {!radiusLoading && radiusUsage && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, marginBottom: 16 }}>
+              <Field label="Session" value={radiusUsage.activeSession ? (
+                <span style={{ fontFamily: 'monospace' }}>#{radiusUsage.activeSession.acctsessionid}</span>
+              ) : '—'} mono />
+              <Field label="Started" value={radiusUsage.activeSession?.acctstarttime ? new Date(radiusUsage.activeSession.acctstarttime).toLocaleString() : '—'} />
+              <Field label="IP" value={radiusUsage.activeSession?.framedipaddress || '—'} mono />
+              <Field label="Data in" value={fmtBytes(String(radiusUsage.totals.inputBytes))} />
+              <Field label="Data out" value={fmtBytes(String(radiusUsage.totals.outputBytes))} />
+              <Field label="Sessions" value={String(radiusUsage.totals.sessions)} />
+            </div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+              Recent accounting
+            </div>
+            {radiusUsage.recent?.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {radiusUsage.recent.slice(0, 5).map((r: any) => (
+                  <div key={r.acctsessionid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: '#F8F8F8', fontSize: '0.75rem' }}>
+                    <span style={{ fontFamily: 'monospace' }}>{r.framedipaddress || '—'}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{r.acctstarttime ? new Date(r.acctstarttime).toLocaleString() : '—'}</span>
+                    <span style={{ color: r.acctstoptime ? 'var(--text-muted)' : '#16A34A', fontWeight: 600 }}>{r.acctstoptime ? 'ended' : 'live'}</span>
+                    <span>↓ {fmtBytes(String(r.acctinputoctets))}</span>
+                    <span>↑ {fmtBytes(String(r.acctoutputoctets))}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No accounting records yet — appears once the MikroTik starts authenticating this user.</div>
+            )}
+          </>
+        )}
+
+        {!radiusLoading && !radiusUsage && radiusCustomerId && (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            No usage data (subscriber has no PPPoE username assigned, or radius-service unavailable).
+          </div>
+        )}
+
+        {!radiusLoading && !radiusUsage && !radiusCustomerId && (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            This username is not linked to a subscriber — assign a PPPoE username in the customer profile to manage it via RADIUS.
+          </div>
+        )}
+      </div>
 
       <div className="data-card" style={{ padding: 24, marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>

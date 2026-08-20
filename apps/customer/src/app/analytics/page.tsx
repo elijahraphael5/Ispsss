@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, api } from '@isp/shared';
+import { useAuthStore, api, formatNaira } from '@isp/shared';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar, LineChart, Line, ComposedChart, CartesianGrid,
@@ -18,7 +18,7 @@ function fmtBytes(bytes: number): string {
 }
 
 function fmtKobo(kobo: number): string {
-  return '₦' + (kobo / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  return formatNaira(kobo);
 }
 
 function fmtDuration(secs: number | null): string {

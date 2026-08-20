@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api } from '@isp/shared';
+import { api, formatNaira } from '@isp/shared';
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -29,31 +29,6 @@ interface Payment {
   createdAt: string;
 }
 
-interface Wallet {
-  id: string;
-  subscriberId: string;
-  balanceKobo: number;
-}
-
-interface WalletTx {
-  id: string;
-  type: string;
-  amountKobo: number;
-  balanceKobo: number;
-  reference: string;
-  description: string | null;
-  createdAt: string;
-}
-
-interface VirtualAccount {
-  id: string;
-  bankName: string;
-  accountNumber: string;
-  accountName: string;
-  provider: string;
-  isActive: boolean;
-}
-
 interface RefundItem {
   id: string;
   refundNumber: string;
@@ -64,11 +39,6 @@ interface RefundItem {
   createdAt: string;
 }
 
-interface Subscriber {
-  id: string;
-  user: { email: string };
-}
-
 /* ── Helpers ──────────────────────────────────────────────── */
 
 const STATUS_COLORS: Record<string, string> = {
@@ -76,14 +46,14 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: '#2563EB', REJECTED: '#DC2626', PROCESSED: '#16A34A', COMPLETED: '#16A34A',
 };
 
-function fmtK(k: number) { return `\u20A6${(k / 100).toLocaleString()}`; }
+function fmtK(k: number) { return formatNaira(k); }
 function fmtD(d: string) { return new Date(d).toLocaleDateString('en-GB'); }
 function badge(label: string, color?: string, bg?: string) {
   const c = STATUS_COLORS[label] ?? color ?? '#6B7280';
   return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: bg ?? (c + '18'), color: c }}>{label}</span>;
 }
 
-const TABS = ['Payments', 'Wallet', 'Virtual Accounts', 'Refunds', 'Reconciliation'];
+const TABS = ['Payments', 'Refunds', 'Reconciliation'];
 const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1px solid var(--border-color)', borderRadius: 10, fontSize: '0.85rem', outline: 'none' };
 const sel: React.CSSProperties = { ...inp, background: 'white' };
 
@@ -101,21 +71,6 @@ export default function PaymentsPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
 
-  // wallet
-  const [walletSubId, setWalletSubId] = useState('');
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [walletTxs, setWalletTxs] = useState<WalletTx[]>([]);
-  const [walletAmount, setWalletAmount] = useState(0);
-  const [walletRef, setWalletRef] = useState('');
-  const [walletDesc, setWalletDesc] = useState('');
-
-  // virtual accounts
-  const [vaSubId, setVaSubId] = useState('');
-  const [vas, setVas] = useState<VirtualAccount[]>([]);
-
-  // subscribers
-  const [subs, setSubs] = useState<Subscriber[]>([]);
-
   // drawers
   const [showDetail, setShowDetail] = useState<string | null>(null);
   const [showRecordPayment, setShowRecordPayment] = useState(false);
@@ -125,7 +80,7 @@ export default function PaymentsPage() {
   const [showRefundForm, setShowRefundForm] = useState(false);
   const [refundForm, setRefundForm] = useState({ paymentId: '', amountKobo: 0, reason: '' });
 
-  useEffect(() => { fetchAll(); fetchSubs(); }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   async function fetchAll() {
     setLoading(true);
@@ -140,51 +95,6 @@ export default function PaymentsPage() {
       setRefunds(r);
     } catch { setError('Failed to load payments'); }
     finally { setLoading(false); }
-  }
-
-  async function fetchSubs() {
-    try {
-      const data = await api<Subscriber[]>('/subscriptions');
-      setSubs(data);
-    } catch {}
-  }
-
-  async function fetchWallet(id: string) {
-    setWalletSubId(id);
-    if (!id) { setWallet(null); setWalletTxs([]); return; }
-    try {
-      const [w, t] = await Promise.all([
-        api<Wallet>(`/payments/wallet/${id}`),
-        api<WalletTx[]>(`/payments/wallet/${id}/transactions`),
-      ]);
-      setWallet(w);
-      setWalletTxs(t);
-    } catch {}
-  }
-
-  async function creditWallet() {
-    try {
-      await api(`/payments/wallet/${walletSubId}/credit`, {
-        method: 'POST',
-        body: JSON.stringify({ amountKobo: walletAmount, reference: walletRef || `ADJ-${Date.now()}`, description: walletDesc }),
-      });
-      setWalletAmount(0); setWalletRef(''); setWalletDesc('');
-      await fetchWallet(walletSubId);
-    } catch { setError('Failed to credit wallet'); }
-  }
-
-  async function fetchVA(id: string) {
-    setVaSubId(id);
-    if (!id) { setVas([]); return; }
-    try { setVas(await api<VirtualAccount[]>(`/payments/virtual-accounts/${id}`)); }
-    catch {}
-  }
-
-  async function assignVA() {
-    try {
-      await api(`/payments/virtual-accounts/${vaSubId}`, { method: 'POST' });
-      await fetchVA(vaSubId);
-    } catch { setError('Failed to assign virtual account'); }
   }
 
   async function requestRefund() {
@@ -337,114 +247,6 @@ export default function PaymentsPage() {
             </div>
           </div>
         </>
-      )}
-
-      {/* ── Wallet Tab ───────────────────────────────────── */}
-      {tab === 'Wallet' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div className="data-card" style={{ padding: 20 }}>
-            <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Select Customer</label>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <select value={walletSubId} onChange={e => fetchWallet(e.target.value)} style={{ ...sel, maxWidth: 400 }}>
-                <option value="">Select a subscriber...</option>
-                {subs.map(s => <option key={s.id} value={s.id}>{s.user.email}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {wallet && (
-            <>
-              <div className="data-card" style={{ padding: 24, background: 'linear-gradient(135deg, #F15925 0%, #E0451A 100%)', color: '#fff' }}>
-                <div style={{ fontSize: '0.85rem', opacity: 0.85, marginBottom: 4 }}>Wallet Balance</div>
-                <div style={{ fontSize: '2rem', fontWeight: 700 }}>{fmtK(wallet.balanceKobo)}</div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: 4 }}>Customer ID: {wallet.subscriberId.slice(0, 8)}...</div>
-              </div>
-
-              <div className="data-card" style={{ padding: 20 }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: 16 }}>Adjust Wallet</h3>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1, minWidth: 120 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Amount (kobo)</label>
-                    <input type="number" value={walletAmount} onChange={e => setWalletAmount(Number(e.target.value))} style={inp} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 120 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Reference</label>
-                    <input value={walletRef} onChange={e => setWalletRef(e.target.value)} style={inp} />
-                  </div>
-                  <div style={{ flex: 2, minWidth: 180 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Description</label>
-                    <input value={walletDesc} onChange={e => setWalletDesc(e.target.value)} style={inp} />
-                  </div>
-                  <button className="btn-primary" onClick={creditWallet} disabled={!walletAmount}>Credit</button>
-                </div>
-              </div>
-
-              <div className="data-card" style={{ padding: 0 }}>
-                <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: '0.9rem' }}>Transaction History</div>
-                <div className="table-container">
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>TYPE</th>
-                          <th>AMOUNT</th>
-                          <th>BALANCE</th>
-                          <th>REFERENCE</th>
-                          <th>DESCRIPTION</th>
-                          <th>DATE</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {walletTxs.length === 0 ? (
-                          <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No transactions</td></tr>
-                        ) : walletTxs.map(tx => (
-                          <tr key={tx.id}>
-                            <td>{badge(tx.type, tx.type === 'CREDIT' ? '#16A34A' : tx.type === 'DEBIT' ? '#DC2626' : '#6366F1')}</td>
-                            <td style={{ fontWeight: 600, color: tx.type === 'CREDIT' ? '#16A34A' : tx.type === 'DEBIT' ? '#DC2626' : 'inherit' }}>{tx.type === 'CREDIT' ? '+' : '-'}{fmtK(tx.amountKobo)}</td>
-                            <td style={{ fontWeight: 600 }}>{fmtK(tx.balanceKobo)}</td>
-                            <td style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{tx.reference.slice(0, 16)}...</td>
-                            <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{tx.description ?? '—'}</td>
-                            <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{fmtD(tx.createdAt)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── Virtual Accounts Tab ─────────────────────────── */}
-      {tab === 'Virtual Accounts' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="data-card" style={{ padding: 20 }}>
-            <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Select Customer</label>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <select value={vaSubId} onChange={e => fetchVA(e.target.value)} style={{ ...sel, maxWidth: 400 }}>
-                <option value="">Select a subscriber...</option>
-                {subs.map(s => <option key={s.id} value={s.id}>{s.user.email}</option>)}
-              </select>
-              {vaSubId && <button className="btn-primary" onClick={assignVA}>Assign Virtual Account</button>}
-            </div>
-          </div>
-
-          {vas.length > 0 && vas.map(va => (
-            <div key={va.id} className="data-card" style={{ padding: 20, borderLeft: '4px solid #F15925' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 8 }}>{va.bankName}</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'monospace', letterSpacing: 2 }}>{va.accountNumber}</div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-color)', marginTop: 4 }}>{va.accountName}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Provider: {va.provider}</div>
-            </div>
-          ))}
-          {vaSubId && vas.length === 0 && (
-            <div className="data-card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-              No virtual accounts assigned. Click "Assign Virtual Account" to create one.
-            </div>
-          )}
-        </div>
       )}
 
       {/* ── Refunds Tab ──────────────────────────────────── */}

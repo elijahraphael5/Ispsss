@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { api, apiUpload, apiFileUrl, useAuthStore, timeAgo } from '@isp/shared';
+import { api, apiUpload, apiFileUrl, useAuthStore, timeAgo, formatNaira } from '@isp/shared';
 import { useToast, ToastContainer } from '../../components/Toast';
 
 // ─────────────────────────── types ───────────────────────────
@@ -188,7 +188,7 @@ function fmtTime(iso: string) {
 }
 
 function fmtKobo(k: number) {
-  return '₦' + (k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+  return k ? formatNaira(k) : 'On request';
 }
 
 function fmtDur(sec: number) {

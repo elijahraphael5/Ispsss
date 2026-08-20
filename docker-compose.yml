@@ -1,0 +1,265 @@
+# Shared image build (backend apps + baked-in frontend builds). NEXT_PUBLIC_*
+# are public build-time vars consumed by the Next.js apps inside the image.
+x-build: &app_build
+  context: .
+  args:
+    NEXT_PUBLIC_API_URL: /api/v1
+    NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: isp_user
+      POSTGRES_PASSWORD: change_me
+      POSTGRES_DB: isp_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U isp_user -d isp_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: *app_build
+    command: ["node", "apps/api/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4000"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+      AUTH_SERVICE_URL: http://auth-service:4101
+      PAYMENTS_SERVICE_URL: http://payments-service:4102
+      BILLING_SERVICE_URL: http://billing-service:4103
+      SUPPORT_SERVICE_URL: http://support-service:4104
+      CUSTOMER_SERVICE_URL: http://customer-service:4105
+      RADIUS_SERVICE_URL: http://radius-service:4106
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      payments-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      support-service:
+        condition: service_started
+      customer-service:
+        condition: service_started
+      radius-service:
+        condition: service_started
+
+  auth-service:
+    build: *app_build
+    command: ["node", "apps/auth-service/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4101"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payments-service:
+    build: *app_build
+    command: ["node", "apps/payments-service/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4102"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN:-}
+      CUSTOMER_URL: ${CUSTOMER_URL:-http://customer.example.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-"Hikonnect <noreply@hikonnectng.com>"}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  billing-service:
+    build: *app_build
+    command: ["node", "apps/billing-service/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4103"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+      WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  support-service:
+    build: *app_build
+    command: ["node", "apps/support-service/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4104"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+      WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN:-}
+    volumes:
+      - uploads:/repo/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  customer-service:
+    build: *app_build
+    command: ["node", "apps/customer-service/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4105"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+      SUPPORT_SERVICE_URL: http://support-service:4104
+      WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN:-}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpw
+      MARIADB_DATABASE: radius
+      MARIADB_USER: radius
+      MARIADB_PASSWORD: radiuspw
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./radius/initdb:/docker-entrypoint-initdb.d:ro
+      - radiusdb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  freeradius:
+    build:
+      context: ./radius
+      dockerfile: Dockerfile
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    environment:
+      RADIUS_DB_HOST: mariadb
+      RADIUS_DB_PORT: "3306"
+      RADIUS_DB_USER: radius
+      RADIUS_DB_PASSWORD: radiuspw
+      RADIUS_DB_NAME: radius
+      RADIUS_NAS_IP: "${RADIUS_NAS_IP:-192.168.5.2}"
+      RADIUS_SHARED_SECRET: "${RADIUS_SHARED_SECRET:-testing123}"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "command -v freeradius >/dev/null 2>&1 && freeradius -C || radiusd -C"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  radius-service:
+    build: *app_build
+    command: ["node", "apps/radius-service/dist/main.js"]
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      APP_PORT: "4106"
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+      REDIS_URL: none
+      JWT_ACCESS_SECRET: change-me
+      JWT_REFRESH_SECRET: change-me
+      WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN:-}
+      RADIUS_DB_HOST: mariadb
+      RADIUS_DB_PORT: "3306"
+      RADIUS_DB_USER: radius
+      RADIUS_DB_PASSWORD: radiuspw
+      RADIUS_DB_NAME: radius
+      RADIUS_NAS_IP: "${RADIUS_NAS_IP:-192.168.5.2}"
+      RADIUS_NAS_PORT: "3799"
+      RADIUS_SHARED_SECRET: "${RADIUS_SHARED_SECRET:-testing123}"
+      RADIUS_DEFAULT_PASSWORD: "${RADIUS_DEFAULT_PASSWORD:-ChangeMe1!}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      freeradius:
+        condition: service_started
+
+  admin:
+    build: *app_build
+    command: ["node", "apps/admin/node_modules/.bin/next", "start", "-p", "3000"]
+    environment:
+      API_PROXY_TARGET: http://api:4000
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+  customer:
+    build: *app_build
+    command: ["node", "apps/customer/node_modules/.bin/next", "start", "-p", "3000"]
+    environment:
+      API_PROXY_TARGET: http://api:4000
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3001:3000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      NGINX_ADMIN_HOST: "${NGINX_ADMIN_HOST:-admin.example.com}"
+      NGINX_CUSTOMER_HOST: "${NGINX_CUSTOMER_HOST:-customer.example.com}"
+      NGINX_API_HOST: "${NGINX_API_HOST:-api.example.com}"
+    depends_on:
+      - api
+      - admin
+      - customer
+
+volumes:
+  pgdata:
+  radiusdb:
+  uploads:

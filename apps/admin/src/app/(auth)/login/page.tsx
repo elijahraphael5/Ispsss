@@ -94,14 +94,10 @@ export default function LoginPage() {
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
-
-          <div style={{ fontSize: '0.85rem', color: '#111', fontWeight: 600, marginTop: 32 }}>
-            D&apos;ont have an account ? <a href="#" style={{ color: '#FF6224', textDecoration: 'none', fontWeight: 700 }}>Sign Up</a>
-          </div>
         </div>
 
         <div style={{ fontSize: '0.75rem', color: '#7A7D85', lineHeight: 1.4 }}>
-          admin@isp.local (tenant admin) | root@isp.local (superadmin)
+          &copy; {new Date().getFullYear()} Hi-Konnect Networks
         </div>
       </div>
 

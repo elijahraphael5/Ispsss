@@ -2,6 +2,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContext } from './tenant-context';
 import { PrismaModule } from '../prisma/prisma.module';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const envPath = path.resolve(__dirname, '../../../.env');
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z_]+)=(.*)$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
+  }
+}
 
 describe('Tenant Isolation', () => {
   let prisma: PrismaService;

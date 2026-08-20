@@ -1,0 +1,49 @@
+#
+# MySQL sql module config — templated at boot (see entrypoint.sh).
+# Intentionally trimmed to the MySQL driver + the tables used by the
+# radius-service (radcheck/radreply/radgroupcheck/radgroupreply/radusergroup/
+# radacct/radpostauth).
+#
+sql {
+	driver = "rlm_sql_mysql"
+	dialect = "mysql"
+
+	server = "@@DB_HOST@@"
+	port = @@DB_PORT@@
+	login = "@@DB_USER@@"
+	password = "@@DB_PASS@@"
+	radius_db = "@@DB_NAME@@"
+
+	acct_table1 = "radacct"
+	acct_table2 = "radacct"
+	postauth_table = "radpostauth"
+	authcheck_table = "radcheck"
+	authreply_table = "radreply"
+	groupcheck_table = "radgroupcheck"
+	groupreply_table = "radgroupreply"
+	usergroup_table = "radusergroup"
+
+	read_groups = yes
+	read_profiles = yes
+	delete_stale_sessions = yes
+
+	pool {
+		start = ${thread[pool].start_servers}
+		min = ${thread[pool].min_spare_servers}
+		max = ${thread[pool].max_servers}
+		spare = ${thread[pool].max_spare_servers}
+		uses = 0
+		retry_delay = 30
+		lifetime = 0
+		idle_timeout = 60
+	}
+
+	read_clients = no
+	client_table = "nas"
+	group_attribute = "SQL-Group"
+
+	# Bundled SQL queries (authorize/accounting/post-auth) live in
+	# mods-config/sql/main/<dialect>/queries.conf — include them here or the
+	# module opens pools but never runs a query (users always "notfound").
+	$INCLUDE ${modconfdir}/${.:name}/main/${dialect}/queries.conf
+}

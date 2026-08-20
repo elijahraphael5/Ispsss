@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, api } from '@isp/shared';
-import { loadPaysortaSDK, openPayment } from '@paysortadev/paysorta';
+import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from '../components/Skeleton';
 
-function fmtK(k: number) { return '\u20A6' + (k / 100).toLocaleString(); }
+function fmtK(k: number) { return formatNaira(k); }
 
 interface DashboardData {
   plan: { id: string; name: string; speedMbps: number; priceKobo: number; dataCapGb?: number; technology?: string } | null;
@@ -18,6 +17,17 @@ interface Plan {
   id: string; name: string; speedMbps: number; priceKobo: number; dataCapGb?: number; technology?: string; category: string; type: string;
 }
 
+function loadPaystackInline(): Promise<void> {
+  if ((window as any).PaystackPop) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://js.paystack.co/v1/inline.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Paystack'));
+    document.body.appendChild(s);
+  });
+}
+
 export default function SubscriptionPage() {
   const { accessToken, user } = useAuthStore();
   const router = useRouter();
@@ -26,7 +36,6 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [drawer, setDrawer] = useState<'change' | 'add' | null>(null);
   const [paying, setPaying] = useState(false);
-  const sdkReady = useRef(false);
 
   const fetchAll = useCallback(async () => {
     const [d, p] = await Promise.all([
@@ -42,51 +51,47 @@ export default function SubscriptionPage() {
       if (typeof window !== 'undefined' && !localStorage.getItem('accessToken')) router.push('/login');
       return;
     }
-    loadPaysortaSDK().then(() => { sdkReady.current = true; });
     fetchAll().finally(() => setLoading(false));
   }, [accessToken, router, fetchAll]);
 
   const sub = data?.subscription;
   const plan = data?.plan;
   const email = user?.email ?? '';
-  const paysortaKey = process.env.NEXT_PUBLIC_PAYSORTA_KEY ?? '';
+  const paystackKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ?? '';
 
   const isDue = sub?.expiresAt ? new Date(sub.expiresAt).getTime() - Date.now() < 7 * 86400000 : false;
   const isExpired = sub?.expiresAt ? new Date(sub.expiresAt).getTime() < Date.now() : false;
 
   async function pay(action: 'change_plan' | 'renew' | 'add_plan', planId?: string) {
-    if (!sdkReady.current) await loadPaysortaSDK();
-    const amount = 100 * 100; // For demo purposes, set to 1000 NGN. In production, calculate based on plan and action.
+    const target = action === 'renew' ? data?.plan : plans.find((p) => p.id === planId);
+    const priceKobo = target?.priceKobo ?? 0;
+    if (!priceKobo) {
+      alert('Could not determine the plan amount. Please try again.');
+      return;
+    }
 
     setPaying(true);
-    const ref = 'SUB_' + action + '_' + Date.now();
-    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
     try {
-      await openPayment({
-        key: paysortaKey,
-        email,
-        amount,
-        currency: 'NGN',
-        ref,
-        metadata: { action, planId, userId: user?.id },
-        callbackUrl: apiBase + '/payments/paysorta/callback?reference=' + ref + '&status=',
-        onClose: () => setPaying(false),
-        callback: async (response: any) => {
-          const resultRef = response?.reference || ref;
-          const resultStatus = response?.status === 'success' ? 'success' : 'failed';
-          try {
-            await api('/payments/webhook/paysorta', {
-              method: 'POST',
-              body: JSON.stringify({ reference: resultRef, status: resultStatus, metadata: { action, planId, userId: user?.id } }),
-              skipAuth: true,
-            });
-            await fetchAll();
-            router.push('/billing');
-          } catch { alert('Payment received but verification failed. Contact support.'); }
-          setPaying(false);
-        },
+      const res = await api<{ authorizationUrl: string; reference: string; amountKobo: number }>('/payments/customer/initialize', {
+        method: 'POST',
+        body: JSON.stringify({ action, planId }),
       });
-    } catch {
+      if (!res?.reference) throw new Error('Payment initialization failed');
+
+      await loadPaystackInline();
+      const handler = (window as any).PaystackPop.setup({
+        key: paystackKey,
+        email,
+        amount: res.amountKobo,
+        currency: 'NGN',
+        ref: res.reference,
+        metadata: { action, planId },
+        callback: () => router.push('/payment/callback?reference=' + encodeURIComponent(res.reference)),
+        onClose: () => setPaying(false),
+      });
+      handler.openIframe();
+    } catch (err: any) {
+      alert(err?.message ?? 'Could not start payment. Please try again.');
       setPaying(false);
     }
   }
@@ -135,7 +140,7 @@ export default function SubscriptionPage() {
                   padding: '6px 18px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: '0.8rem',
                   cursor: paying ? 'not-allowed' : 'pointer', background: 'var(--primary)', color: '#fff'
                 }}>
-                {paying ? 'Processing...' : 'Renew \u20A6' + planPrice.toLocaleString()}
+                {paying ? 'Processing...' : 'Renew ' + formatNaira(planPrice * 100)}
               </button>
             </div>
           )}

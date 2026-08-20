@@ -158,7 +158,7 @@ export class NetworkService {
         where: { connectionType: 'STATIC_IP' },
         include: { subscriber: { include: { user: true } } },
         orderBy: { createdAt: 'desc' },
-        take: 200,
+        take: 5000,
       }),
     ]);
 

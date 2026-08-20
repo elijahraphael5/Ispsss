@@ -10,6 +10,7 @@ import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
   namespace: '/noc',
+  path: '/noc-socket',
   cors: { origin: '*', credentials: true },
 })
 export class NocGateway implements OnGatewayConnection, OnGatewayDisconnect {

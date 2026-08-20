@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@isp/shared';
+import { api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard, SkeletonTable } from '../../components/Skeleton';
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -52,27 +52,6 @@ interface Quotation {
   createdAt: string;
 }
 
-interface Payment {
-  id: string;
-  amountKobo: number;
-  reference: string;
-  provider: string;
-  status: string;
-  paidAt: string | null;
-  invoice: { invoiceNumber: string; subscriber: { user: { email: string } } };
-  createdAt: string;
-}
-
-interface Receipt {
-  id: string;
-  receiptNumber: string;
-  amountKobo: number;
-  paymentMethod: string;
-  transactionRef: string;
-  paidAt: string;
-  invoice: { invoiceNumber: string };
-}
-
 /* ── Helpers ──────────────────────────────────────────────── */
 
 const COLORS = ['#6366f1', '#F15925', '#ef4444', '#10B981', '#8B5CF6'];
@@ -88,14 +67,14 @@ const STATUS_COLORS: Record<string, string> = {
   EXPIRED: '#94A3B8',
 };
 
-function fmtK(k: number) { return `\u20A6${(k / 100).toLocaleString()}`; }
+function fmtK(k: number) { return formatNaira(k); }
 function fmtD(d: string) { return new Date(d).toLocaleDateString('en-GB'); }
 
 function badge(label: string, color: string, bg?: string) {
   return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: bg ?? color + '18', color }}>{label}</span>;
 }
 
-const TABS = ['Invoices', 'Quotations', 'Payments', 'Receipts'];
+const TABS = ['Invoices', 'Quotations', 'Paid & Accepted'];
 const INVOICE_TYPES = ['ALL', 'SUBSCRIPTION', 'INSTALLATION', 'ONE_TIME', 'MANUAL'];
 const QUOTATION_STATUSES = ['ALL', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'];
 
@@ -110,8 +89,6 @@ export default function BillingPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -129,45 +106,55 @@ export default function BillingPage() {
 
   // create form
   const [form, setForm] = useState({
-    subscriberId: '', type: 'SUBSCRIPTION', dueAt: '', notes: '',
+    subscriberId: '', email: '', type: 'SUBSCRIPTION', dueAt: '', notes: '',
     lines: [{ description: '', amountKobo: 0, quantity: 1 }],
     vatKobo: 0, discountKobo: 0,
+    newName: '', newEmail: '', newPhone: '', newAddress: '',
   });
+
+  // email override per created invoice (falls back to subscriber email server-side)
+  const [invoiceEmails, setInvoiceEmails] = useState<Record<string, string>>({});
 
   // quotation form
   const [qForm, setQForm] = useState({
-    subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '',
+    subscriberId: '', subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '',
     validUntil: '', items: [{ description: '', quantity: 1, unitPriceKobo: 0 }],
     notes: '', discountKobo: 0,
   });
 
-  const [subs, setSubs] = useState<{ id: string; name: string }[]>([]);
+  const [subs, setSubs] = useState<{ id: string; name: string; email: string; phone: string; address: string }[]>([]);
+
+  // customer source mode for invoice + quotation drawers
+  const [invCustomerMode, setInvCustomerMode] = useState<'existing' | 'new'>('existing');
+  const [qCustomerMode, setQCustomerMode] = useState<'existing' | 'new'>('existing');
 
   useEffect(() => { fetchAll(); fetchSubs(); }, []);
 
   async function fetchAll() {
     setLoading(true);
     try {
-      const [d, inv, q, p, r] = await Promise.all([
+      const [d, inv, q] = await Promise.all([
         api<DashboardData>('/billing/dashboard').catch(() => null),
         api<Invoice[]>('/billing'),
         api<Quotation[]>('/billing/quotations').catch(() => []),
-        api<Payment[]>('/billing/payments').catch(() => []),
-        api<Receipt[]>('/billing/receipts').catch(() => []),
       ]);
       if (d) setDashboard(d);
       setInvoices(inv);
       setQuotations(q);
-      setPayments(p);
-      setReceipts(r);
     } catch { setError('Failed to load billing data'); }
     finally { setLoading(false); }
   }
 
-  async function fetchSubs() {
+async function fetchSubs() {
     try {
-      const data = await api<{ id: string; user: { email: string } }[]>('/subscriptions');
-      setSubs(data.map((s: any) => ({ id: s.id, name: s.user?.email ?? s.id })));
+      const res = await api<{ data: { id: string; address: string | null; user: { name: string | null; email: string; phone: string | null } }[] }>('/subscriptions');
+      setSubs((res.data ?? []).map((s: any) => ({
+        id: s.id,
+        name: s.user?.name ?? s.user?.email ?? s.id,
+        email: s.user?.email ?? '',
+        phone: s.user?.phone ?? '',
+        address: s.address ?? '',
+      })));
     } catch {}
   }
 
@@ -179,10 +166,14 @@ export default function BillingPage() {
 
   const filteredQuotations = qFilter === 'ALL' ? quotations : quotations.filter(q => q.status === qFilter);
 
+  const paidInvoices = invoices.filter(i => i.status === 'PAID');
+  const acceptedQuotations = quotations.filter(q => q.status === 'ACCEPTED');
+
   /* ── Invoice Create ───────────────────────────────────── */
 
   const openCreate = () => {
-    setForm({ subscriberId: '', type: 'SUBSCRIPTION', dueAt: '', notes: '', lines: [{ description: '', amountKobo: 0, quantity: 1 }], vatKobo: 0, discountKobo: 0 });
+    setForm({ subscriberId: '', email: '', type: 'SUBSCRIPTION', dueAt: '', notes: '', lines: [{ description: '', amountKobo: 0, quantity: 1 }], vatKobo: 0, discountKobo: 0, newName: '', newEmail: '', newPhone: '', newAddress: '' });
+    setInvCustomerMode('existing');
     setShowCreate(true);
   };
 
@@ -205,10 +196,13 @@ export default function BillingPage() {
     try {
       const subtotal = calcSubtotal();
       const vat = calcVat();
-      await api('/billing', {
+      const created = await api<any>('/billing', {
         method: 'POST',
         body: JSON.stringify({
-          subscriberId: form.subscriberId,
+          subscriberId: invCustomerMode === 'existing' ? form.subscriberId : undefined,
+          newCustomer: invCustomerMode === 'new'
+            ? { name: form.newName, email: form.newEmail, phone: form.newPhone, address: form.newAddress }
+            : undefined,
           type: form.type,
           dueAt: form.dueAt,
           lines: form.lines.map(l => ({ description: l.description, amountKobo: l.amountKobo, quantity: l.quantity })),
@@ -217,22 +211,48 @@ export default function BillingPage() {
           notes: form.notes,
         }),
       });
+      if (form.email) setInvoiceEmails(m => ({ ...m, [created.id]: form.email }));
       setShowCreate(false);
       await fetchAll();
-    } catch { setError('Failed to create invoice'); }
+    } catch (e: any) { setError(e?.message ?? 'Failed to create invoice'); }
     finally { setSubmitting(false); }
   }
 
   /* ── Invoice Actions ──────────────────────────────────── */
 
-  const issueInvoice = async (id: string) => { try { await api(`/billing/${id}/issue`, { method: 'PATCH' }); await fetchAll(); } catch { setError('Failed to issue'); } };
+  const issueInvoice = async (id: string) => {
+    try {
+      await api(`/billing/${id}/issue`, {
+        method: 'PATCH',
+        body: JSON.stringify(invoiceEmails[id] ? { email: invoiceEmails[id] } : {}),
+      });
+      await fetchAll();
+    } catch { setError('Failed to issue'); }
+  };
   const voidInvoice = async (id: string) => { try { await api(`/billing/${id}/void`, { method: 'PATCH' }); await fetchAll(); } catch { setError('Failed to void'); } };
   const markPaid = async (id: string) => { try { await api(`/billing/${id}/paid`, { method: 'PATCH' }); await fetchAll(); } catch { setError('Failed to mark paid'); } };
+
+  const downloadPdf = async (id: string, invoiceNumber: string) => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/billing/${id}/pdf`, {
+        headers: { Authorization: localStorage.getItem('accessToken') ?? '' },
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${invoiceNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError('Failed to download PDF'); }
+  };
 
   /* ── Quotation Create ─────────────────────────────────── */
 
   const openQuotation = () => {
-    setQForm({ subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '', validUntil: '', items: [{ description: '', quantity: 1, unitPriceKobo: 0 }], notes: '', discountKobo: 0 });
+    setQForm({ subscriberId: '', subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '', validUntil: '', items: [{ description: '', quantity: 1, unitPriceKobo: 0 }], notes: '', discountKobo: 0 });
+    setQCustomerMode('existing');
     setShowQuotation(true);
   };
 
@@ -256,6 +276,7 @@ export default function BillingPage() {
       await api('/billing/quotations', {
         method: 'POST',
         body: JSON.stringify({
+          subscriberId: qCustomerMode === 'existing' ? qForm.subscriberId : undefined,
           subscriberName: qForm.subscriberName,
           subscriberEmail: qForm.subscriberEmail || undefined,
           subscriberPhone: qForm.subscriberPhone || undefined,
@@ -401,6 +422,7 @@ export default function BillingPage() {
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{fmtD(inv.dueAt)}</td>
                         <td>
                           <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                            {inv.status !== 'VOID' && <button className="btn-sm" onClick={() => downloadPdf(inv.id, inv.invoiceNumber)}>PDF</button>}
                             {inv.status === 'DRAFT' && <button className="btn-sm" onClick={() => issueInvoice(inv.id)}>Issue</button>}
                             {inv.status === 'ISSUED' && <button className="btn-sm" onClick={() => markPaid(inv.id)}>Paid</button>}
                             {(inv.status === 'DRAFT' || inv.status === 'ISSUED' || inv.status === 'OVERDUE') && <button className="btn-sm-outline" onClick={() => voidInvoice(inv.id)}>Void</button>}
@@ -468,75 +490,91 @@ export default function BillingPage() {
         </>
       )}
 
-      {/* ── Payments Tab ─────────────────────────────────── */}
-      {tab === 'Payments' && (
-        <div className="data-card" style={{ padding: 0 }}>
-          <div className="table-container">
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>REFERENCE</th>
-                    <th>INVOICE</th>
-                    <th>CUSTOMER</th>
-                    <th>AMOUNT</th>
-                    <th>METHOD</th>
-                    <th>STATUS</th>
-                    <th>DATE</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.length === 0 ? (
-                    <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No payments recorded</td></tr>
-                  ) : payments.map(p => (
-                    <tr key={p.id}>
-                      <td style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{p.reference.slice(0, 16)}...</td>
-                      <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.invoice?.invoiceNumber ?? '—'}</td>
-                      <td>{p.invoice?.subscriber?.user?.email ?? '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{fmtK(p.amountKobo)}</td>
-                      <td>{badge(p.provider, '#6366F1', '#EEF2FF')}</td>
-                      <td>{badge(p.status, p.status === 'SUCCESSFUL' ? '#16A34A' : p.status === 'PENDING' ? '#CA8A04' : '#DC2626')}</td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{p.paidAt ? fmtD(p.paidAt) : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* ── Paid & Accepted Tab ─────────────────────────── */}
+      {tab === 'Paid & Accepted' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Paid Invoices</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#16A34A' }}>{paidInvoices.length}</div>
+            </div>
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Collections</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--primary)' }}>{fmtK(paidInvoices.reduce((s, i) => s + i.amountKobo, 0))}</div>
+            </div>
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Accepted Quotations</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#6366F1' }}>{acceptedQuotations.length}</div>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ── Receipts Tab ─────────────────────────────────── */}
-      {tab === 'Receipts' && (
-        <div className="data-card" style={{ padding: 0 }}>
-          <div className="table-container">
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>RECEIPT #</th>
-                    <th>INVOICE</th>
-                    <th>AMOUNT</th>
-                    <th>METHOD</th>
-                    <th>TRANSACTION REF</th>
-                    <th>PAID DATE</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {receipts.length === 0 ? (
-                    <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No receipts generated</td></tr>
-                  ) : receipts.map(r => (
-                    <tr key={r.id}>
-                      <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{r.receiptNumber}</td>
-                      <td>{r.invoice?.invoiceNumber ?? '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{fmtK(r.amountKobo)}</td>
-                      <td>{badge(r.paymentMethod, '#6366F1', '#EEF2FF')}</td>
-                      <td style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{r.transactionRef.slice(0, 20)}...</td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{fmtD(r.paidAt)}</td>
+          <div className="data-card" style={{ padding: 0 }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: '0.9rem' }}>Paid Invoices</div>
+            <div className="table-container">
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>INVOICE</th>
+                      <th>CUSTOMER</th>
+                      <th>AMOUNT</th>
+                      <th>PAID DATE</th>
+                      <th>STATUS</th>
+                      <th style={{ width: 120 }}></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {paidInvoices.length === 0 ? (
+                      <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No paid invoices yet</td></tr>
+                    ) : paidInvoices.map(inv => (
+                      <tr key={inv.id} onClick={() => setShowDetail(inv.id)} style={{ cursor: 'pointer' }}>
+                        <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{inv.invoiceNumber}</td>
+                        <td>{inv.subscriber?.user?.email ?? '—'}</td>
+                        <td style={{ fontWeight: 600 }}>{fmtK(inv.amountKobo)}</td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{inv.paidAt ? fmtD(inv.paidAt) : '—'}</td>
+                        <td>{badge(inv.status, STATUS_COLORS[inv.status] ?? '#16A34A')}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                            <button className="btn-sm" onClick={() => downloadPdf(inv.id, inv.invoiceNumber)}>PDF</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="data-card" style={{ padding: 0 }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: '0.9rem' }}>Accepted Quotations</div>
+            <div className="table-container">
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>QUOTATION</th>
+                      <th>CUSTOMER</th>
+                      <th>TOTAL</th>
+                      <th>VALID UNTIL</th>
+                      <th>STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acceptedQuotations.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No accepted quotations yet</td></tr>
+                    ) : acceptedQuotations.map(q => (
+                      <tr key={q.id} onClick={() => setShowQDetail(q.id)} style={{ cursor: 'pointer' }}>
+                        <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{q.quotationNumber}</td>
+                        <td>{q.subscriberName}</td>
+                        <td style={{ fontWeight: 600 }}>{fmtK(q.totalKobo)}</td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{q.validUntil ? fmtD(q.validUntil) : '—'}</td>
+                        <td>{badge(q.status, STATUS_COLORS[q.status] ?? '#6366F1')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -555,12 +593,53 @@ export default function BillingPage() {
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                {(['existing', 'new'] as const).map(m => (
+                  <button key={m} onClick={() => setInvCustomerMode(m)} style={{ padding: '6px 16px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, background: invCustomerMode === m ? 'var(--primary)' : '#fff', color: invCustomerMode === m ? '#fff' : 'var(--text-color)' }}>
+                    {m === 'existing' ? 'Existing Customer' : 'New Customer'}
+                  </button>
+                ))}
+              </div>
+
+              {invCustomerMode === 'existing' ? (
+                <div>
+                  <label style={lbl}>Customer</label>
+                  <select value={form.subscriberId} onChange={e => {
+                    const sid = e.target.value;
+                    const sub = subs.find(s => s.id === sid);
+                    setForm(f => ({ ...f, subscriberId: sid, email: sub ? sub.email : f.email }));
+                  }} style={sel}>
+                    <option value="">Select customer...</option>
+                    {subs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={lbl}>Full Name</label>
+                      <input value={form.newName} onChange={e => setForm(f => ({ ...f, newName: e.target.value }))} placeholder="John Doe" style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Email *</label>
+                      <input type="email" value={form.newEmail} onChange={e => setForm(f => ({ ...f, newEmail: e.target.value }))} placeholder="new@customer.com" style={inp} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={lbl}>Phone</label>
+                      <input value={form.newPhone} onChange={e => setForm(f => ({ ...f, newPhone: e.target.value }))} placeholder="+234..." style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Address</label>
+                      <input value={form.newAddress} onChange={e => setForm(f => ({ ...f, newAddress: e.target.value }))} placeholder="Lagos, Nigeria" style={inp} />
+                    </div>
+                  </div>
+                </div>
+              )}
               <div>
-                <label style={lbl}>Customer</label>
-                <select value={form.subscriberId} onChange={e => setForm(f => ({ ...f, subscriberId: e.target.value }))} style={sel}>
-                  <option value="">Select customer...</option>
-                  {subs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <label style={lbl}>Email invoice to (defaults to customer email)</label>
+                <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="billing@customer.com" style={inp} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
@@ -621,7 +700,7 @@ export default function BillingPage() {
 
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button className="btn-outline" onClick={() => setShowCreate(false)}>Cancel</button>
-                <button className="btn-primary" disabled={submitting || !form.subscriberId || !form.dueAt} onClick={handleCreate}>
+                <button className="btn-primary" disabled={submitting || (invCustomerMode === 'existing' ? !form.subscriberId : !form.newEmail) || !form.dueAt} onClick={handleCreate}>
                   {submitting ? 'Creating...' : 'Create Invoice'}
                 </button>
               </div>
@@ -698,7 +777,8 @@ export default function BillingPage() {
               {inv.notes && <div style={{ marginBottom: 20, padding: 12, background: '#FFFBEB', borderRadius: 10, fontSize: '0.8rem', color: '#92400E' }}>{inv.notes}</div>}
 
               <div style={{ display: 'flex', gap: 8 }}>
-                {inv.status === 'DRAFT' && <button className="btn-primary" onClick={() => { issueInvoice(inv.id); }}>Issue Invoice</button>}
+                <button className="btn-primary" onClick={() => { downloadPdf(inv.id, inv.invoiceNumber); }}>Download PDF</button>
+                {inv.status === 'DRAFT' && <button className="btn-outline" onClick={() => { issueInvoice(inv.id); }}>Issue & Email</button>}
                 {inv.status === 'ISSUED' && <button className="btn-primary" onClick={() => { markPaid(inv.id); }}>Mark Paid</button>}
                 {(inv.status === 'DRAFT' || inv.status === 'ISSUED') && <button className="btn-outline" onClick={() => { voidInvoice(inv.id); }}>Void Invoice</button>}
               </div>
@@ -720,10 +800,40 @@ export default function BillingPage() {
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={lbl}>Customer Name</label>
-                <input value={qForm.subscriberName} onChange={e => setQForm(f => ({ ...f, subscriberName: e.target.value }))} style={inp} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                {(['existing', 'new'] as const).map(m => (
+                  <button key={m} onClick={() => setQCustomerMode(m)} style={{ padding: '6px 16px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, background: qCustomerMode === m ? 'var(--primary)' : '#fff', color: qCustomerMode === m ? '#fff' : 'var(--text-color)' }}>
+                    {m === 'existing' ? 'Existing Customer' : 'New Customer'}
+                  </button>
+                ))}
               </div>
+
+              {qCustomerMode === 'existing' ? (
+                <div>
+                  <label style={lbl}>Customer</label>
+                  <select value={qForm.subscriberId} onChange={e => {
+                    const sid = e.target.value;
+                    const sub = subs.find(s => s.id === sid);
+                    setQForm(f => ({
+                      ...f,
+                      subscriberId: sid,
+                      subscriberName: sub ? sub.name : '',
+                      subscriberEmail: sub ? sub.email : '',
+                      subscriberPhone: sub ? sub.phone : '',
+                      subscriberAddress: sub ? sub.address : '',
+                    }));
+                  }} style={sel}>
+                    <option value="">Select customer...</option>
+                    {subs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6 }}>Contact details auto-fill from the customer record — you can still edit them below.</div>
+                </div>
+              ) : (
+                <div>
+                  <label style={lbl}>Customer Name</label>
+                  <input value={qForm.subscriberName} onChange={e => setQForm(f => ({ ...f, subscriberName: e.target.value, subscriberId: '' }))} style={inp} />
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={lbl}>Email</label>
@@ -774,7 +884,7 @@ export default function BillingPage() {
               </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button className="btn-outline" onClick={() => setShowQuotation(false)}>Cancel</button>
-                <button className="btn-primary" disabled={submitting || !qForm.subscriberName || qForm.items.some(i => !i.description)} onClick={handleCreateQuotation}>
+                <button className="btn-primary" disabled={submitting || (qCustomerMode === 'existing' ? !qForm.subscriberId : !qForm.subscriberName) || qForm.items.some(i => !i.description)} onClick={handleCreateQuotation}>
                   {submitting ? 'Saving...' : 'Create Quotation'}
                 </button>
               </div>

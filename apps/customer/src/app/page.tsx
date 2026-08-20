@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, api } from '@isp/shared';
+import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from './components/Skeleton';
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -12,7 +12,7 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
   PENDING: { bg: '#dbeafe', fg: '#1e40af' },
 };
 
-function fmtK(k: number) { return `\u20A6${(k / 100).toLocaleString()}`; }
+function fmtK(k: number) { return formatNaira(k); }
 
 interface DashboardData {
   plan?: { name: string; speedMbps: number; priceKobo: number };

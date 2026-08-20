@@ -21,6 +21,15 @@ export interface WelcomeData {
   installationFeeKobo: number;
 }
 
+export interface LoginDetailsData {
+  email: string;
+  username?: string | null;
+  password: string;
+  customerId: string;
+  planName?: string;
+  portalUrl?: string;
+}
+
 export interface ReminderData {
   email: string;
   customerName: string;
@@ -59,7 +68,7 @@ export class MailService {
       this.transporter = nodemailer.createTransport({
         host,
         port,
-        secure: port === 465,
+        secure: Number(port) === 465,
         auth: { user, pass },
       });
       this.logger.log(`SMTP configured: ${host}:${port} as ${user}`);
@@ -223,6 +232,33 @@ export class MailService {
     );
 
     await this.send({ to: data.email, subject: `Welcome to ${name} — Account Activated`, html: body });
+  }
+
+  async sendLoginDetails(data: LoginDetailsData): Promise<void> {
+    const portalUrl = data.portalUrl || this.getAppUrl();
+    const appName = this.getAppName();
+
+    const body = this.h(
+      `<h2 style="margin:0 0 12px 0;font-size:20px;color:#0F172A;font-weight:700;">Your ${appName} Login Details</h2>
+      <p style="margin:0 0 24px 0;color:#475569;font-size:14px;line-height:1.5;">Your internet account is fully set up. Use the credentials below to log in to your personal dashboard, where you can view your plan, invoices and usage.</p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F8FAFC;border-radius:8px;padding:16px;margin-bottom:16px;border:1px solid #E2E8F0;">
+        <tr><td colspan="2" style="padding-bottom:8px;font-size:12px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:0.5px;">Account Credentials</td></tr>
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Login Email / Username</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${data.email}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Password</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-family:monospace;font-size:13px;" align="right">${data.password}</td></tr>
+        ${data.username ? `<tr><td style="padding:4px 0;color:#64748B;font-size:13px;">PPPoE / RADIUS Username</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${data.username}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Customer ID</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${data.customerId}</td></tr>
+        ${data.planName ? `<tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Plan</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${data.planName}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Portal URL</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${portalUrl}</td></tr>
+      </table>
+
+      ${this.renderButton(`${portalUrl}/login`, 'Log In to Your Dashboard')}
+
+      <p style="margin:0;font-size:12px;color:#94A3B8;text-align:center;">Security notice: Change your password after your first login.</p>`,
+      `Login details for ${data.email}`
+    );
+
+    await this.send({ to: data.email, subject: `${appName} — Your Portal Login Details`, html: body });
   }
 
   async sendPasswordReset(email: string, newPassword: string): Promise<void> {

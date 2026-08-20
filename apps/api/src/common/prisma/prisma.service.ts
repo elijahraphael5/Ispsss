@@ -66,6 +66,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     await this.client.$disconnect();
   }
 
+  $queryRaw<T = unknown>(query: TemplateStringsArray | string, ...values: unknown[]): Promise<T> {
+    return this.client.$queryRaw(query as any, ...values) as Promise<T>;
+  }
+
   get user() { return wrapDelegate('User', this.client.user) as typeof this.client.user; }
   get subscriber() { return wrapDelegate('Subscriber', this.client.subscriber) as typeof this.client.subscriber; }
   get plan() { return wrapDelegate('Plan', this.client.plan) as typeof this.client.plan; }

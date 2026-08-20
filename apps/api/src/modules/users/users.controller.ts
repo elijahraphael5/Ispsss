@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -41,6 +42,31 @@ export class UsersController {
     return this.service.updateCustomer(id, body, actorId);
   }
 
+  @Post('import')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  importCustomers(@UploadedFile() file: Express.Multer.File, @CurrentUser('id') actorId: string) {
+    return this.service.startImport(file, actorId);
+  }
+
+  @Get('import/:jobId')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
+  importStatus(@Param('jobId') jobId: string) {
+    return this.service.importStatus(jobId);
+  }
+
+  @Post('launch')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
+  launch(@Body() body: { testEmail?: string }, @CurrentUser('id') actorId: string) {
+    return this.service.launchLogins(body, actorId);
+  }
+
+  @Get('launch/:jobId')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
+  launchStatus(@Param('jobId') jobId: string) {
+    return this.service.launchStatus(jobId);
+  }
+
   @Get(':id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO')
   findOne(@Param('id') id: string) {
@@ -49,7 +75,7 @@ export class UsersController {
 
   @Post()
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  create(@Body() body: { email: string; password: string; phone?: string; customRoleId?: string }, @CurrentUser('id') actorId: string) {
+  create(@Body() body: { email: string; password: string; name?: string; phone?: string; customRoleId?: string }, @CurrentUser('id') actorId: string) {
     return this.service.create(body, actorId);
   }
 

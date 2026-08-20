@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+**/dist-test
+**/.next
+**/uploads
+**/*.tsbuildinfo
+uploads
+.git
+.gitignore
+*.log
+/tmp
