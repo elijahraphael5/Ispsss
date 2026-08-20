@@ -96,6 +96,11 @@ services:
       APP_PORT: "4101"
       FRONTEND_URL: ${FRONTEND_URL}
       TWO_FA_ISSUER: Hikonnect
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      MAIL_FROM: ${MAIL_FROM}
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +132,12 @@ services:
     environment:
       <<: *common-env
       APP_PORT: "4103"
+      CUSTOMER_URL: ${CUSTOMER_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      MAIL_FROM: ${MAIL_FROM}
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,6 +168,11 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
       SUPPORT_SERVICE_URL: http://support-service:4104
       CUSTOMER_URL: ${CUSTOMER_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      MAIL_FROM: ${MAIL_FROM}
     depends_on:
       postgres:
         condition: service_healthy
