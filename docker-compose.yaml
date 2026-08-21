@@ -265,7 +265,8 @@ services:
         condition: service_completed_successfully
 
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: ./infra/nginx
     restart: always
     networks:
       - default
@@ -274,8 +275,6 @@ services:
       NGINX_ADMIN_HOST: ${NGINX_ADMIN_HOST}
       NGINX_CUSTOMER_HOST: ${NGINX_CUSTOMER_HOST}
       NGINX_API_HOST: ${NGINX_API_HOST}
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.isp-web.priority=1000
