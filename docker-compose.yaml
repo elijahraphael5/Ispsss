@@ -284,6 +284,12 @@ services:
       - traefik.http.routers.isp-web.entrypoints=https
       - traefik.http.routers.isp-web.tls.certresolver=letsencrypt
       - traefik.http.services.isp-web.loadbalancer.server.port=80
+      - traefik.http.routers.isp-web-http.priority=1000
+      - traefik.http.routers.isp-web-http.rule=Host(`admin.hikonnectng.com`) || Host(`my.hikonnectng.com`) || Host(`api.hikonnectng.com`)
+      - traefik.http.routers.isp-web-http.entrypoints=http
+      - traefik.http.routers.isp-web-http.middlewares=isp-web-redirect
+      - traefik.http.middlewares.isp-web-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.isp-web-redirect.redirectscheme.permanent=true
     depends_on:
       - api
       - admin
