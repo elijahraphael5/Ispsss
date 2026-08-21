@@ -278,6 +278,7 @@ services:
       - ./infra/nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     labels:
       - traefik.enable=true
+      - traefik.docker.network=coolify
       - traefik.http.routers.isp-web-http.rule=Host(`${NGINX_ADMIN_HOST}`) || Host(`${NGINX_CUSTOMER_HOST}`) || Host(`${NGINX_API_HOST}`)
       - traefik.http.routers.isp-web-http.entrypoints=http
       - traefik.http.routers.isp-web-http.middlewares=isp-redirect
@@ -293,8 +294,6 @@ services:
       - customer
 
 networks:
-  default:
-    name: isp-platform-default
   coolify:
     external: true
 
