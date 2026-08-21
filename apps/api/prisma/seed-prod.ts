@@ -211,4 +211,10 @@ async function main() {
   console.log(`Prod bootstrap done: tenant=default, roles=${roleNames.length}, users=2, plans=${created}`);
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main()
+  .then(() => prisma.$disconnect())
+  .catch(async (err) => {
+    console.error(err);
+    await prisma.$disconnect();
+    process.exit(1);
+  });
