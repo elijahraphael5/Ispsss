@@ -62,18 +62,23 @@
 - **`useToast` is NOT chained** — `toast(msg, type, toasts, setToasts)` with local `toasts` state + `<ToastContainer toasts={toasts}/>`; `toast.success()`/`.error()` don't exist.
 - **Delete is HARD delete** — cascades through related records via `prisma.$transaction`.
 - **`timeAgo()`** — relative-time util from `@isp/shared` (`packages/shared/src/format.ts`); use for stale/health timestamps.
-- **`.env.example` mentions `docker compose up -d ... minio`** but `docker-compose.yml` has NO MinIO service — S3/S3_* env vars are currently unused.
+- **`.env.example` mentions `docker compose up -d ... minio`** but no compose file defines a MinIO service — S3/S3_* env vars are currently unused.
 - **No CI/CD** — `.github/` does not exist. No ESLint/Prettier configs; frontend tsconfigs have `strict: false` (relaxed type checking).
 
 ## Production hardening (already in code)
 
-- **`assertProdEnv`** (`@isp/logger`) — every app's `main.ts` calls it; in `NODE_ENV=production` it refuses to boot with missing or dev-default values (e.g. `JWT_ACCESS_SECRET=change-me`, `WEBHOOK_SERVICE_TOKEN` unset, `RADIUS_SHARED_SECRET=testing123`). `docker-compose.yml` still sets dev defaults — override all of them in real deploys.
+- **`assertProdEnv`** (`@isp/logger`) — every app's `main.ts` calls it; in `NODE_ENV=production` it refuses to boot with missing or dev-default values (e.g. `JWT_ACCESS_SECRET=change-me`, `WEBHOOK_SERVICE_TOKEN` unset, `RADIUS_SHARED_SECRET=testing123`). `docker-compose.dev.yml` still sets dev defaults; `docker-compose.yaml` reads everything from env — override all of them in real deploys.
 - **CORS** — all apps read `CORS_ORIGINS` (comma-separated; default `http://localhost:3000,http://localhost:3001`).
 - **Throttling** — gateway reads `THROTTLE_TTL_MS`/`THROTTLE_LIMIT` (defaults 60000/100).
 - **`data-simulator` is OFF by default** — api only registers/schedules it when `ENABLE_DATA_SIMULATOR=true`.
 - **Paystack is the ONLY payment gateway** — the Paystack webhook (`POST /api/v1/payments/webhook/paystack`) is HMAC-SHA512 verified server-side (`x-paystack-signature` vs `PAYSTACK_SECRET_KEY`) in `handlePaystackWebhook`; unknown references are ignored. Customer self-service checkout (`POST /payments/customer/initialize`, `GET /payments/customer/verify`) creates an ISSUED invoice + PENDING payment up front, then `completeCustomerPayment` (idempotent, called from both webhook and verify) applies the subscription action, marks the invoice PAID via `billing.markPaid`, creates a receipt, and triggers RADIUS activation. Amounts are kobo (Paystack's API unit — do NOT divide by 100). The browser widget is Paystack inline JS (`https://js.paystack.co/v1/inline.js`) with `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`. `assertProdEnv` requires `PAYSTACK_SECRET_KEY` on payments-service and customer-service; the customer callback page verifies via `GET /payments/customer/verify?reference=`. Register the webhook URL at Paystack: `<NGINX_API_HOST>/api/v1/payments/webhook/paystack`.
 - **Internal endpoints fail closed in prod** — radius internal controller + billing `PATCH :id/paid` reject requests when `WEBHOOK_SERVICE_TOKEN` is unset.
-- **Docker stack** — `docker-compose.yml` builds one image containing all 9 apps (frontends via `next start` with `API_PROXY_TARGET`), plus nginx (`infra/nginx/nginx.conf`, templated from `NGINX_*_HOST` env) routing `/api/v1` + `/socket.io` to the gateway. `uploads/` is a named volume on support-service. **Live domains (prod stack):** `admin.hikonnectng.com` (admin), `my.hikonnectng.com` (customer), `api.hikonnectng.com` (API) — set in root `.env` as `NGINX_*_HOST` + `CUSTOMER_URL` + `CORS_ORIGINS` (applied to all 7 backend services via compose).
+- **Docker stack** — `docker-compose.yaml` (prod, Coolify auto-detects this exact filename) and `docker-compose.dev.yml` (local) build one image containing all 9 apps, plus nginx routing `/api/v1` + `/socket.io` to the gateway. `uploads/` is a named volume on support-service. **Live domains (prod stack):** `admin.hikonnectng.com` (admin), `my.hikonnectng.com` (customer), `api.hikonnectng.com` (API) — set as `NGINX_*_HOST` + `CUSTOMER_URL` + `CORS_ORIGINS` (compose applies them to all 7 backends).
+- **Prod edge routing is manual Traefik labels on the `nginx` service, NOT Coolify UI domain assignment** (UI assignment caused persistent `503 no available server` conflicts). The labels: router `isp-web` with `priority=1000` (overrides any stale UI router), `rule=Host(admin)||Host(my)||Host(api)`, `entrypoints=https`, `tls.certresolver=letsencrypt`, service port 80; plus `isp-web-http` router (entrypoint `http`) redirecting http→https via a `redirectscheme` middleware. nginx is on `networks: [default, coolify]` with a top-level `coolify: { external: true }` so Coolify's Traefik can reach it.
+- **nginx config is baked into a custom image** (`infra/nginx/Dockerfile` `COPY nginx.conf /etc/nginx/templates/default.conf.template`), **not bind-mounted** — Coolify runs `up -d` from `/data/coolify/applications/<uuid>` which lacks the source tree, so a `./infra/nginx/nginx.conf` bind mount silently mounts nothing and nginx serves its default "Welcome to nginx!" page.
+- **`init` one-shot** runs `sh -c "cd apps/api && npx prisma migrate deploy && npx tsx prisma/seed-prod.ts"` — must `cd apps/api` first: the runtime image has no root `package.json`/`pnpm-workspace.yaml`, so `pnpm --filter api exec …` fails ("No projects matched the filters") and prisma/tsx/schema/migrations all live under `apps/api`.
+- **`admin`/`customer` `next start`** must use `working_dir: /repo/apps/admin` (or `/repo/apps/customer`) + `sh -c "exec ./node_modules/.bin/next start -p 3000"`. `node …/.bin/next` is invalid (`.bin/next` is a shell shim) and `next start` needs cwd to find `.next`.
+- **Prod failure → cause map:** `503 no available server` (Traefik) = nginx unreachable/down (check init/backends); nginx "Welcome to nginx!" = config not loaded (bind mount / baked image issue); nginx `502` = a backend (api/admin/customer) is down.
 
 ## Support: Live Chat + Tickets (`apps/support-service/src/modules/support/`)
 
@@ -121,6 +126,8 @@
 
 ## Default login
 
+Prod (`seed-prod.ts`, used by the `init` service):
 `admin@isp.local` / `admin123` (tenant admin, `isSuperAdmin: false`)
 `root@isp.local` / `R8k!mP9xL2#s` (superadmin, `isSuperAdmin: true`)
-`agent1@isp.local` / `admin123`, `agent2@isp.local` / `admin123` (SUPPORT_AGENT demo agents)
+
+Dev-only (`seed.ts`, `pnpm --filter api prisma:seed`): also `agent1@isp.local`, `agent2@isp.local`, `support@isp.local` (all `/ admin123`, SUPPORT_AGENT) + canned responses/chat/tickets. These do NOT exist in prod.
