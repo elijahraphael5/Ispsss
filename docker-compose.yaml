@@ -267,9 +267,6 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: always
-    networks:
-      - default
-      - coolify
     environment:
       NGINX_ADMIN_HOST: ${NGINX_ADMIN_HOST}
       NGINX_CUSTOMER_HOST: ${NGINX_CUSTOMER_HOST}
@@ -278,7 +275,6 @@ services:
       - ./infra/nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     labels:
       - traefik.enable=true
-      - traefik.docker.network=coolify
       - traefik.http.routers.isp-web-http.rule=Host(`${NGINX_ADMIN_HOST}`) || Host(`${NGINX_CUSTOMER_HOST}`) || Host(`${NGINX_API_HOST}`)
       - traefik.http.routers.isp-web-http.entrypoints=http
       - traefik.http.routers.isp-web-http.middlewares=isp-redirect
@@ -292,10 +288,6 @@ services:
       - api
       - admin
       - customer
-
-networks:
-  coolify:
-    external: true
 
 volumes:
   pgdata:
