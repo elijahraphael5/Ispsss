@@ -248,7 +248,8 @@ services:
 
   admin:
     <<: *app
-    command: ["node", "apps/admin/node_modules/.bin/next", "start", "-p", "3000"]
+    working_dir: /repo/apps/admin
+    command: ["sh", "-c", "exec ./node_modules/.bin/next start -p 3000"]
     environment:
       API_PROXY_TARGET: http://api:4000
     depends_on:
@@ -257,7 +258,8 @@ services:
 
   customer:
     <<: *app
-    command: ["node", "apps/customer/node_modules/.bin/next", "start", "-p", "3000"]
+    working_dir: /repo/apps/customer
+    command: ["sh", "-c", "exec ./node_modules/.bin/next start -p 3000"]
     environment:
       API_PROXY_TARGET: http://api:4000
     depends_on:
