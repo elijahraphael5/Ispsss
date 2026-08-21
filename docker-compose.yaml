@@ -267,16 +267,30 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: always
+    networks:
+      - default
+      - coolify
     environment:
       NGINX_ADMIN_HOST: ${NGINX_ADMIN_HOST}
       NGINX_CUSTOMER_HOST: ${NGINX_CUSTOMER_HOST}
       NGINX_API_HOST: ${NGINX_API_HOST}
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.isp-web.priority=1000
+      - traefik.http.routers.isp-web.rule=Host(`admin.hikonnectng.com`) || Host(`my.hikonnectng.com`) || Host(`api.hikonnectng.com`)
+      - traefik.http.routers.isp-web.entrypoints=https
+      - traefik.http.routers.isp-web.tls.certresolver=letsencrypt
+      - traefik.http.services.isp-web.loadbalancer.server.port=80
     depends_on:
       - api
       - admin
       - customer
+
+networks:
+  coolify:
+    external: true
 
 volumes:
   pgdata:
