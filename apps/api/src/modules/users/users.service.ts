@@ -109,14 +109,6 @@ function toCustomerView(sub: any) {
 
 @Injectable()
 export class UsersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
-    private readonly audit: AuditService,
-    private readonly mail: MailService,
-    private readonly config: ConfigService,
-  ) {}
-
   async findAll() {
     return this.prisma.user.findMany({
       where: { deletedAt: null },
@@ -133,44 +125,172 @@ export class UsersService {
   }
 
   async create(data: { email: string; password: string; phone?: string; name?: string; customRoleId?: string }, actorId: string) {
-    const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) throw new ConflictException('A user with this email already exists');
+    const email = data.email.trim().toLowerCase();
+    // Soft-deleted rows are invisible to the soft-delete extension, so check
+    // the raw table: an ACTIVE customer keeps their email, anything stale
+    // (soft-deleted user or orphan left by a customer deletion) releases it.
+    const rows: Array<{ id: string; deletedAt: Date | null; hasSubscriber: boolean }> = await this.prisma.$queryRaw`
+      SELECT u.id, u."deletedAt",
+        EXISTS(SELECT 1 FROM "Subscriber" s WHERE s."userId" = u.id AND s."deletedAt" IS NULL) AS "hasSubscriber"
+      FROM "User" u WHERE u.email = ${email} LIMIT 1
+    `;
+    const existing = rows[0];
+    if (existing && !existing.deletedAt && existing.hasSubscriber) {
+      throw new ConflictException('A user with this email already exists');
+    }
+    if (existing) {
+      // Never reuse deleted data: move the stale row's email to an id-based
+      // placeholder so the address belongs to a brand-new account only.
+      await this.prisma.$queryRaw`UPDATE "User" SET email = 'deleted-' || id || '@local' WHERE id = ${existing.id}`;
+    }
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(data.password, 12);
     const tenantId = await this.tenant.resolveTenant();
     const result = await this.prisma.user.create({
-      data: { tenantId, email: data.email, name: data.name, passwordHash, phone: data.phone, customRoleId: data.customRoleId },
+      data: { tenantId, email, name: data.name, passwordHash, phone: data.phone, customRoleId: data.customRoleId },
       select: userSelect,
     });
-    await this.audit.log({ actorId, action: 'USER_CREATED', entityType: 'User', entityId: result.id, afterData: { email: data.email, name: data.name, phone: data.phone, customRoleId: data.customRoleId } as any, metadata: { email: data.email, customRoleId: data.customRoleId } });
+    await this.audit.log({ actorId, action: 'USER_CREATED', entityType: 'User', entityId: result.id, afterData: { email, name: data.name, phone: data.phone, customRoleId: data.customRoleId } as any, metadata: { email, customRoleId: data.customRoleId } });
     return result;
   }
 
   async update(id: string, data: { email?: string; name?: string; phone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean }, actorId: string) {
     const before = await this.prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true, name: true, phone: true, isSuperAdmin: true, customRoleId: true } });
-    const updateData: any = { ...data };
+    // Explicit field picking — never spread caller-supplied objects into
+    // Prisma data (mass-assignment protection).
+    const updateData: any = {};
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.customRoleId !== undefined) updateData.customRoleId = data.customRoleId;
+    if (data.isSuperAdmin !== undefined) updateData.isSuperAdmin = data.isSuperAdmin;
     if (data.password) {
       const bcrypt = await import('bcryptjs');
       updateData.passwordHash = await bcrypt.hash(data.password, 12);
     }
-    delete updateData.password;
     const result = await this.prisma.user.update({
       where: { id },
       data: updateData,
       select: userSelect,
     });
-    await this.audit.log({ actorId, action: 'USER_UPDATED', entityType: 'User', entityId: id, beforeData: before as any, afterData: { email: result.email, name: result.name, phone: result.phone, isSuperAdmin: result.isSuperAdmin, customRoleId: result.customRoleId } as any, metadata: { changes: Object.keys(data) } });
+    await this.audit.log({ actorId, action: 'USER_UPDATED', entityType: 'User', entityId: id, beforeData: before as any, afterData: { email: result.email, name: result.name, phone: result.phone, isSuperAdmin: result.isSuperAdmin, customRoleId: result.customRoleId } as any, metadata: { changes: Object.keys(updateData) } });
     return result;
   }
 
   async customers() {
     const tenantId = await this.tenant.resolveTenant();
+    // Accounts awaiting KYC approval (maker–checker) stay out of the customer
+    // table until a checker approves them.
     const subs = await this.prisma.subscriber.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, status: { not: 'PENDING_KYC' } },
       include: customerInclude,
       orderBy: { createdAt: 'desc' },
     });
     return subs.map(toCustomerView);
+  }
+
+  async kycQueue() {
+    const tenantId = await this.tenant.resolveTenant();
+    const subs = await this.prisma.subscriber.findMany({
+      where: { tenantId, deletedAt: null, status: 'PENDING_KYC' },
+      include: {
+        user: { select: { id: true, name: true, email: true, phone: true } },
+        subscriptions: {
+          include: { plan: { select: planSelect } },
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+        },
+        devices: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const staffIds = [...new Set(
+      subs.flatMap(s => [s.kycSubmittedById, s.kycApprovedById, s.kycRejectedById].filter((v): v is string => !!v)),
+    )];
+    const staff = staffIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: staffIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const staffMap = new Map(staff.map(u => [u.id, u]));
+    return subs.map(s => {
+      const plan = s.subscriptions?.[0]?.plan ?? null;
+      const email: string | null = s.user?.email ?? null;
+      const maker = s.kycSubmittedById ? staffMap.get(s.kycSubmittedById) : null;
+      const checker = s.kycApprovedById ? staffMap.get(s.kycApprovedById) : null;
+      return {
+        id: s.id,
+        userId: s.userId,
+        name: s.user?.name ?? null,
+        email: email && !email.endsWith('@lan') ? email : null,
+        phone: s.user?.phone ?? null,
+        address: s.address ?? null,
+        pppoeUsername: s.pppoeUsername ?? null,
+        networkType: s.networkType ?? plan?.technology ?? null,
+        type: s.type,
+        plan: plan?.name ?? null,
+        speedMbps: plan?.speedMbps ?? null,
+        priceKobo: plan?.priceKobo ?? null,
+        status: s.status,
+        kycVerified: s.kycVerified,
+        kycSubmittedById: s.kycSubmittedById,
+        kycSubmittedAt: s.kycSubmittedAt,
+        kycSubmittedByName: maker?.name ?? maker?.email ?? null,
+        kycApprovedById: s.kycApprovedById,
+        kycApprovedAt: s.kycApprovedAt,
+        kycRejectedById: s.kycRejectedById,
+        kycRejectedAt: s.kycRejectedAt,
+        kycRejectReason: s.kycRejectReason,
+        cpeCount: (s.devices ?? []).length,
+        createdAt: s.createdAt,
+      };
+    });
+  }
+
+  async approveKyc(id: string, actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null }) {
+    const actorId = actor.id;
+    const sub = await this.prisma.subscriber.findUniqueOrThrow({
+      where: { id, deletedAt: null },
+      select: { id: true, status: true, userId: true, kycSubmittedById: true },
+    });
+    // Maker–checker separation: the admin who created the account may not be
+    // the one who approves it — EXCEPT the platform admin role (SUPER_ADMIN or
+    // isSuperAdmin), which may create AND approve.
+    const canSelfApprove = actor.isSuperAdmin === true || actor.customRole?.name === 'SUPER_ADMIN';
+    if (!canSelfApprove && sub.kycSubmittedById && sub.kycSubmittedById === actorId) {
+      throw new BadRequestException('Maker–checker: the admin who created this account cannot approve it. Another admin must approve.');
+    }
+    const updated = await this.prisma.subscriber.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        kycVerified: true,
+        kycApprovedById: actorId,
+        kycApprovedAt: new Date(),
+        kycRejectedById: null,
+        kycRejectedAt: null,
+        kycRejectReason: null,
+      },
+      select: { id: true, status: true, kycVerified: true, kycApprovedAt: true },
+    });
+    await this.audit.log({ actorId, action: 'KYC_APPROVED', entityType: 'Subscriber', entityId: id, beforeData: { status: sub.status } as any, afterData: { status: 'ACTIVE', kycVerified: true } as any, metadata: { userId: sub.userId } });
+    return updated;
+  }
+
+  async rejectKyc(id: string, actorId: string, reason?: string) {
+    const sub = await this.prisma.subscriber.findUniqueOrThrow({
+      where: { id, deletedAt: null },
+      select: { id: true, status: true, userId: true },
+    });
+    const updated = await this.prisma.subscriber.update({
+      where: { id },
+      data: {
+        kycRejectedById: actorId,
+        kycRejectedAt: new Date(),
+        kycRejectReason: reason?.trim() || null,
+      },
+      select: { id: true, status: true, kycVerified: true, kycRejectedAt: true },
+    });
+    await this.audit.log({ actorId, action: 'KYC_REJECTED', entityType: 'Subscriber', entityId: id, beforeData: { status: sub.status } as any, afterData: { kycRejectReason: reason?.trim() || null } as any, metadata: { userId: sub.userId } });
+    return updated;
   }
 
   private genPassword(): string {
@@ -178,6 +298,26 @@ export class UsersService {
   }
 
   private readonly launchJobs = new Map<string, LaunchJob>();
+  private readonly importJobs = new Map<string, ImportJob>();
+  private static jobsSweeper: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantService,
+    private readonly audit: AuditService,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
+  ) {
+    // Periodically purge finished background jobs so the in-memory maps
+    // can't grow unbounded across a long-lived process.
+    if (!UsersService.jobsSweeper) {
+      UsersService.jobsSweeper = setInterval(() => {
+        for (const [id, j] of this.launchJobs) if (j.status !== 'running') this.launchJobs.delete(id);
+        for (const [id, j] of this.importJobs) if (j.status !== 'running') this.importJobs.delete(id);
+      }, 30 * 60 * 1000);
+      UsersService.jobsSweeper.unref?.();
+    }
+  }
 
   async launchLogins(body: { testEmail?: string }, actorId: string) {
     const tenantId = await this.tenant.resolveTenant();
@@ -236,7 +376,6 @@ export class UsersService {
   }
 
   private async runLaunchJob(users: any[], job: LaunchJob, actorId: string) {
-    const bcrypt = await import('bcryptjs');
     const skipped: { email: string; reason: string }[] = [];
     const failed: { email: string; error: string }[] = [];
 
@@ -258,9 +397,19 @@ export class UsersService {
             planName: u.subscriber?.subscriptions?.[0]?.plan?.name ?? undefined,
             portalUrl: this.config.get<string>('CUSTOMER_URL', 'http://localhost:3001'),
           };
+          // Send FIRST, and only rotate the stored password when the mail was
+          // actually accepted by SMTP. Rotating before a confirmed send would
+          // lock the customer out while reporting success.
+          const sent = await this.mail.sendLoginDetails(data);
+          if (!sent) {
+            failed.push({ email: u.email, error: 'email not delivered (SMTP) — password NOT rotated' });
+            job.failed++;
+            job.processed++;
+            return;
+          }
+          const bcrypt = await import('bcryptjs');
           const passwordHash = await bcrypt.hash(data.password, 12);
           await this.prisma.user.update({ where: { id: u.id }, data: { passwordHash } });
-          await this.mail.sendLoginDetails(data);
           job.sent++;
         } catch (e: any) {
           failed.push({ email: u.email, error: e?.message ?? 'unknown' });
@@ -294,8 +443,18 @@ export class UsersService {
     return toCustomerView(sub);
   }
 
-  async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; planName?: string; dueAt?: string }, actorId: string) {
+  async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string }, actorId: string) {
     const sub = await this.prisma.subscriber.findUniqueOrThrow({ where: { id, deletedAt: null }, include: { user: true } });
+    if (data.email !== undefined) {
+      const normalized = data.email.trim().toLowerCase();
+      if (!normalized) throw new BadRequestException('Email cannot be empty — the customer needs it to sign in');
+      const taken = await this.prisma.user.findFirst({
+        where: { email: normalized, id: { not: sub.userId }, deletedAt: null },
+        select: { id: true },
+      });
+      if (taken) throw new ConflictException('A user with this email already exists');
+      data.email = normalized;
+    }
     if (data.email !== undefined || data.phone !== undefined || data.name !== undefined) {
       await this.prisma.user.update({
         where: { id: sub.userId },
@@ -306,14 +465,20 @@ export class UsersService {
         },
       });
     }
-    if (data.address !== undefined || data.networkType !== undefined) {
-      await this.prisma.subscriber.update({
-        where: { id },
-        data: {
-          ...(data.address !== undefined ? { address: data.address || null } : {}),
-          ...(data.networkType !== undefined ? { networkType: data.networkType || null } : {}),
-        },
-      });
+    if (data.address !== undefined || data.networkType !== undefined || data.pppoeUsername !== undefined) {
+      try {
+        await this.prisma.subscriber.update({
+          where: { id },
+          data: {
+            ...(data.address !== undefined ? { address: data.address || null } : {}),
+            ...(data.networkType !== undefined ? { networkType: data.networkType || null } : {}),
+            ...(data.pppoeUsername !== undefined ? { pppoeUsername: data.pppoeUsername.trim() || null } : {}),
+          },
+        });
+      } catch (e: any) {
+        if (e?.code === 'P2002') throw new ConflictException('PPPoE username is already in use by another customer');
+        throw e;
+      }
     }
     if (data.installerName !== undefined) {
       await this.prisma.cpe.updateMany({ where: { subscriberId: id }, data: { installerName: data.installerName || null } });
@@ -367,14 +532,35 @@ export class UsersService {
   async remove(id: string, actorId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true, phone: true, customRoleId: true, isSuperAdmin: true } });
     await this.audit.log({ actorId, action: 'USER_DELETED', entityType: 'User', entityId: id, beforeData: user as any, metadata: { email: user.email } });
+    // Audit logs are immutable — they are intentionally NOT deleted here so
+    // the trail of who did what survives the user's removal. The user row is
+    // soft-deleted AND its unique email is released (moved to an id-based
+    // placeholder) so the address can be registered as a brand-new account.
     return this.prisma.$transaction(async (tx) => {
-      await tx.auditLog.deleteMany({ where: { actorId: id } });
       await tx.refreshToken.deleteMany({ where: { userId: id } });
-      return tx.user.delete({ where: { id }, select: userSelect });
+      await tx.user.update({ where: { id }, data: { deletedAt: new Date(), email: `deleted-${id}@local` } });
+      return tx.user.findUnique({ where: { id }, select: userSelect });
     });
   }
 
   // ── Excel import ────────────────────────────────────────────
+
+  /**
+   * Purges every customer from the platform (same wipe the Excel import runs
+   * first). Staff users are preserved; the customer table ends up empty.
+   */
+  async purgeCustomers(actorId: string) {
+    const removed = await this.prisma.subscriber.count({ where: { deletedAt: null } });
+    await this.clearCustomerData();
+    await this.audit.log({
+      actorId,
+      action: 'CUSTOMERS_PURGED',
+      entityType: 'Subscriber',
+      entityId: 'bulk-purge',
+      metadata: { removedSubscribers: removed },
+    });
+    return { removedSubscribers: removed };
+  }
 
   /**
    * Wipes ALL existing customer data (users with a subscriber, subscribers,
@@ -382,12 +568,13 @@ export class UsersService {
    * plans, refresh tokens) so a re-upload of the list always starts clean.
    * Staff users (no subscriber) are preserved.
    */
-  private async clearCustomerData() {
+  private async clearCustomerData() {    const tenantId = await this.tenant.resolveTenant();
     await this.prisma.$transaction(async (tx) => {
-      const subs = await tx.subscriber.findMany({ select: { id: true } });
+      // Tenant-scoped: never touch other tenants' plans/customers.
+      const subs = await tx.subscriber.findMany({ where: { tenantId }, select: { id: true } });
       const subIds = subs.map((s) => s.id);
       if (!subIds.length) {
-        await tx.plan.deleteMany({ where: {} });
+        await tx.plan.deleteMany({ where: { tenantId } });
         return;
       }
       const sessions = await tx.chatSession.findMany({ where: { subscriberId: { in: subIds } }, select: { id: true } });
@@ -426,15 +613,13 @@ export class UsersService {
       await tx.subscription.deleteMany({ where: { subscriberId: { in: subIds } } });
       await tx.cpe.deleteMany({ where: { subscriberId: { in: subIds } } });
       await tx.subscriber.deleteMany({ where: { id: { in: subIds } } });
-      await tx.auditLog.deleteMany({ where: { OR: [{ actorId: { in: userIds } }, { entityType: 'User', entityId: { in: userIds } }] } });
+      // Audit logs are immutable — preserved even when customer data is wiped.
       await tx.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
       await tx.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
       await tx.user.deleteMany({ where: { id: { in: userIds } } });
-      await tx.plan.deleteMany({ where: {} });
+      await tx.plan.deleteMany({ where: { tenantId } });
     });
   }
-
-  private readonly importJobs = new Map<string, ImportJob>();
 
   startImport(file: Express.Multer.File, actorId: string): { jobId: string } {
     if (!file) throw new BadRequestException('No file uploaded');
@@ -499,7 +684,6 @@ export class UsersService {
     const idCol = headers.find(h => norm(h) === 'id');
     const id2Col = headers.find(h => norm(h) === 'id2');
     const usernameCol = idCol ?? id2Col;
-    if (!emailCol) throw new BadRequestException('Could not find an "email" column in the file');
 
     const toDate = (v: unknown): Date | null => {
       if (v == null || v === '') return null;
@@ -529,7 +713,7 @@ export class UsersService {
       job.processed = i + 1;
       const r = raw[i];
       const rowNo = i + 2;
-      const email = String(r[emailCol] ?? '').trim().toLowerCase().replace(/\s+/g, '');
+      const email = emailCol ? String(r[emailCol] ?? '').trim().toLowerCase().replace(/\s+/g, '') : '';
 const name = String(r[nameCol ?? ''] ?? '').trim()
         || [String(r[firstNameCol ?? ''] ?? '').trim(), String(r[lastNameCol ?? ''] ?? '').trim()].filter(Boolean).join(' ')
         || String(r[companyCol ?? ''] ?? '').trim();
@@ -540,7 +724,10 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
       const expiresAt = (dueCol && toDate(r[dueCol])) || null;
       const pppoeUsername = usernameCol ? String(r[usernameCol] ?? '').trim() : '';
       const autoEmail = !email && pppoeUsername ? `${pppoeUsername.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@local` : '';
-      const useEmail = email || autoEmail;
+      // Never reject a row for missing email: derive one from the PPPoE ID, or a
+      // placeholder, so every row with any content is imported and all empty
+      // fields simply stay blank (NULL).
+      const useEmail = email || autoEmail || `row-${rowNo}@local`;
       const portalPassword = portalPassCol ? String(r[portalPassCol] ?? '').trim() : '';
       const radiusPassword = radiusPassCol ? String(r[radiusPassCol] ?? '').trim() : '';
       const userType = userTypeCol ? String(r[userTypeCol] ?? '').trim().toUpperCase() : '';
@@ -553,8 +740,8 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
             ? 'RADIO'
             : '';
 
-      if (!email && !name) { skipped++; results.push({ row: rowNo, email, name, status: 'skipped', reason: 'empty row' }); continue; }
-      if (!useEmail) { errors++; results.push({ row: rowNo, email, name, status: 'error', reason: 'missing email & PPPoE username' }); continue; }
+      const hasContent = email || name || phone || address || planName || pppoeUsername || ipAddress || portalPassword || radiusPassword || !!expiresAt || fee !== undefined;
+      if (!hasContent) { skipped++; results.push({ row: rowNo, email, name, status: 'skipped', reason: 'empty row' }); continue; }
       const usernameKey = pppoeUsername.toLowerCase();
       if (pppoeUsername && seenUsernames.has(usernameKey)) {
         skipped++;
@@ -574,6 +761,7 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
         let radiusNote = '';
         let cpeNote = '';
         if (autoEmail) radiusNote = `email auto-generated from ID (${autoEmail})`;
+        else if (useEmail !== email) radiusNote = `email auto-generated (${useEmail})`;
         await this.prisma.$transaction(async (tx) => {
           const phoneTaken = phone ? await tx.user.findFirst({ where: { phone }, select: { id: true } }) : null;
           const bcrypt = await import('bcryptjs');
@@ -596,7 +784,7 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
           });
           subscriberId = subscriber.id;
           if (planName) {
-            let plan = await tx.plan.findFirst({ where: { name: { equals: planName, mode: 'insensitive' } }, select: { id: true } });
+            let plan = await tx.plan.findFirst({ where: { tenantId, name: { equals: planName, mode: 'insensitive' } }, select: { id: true } });
             if (!plan) {
               plan = await tx.plan.create({
                 data: { tenantId, name: planName, type: technology || 'FIBER', technology: technology || 'FIBER', category: 'HOME', speedMbps: 1, priceKobo: fee ?? 0, installationFeeKobo: fee ?? 0, isActive: true },

@@ -5,6 +5,7 @@ import { api, formatNaira } from '@isp/shared';
 import { useParams, useRouter } from 'next/navigation';
 import { SkeletonTable } from '../../../../components/Skeleton';
 import EditableCustomerFields from '../../../../components/EditableCustomerFields';
+import { notifyCustomersChanged } from '@isp/shared';
 import UsageHistoryCard from '../../../../components/UsageHistoryCard';
 
 interface Cpe {
@@ -342,7 +343,7 @@ export default function CustomerDetailPage() {
           </>
         ) : (
           <>
-            <EditableCustomerFields customer={customer} onSaved={setCustomer} />
+            <EditableCustomerFields customer={customer} onSaved={u => { setCustomer(u); notifyCustomersChanged(); }} />
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                 <div>

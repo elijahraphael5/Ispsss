@@ -69,7 +69,13 @@ async function bootstrap() {
   app.use('/healthz', makeLivenessHandler(health) as any);
   app.use('/readyz', makeReadinessHandler(health) as any);
   app.use(async (req: Request, res: Response, next: NextFunction) => {
-    const ip = ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown').split(',')[0].trim();
+    // Only honor X-Forwarded-For when explicitly behind a trusted proxy,
+    // otherwise clients can spoof it to bypass IP rate limiting.
+    const trustProxy = process.env.TRUST_PROXY === 'true';
+    const ip = (trustProxy
+      ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
+      : (req.ip ?? 'unknown')
+    ).split(',')[0].trim();
     const result = await limiter.consume(`ip:${ip}`, tierFor(req));
     if (!result.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)));

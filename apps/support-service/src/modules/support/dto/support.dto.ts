@@ -9,7 +9,7 @@ export class CreateChatSessionDto {
 export class SendChatMessageDto {
   @IsString()
   @IsNotEmpty()
-  body: string;
+  body!: string;
 
   @IsOptional()
   @IsArray()
@@ -20,19 +20,19 @@ export class SendChatMessageDto {
 export class ReassignSessionDto {
   @IsString()
   @IsNotEmpty()
-  agentId: string;
+  agentId!: string;
 }
 
 export class RateSessionDto {
   @IsInt()
   @Min(1)
   @Max(5)
-  rating: number;
+  rating!: number;
 }
 
 export class PresenceDto {
   @IsIn(['ONLINE', 'AWAY', 'OFFLINE'])
-  status: 'ONLINE' | 'AWAY' | 'OFFLINE';
+  status!: 'ONLINE' | 'AWAY' | 'OFFLINE';
 }
 
 export class ConvertSessionDto {
@@ -52,7 +52,7 @@ export class CreateTicketDto {
 
   @IsString()
   @IsNotEmpty()
-  subject: string;
+  subject!: string;
 
   @IsOptional()
   @IsString()
@@ -96,7 +96,7 @@ export class UpdateTicketDto {
 export class AddTicketCommentDto {
   @IsString()
   @IsNotEmpty()
-  body: string;
+  body!: string;
 
   @IsOptional()
   @IsBoolean()
@@ -111,11 +111,11 @@ export class AddTicketCommentDto {
 export class CreateCannedDto {
   @IsString()
   @IsNotEmpty()
-  title: string;
+  title!: string;
 
   @IsString()
   @IsNotEmpty()
-  body: string;
+  body!: string;
 
   @IsOptional()
   @IsString()

@@ -18,6 +18,8 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('registered') === '1') setSuccess('Account created successfully. Sign in below.');
+    if (params.get('reason') === 'idle') setSuccess('You were logged out due to inactivity. Please sign in again.');
+    if (params.get('reason') === 'password') setSuccess('Password changed successfully. Please sign in again.');
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -26,7 +28,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const result = await api<{ accessToken?: string; twoFaRequired?: boolean; userId?: string }>(
+      const result = await api<{ accessToken?: string; twoFaRequired?: boolean; userId?: string; email?: string }>(
         '/auth/login',
         { method: 'POST', body: JSON.stringify({ email, password }), skipAuth: true },
       );
@@ -37,7 +39,7 @@ export default function LoginPage() {
         setUser(user);
         router.push('/');
       } else if (result.twoFaRequired) {
-        router.push(`/login/2fa?userId=${result.userId}`);
+        router.push(`/login/2fa?userId=${result.userId}&email=${encodeURIComponent(result.email ?? email)}`);
       }
     } catch (err: any) {
       setError(err.message || 'Invalid email or password');

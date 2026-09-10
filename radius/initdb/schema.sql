@@ -178,3 +178,15 @@ CREATE TABLE IF NOT EXISTS nasreload (
   reloadtime datetime NOT NULL,
   PRIMARY KEY (nasipaddress)
 ) ENGINE = INNODB;
+
+#
+# Table structure for table 'radius_profile_meta'
+# App metadata for PPPoE profiles (RADIUS groups) — not read by FreeRADIUS.
+# static_ip_mode=1 means the profile requires a per-subscriber Framed-IP-Address.
+#
+CREATE TABLE IF NOT EXISTS radius_profile_meta (
+  groupname varchar(64) NOT NULL,
+  static_ip_mode tinyint(1) NOT NULL DEFAULT 0,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (groupname)
+) ENGINE = INNODB;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api, formatNaira } from '@isp/shared';
+import { api, formatNaira, nairaToKobo, koboToNairaInput } from '@isp/shared';
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -53,37 +53,34 @@ function badge(label: string, color?: string, bg?: string) {
   return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: bg ?? (c + '18'), color: c }}>{label}</span>;
 }
 
-const TABS = ['Payments', 'Refunds', 'Reconciliation'];
 const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1px solid var(--border-color)', borderRadius: 10, fontSize: '0.85rem', outline: 'none' };
-const sel: React.CSSProperties = { ...inp, background: 'white' };
 
 /* ── Component ────────────────────────────────────────────── */
 
-export default function PaymentsPage() {
-  const [tab, setTab] = useState('Payments');
+export default function PaymentsSection({ tab }: { tab: string }) {
   const [dash, setDash] = useState<DashboardData | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [refunds, setRefunds] = useState<RefundItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   // filters
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   // drawers
   const [showDetail, setShowDetail] = useState<string | null>(null);
   const [showRecordPayment, setShowRecordPayment] = useState(false);
-  const [recordForm, setRecordForm] = useState({ invoiceId: '', amountKobo: 0, provider: 'BANK_TRANSFER', reference: '' });
+  const [recordForm, setRecordForm] = useState({ invoiceId: '', amountNaira: '', provider: 'BANK_TRANSFER', reference: '' });
 
   // refund drawer
   const [showRefundForm, setShowRefundForm] = useState(false);
-  const [refundForm, setRefundForm] = useState({ paymentId: '', amountKobo: 0, reason: '' });
+  const [refundForm, setRefundForm] = useState({ paymentId: '', amountNaira: '', reason: '' });
 
   useEffect(() => { fetchAll(); }, []);
 
   async function fetchAll() {
-    setLoading(true);
     try {
       const [d, p, r] = await Promise.all([
         api<DashboardData>('/payments/dashboard').catch(() => null),
@@ -94,14 +91,13 @@ export default function PaymentsPage() {
       setPayments(p);
       setRefunds(r);
     } catch { setError('Failed to load payments'); }
-    finally { setLoading(false); }
   }
 
   async function requestRefund() {
     try {
       await api('/payments/refunds/request', {
         method: 'POST',
-        body: JSON.stringify(refundForm),
+        body: JSON.stringify({ paymentId: refundForm.paymentId, amountKobo: nairaToKobo(refundForm.amountNaira), reason: refundForm.reason }),
       });
       setShowRefundForm(false);
       await fetchAll();
@@ -126,8 +122,34 @@ export default function PaymentsPage() {
   const filteredPayments = payments.filter(p => {
     if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
     if (search && !p.reference.toLowerCase().includes(search.toLowerCase()) && !p.invoice?.invoiceNumber?.toLowerCase().includes(search.toLowerCase())) return false;
+    const d = (p.paidAt ?? p.createdAt).slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
     return true;
   });
+
+  function exportCsv() {
+    const rows = [
+      ['Reference', 'Invoice', 'Customer', 'Amount (NGN)', 'Provider', 'Status', 'Date'],
+      ...filteredPayments.map(p => [
+        p.reference,
+        p.invoice?.invoiceNumber ?? '',
+        p.invoice?.subscriber?.user?.email ?? '',
+        (p.amountKobo / 100).toFixed(2),
+        p.provider,
+        p.status,
+        (p.paidAt ?? p.createdAt).slice(0, 10),
+      ]),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payments-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <>
@@ -135,10 +157,7 @@ export default function PaymentsPage() {
       {tab === 'Payments' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
           <div className="data-card" style={{ padding: '18px 20px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ display: 'inline', marginRight: 4 }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Today
-            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Today</div>
             <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--primary)' }}>{dash ? fmtK(dash.revenueToday) : '—'}</div>
           </div>
           <div className="data-card" style={{ padding: '18px 20px' }}>
@@ -179,22 +198,11 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{ padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', backgroundColor: tab === t ? 'var(--primary)' : '#fff', color: tab === t ? '#fff' : 'var(--text-color)' }}>
-            {t}
-          </button>
-        ))}
-        {tab === 'Payments' && <div style={{ flex: 1 }} />}
-        {tab === 'Payments' && <button className="btn-primary" onClick={() => setShowRecordPayment(true)}>Record Payment</button>}
-      </div>
-
       {/* ── Payments Tab ─────────────────────────────────── */}
       {tab === 'Payments' && (
         <>
           <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ref or invoice..." style={{ ...inp, maxWidth: 260 }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ref or invoice..." style={{ ...inp, maxWidth: 240 }} />
             <div style={{ display: 'flex', gap: 6 }}>
               {['ALL', 'SUCCESSFUL', 'PENDING', 'FAILED', 'REFUNDED'].map(s => (
                 <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: '5px 12px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: statusFilter === s ? 600 : 400, fontSize: '0.75rem', background: statusFilter === s ? 'var(--primary)' : '#fff', color: statusFilter === s ? '#fff' : 'var(--text-color)' }}>
@@ -202,6 +210,15 @@ export default function PaymentsPage() {
                 </button>
               ))}
             </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>From</label>
+              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ ...inp, width: 150 }} />
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>To</label>
+              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ ...inp, width: 150 }} />
+            </div>
+            <div style={{ flex: 1 }} />
+            <button className="btn-outline" onClick={exportCsv}>Export CSV</button>
+            <button className="btn-primary" onClick={() => setShowRecordPayment(true)}>Record Payment</button>
           </div>
 
           <div className="data-card" style={{ padding: 0 }}>
@@ -234,7 +251,7 @@ export default function PaymentsPage() {
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{p.paidAt ? fmtD(p.paidAt) : fmtD(p.createdAt)}</td>
                         <td onClick={e => e.stopPropagation()}>
                           {p.status === 'SUCCESSFUL' && (
-                            <button className="btn-sm-outline" onClick={() => { setRefundForm({ paymentId: p.id, amountKobo: p.amountKobo, reason: '' }); setShowRefundForm(true); }}>
+                            <button className="btn-sm-outline" onClick={() => { setRefundForm({ paymentId: p.id, amountNaira: koboToNairaInput(p.amountKobo), reason: '' }); setShowRefundForm(true); }}>
                               Refund
                             </button>
                           )}
@@ -392,12 +409,12 @@ export default function PaymentsPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount (kobo)</label>
-                  <input type="number" value={recordForm.amountKobo} onChange={e => setRecordForm(f => ({ ...f, amountKobo: Number(e.target.value) }))} style={inp} />
+                  <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount (₦)</label>
+                  <input type="text" inputMode="decimal" value={recordForm.amountNaira} onChange={e => setRecordForm(f => ({ ...f, amountNaira: e.target.value }))} placeholder="e.g. 25000" style={inp} />
                 </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Provider</label>
-                  <select value={recordForm.provider} onChange={e => setRecordForm(f => ({ ...f, provider: e.target.value }))} style={sel}>
+                  <select value={recordForm.provider} onChange={e => setRecordForm(f => ({ ...f, provider: e.target.value }))} style={{ ...inp, background: 'white' }}>
                     {['BANK_TRANSFER', 'PAYSTACK', 'FLUTTERWAVE', 'MONNIFY', 'REMITA', 'CASH', 'POS'].map(p => <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>)}
                   </select>
                 </div>
@@ -408,13 +425,13 @@ export default function PaymentsPage() {
               </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button className="btn-outline" onClick={() => setShowRecordPayment(false)}>Cancel</button>
-                <button className="btn-primary" disabled={!recordForm.invoiceId || !recordForm.amountKobo || !recordForm.reference}
+                <button className="btn-primary" disabled={!recordForm.invoiceId || nairaToKobo(recordForm.amountNaira) <= 0 || !recordForm.reference}
                   onClick={async () => {
                     try {
-                      await api('/payments/record-offline', { method: 'POST', body: JSON.stringify(recordForm) });
+                      await api('/payments/record-offline', { method: 'POST', body: JSON.stringify({ invoiceId: recordForm.invoiceId, amountKobo: nairaToKobo(recordForm.amountNaira), provider: recordForm.provider, reference: recordForm.reference }) });
                       setShowRecordPayment(false);
                       await fetchAll();
-                    } catch { setError('Failed to record payment'); }
+                    } catch (e: any) { setError(e?.message ?? 'Failed to record payment'); }
                   }}>
                   Record Payment
                 </button>
@@ -442,8 +459,8 @@ export default function PaymentsPage() {
                 <input value={refundForm.paymentId} onChange={e => setRefundForm(f => ({ ...f, paymentId: e.target.value }))} style={inp} />
               </div>
               <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount (kobo)</label>
-                <input type="number" value={refundForm.amountKobo} onChange={e => setRefundForm(f => ({ ...f, amountKobo: Number(e.target.value) }))} style={inp} />
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount (₦)</label>
+                <input type="text" inputMode="decimal" value={refundForm.amountNaira} onChange={e => setRefundForm(f => ({ ...f, amountNaira: e.target.value }))} placeholder="e.g. 25000" style={inp} />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reason</label>
@@ -451,7 +468,7 @@ export default function PaymentsPage() {
               </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button className="btn-outline" onClick={() => setShowRefundForm(false)}>Cancel</button>
-                <button className="btn-primary" disabled={!refundForm.paymentId || !refundForm.amountKobo} onClick={requestRefund}>Submit Refund</button>
+                <button className="btn-primary" disabled={!refundForm.paymentId || nairaToKobo(refundForm.amountNaira) <= 0} onClick={requestRefund}>Submit Refund</button>
               </div>
             </div>
           </div>

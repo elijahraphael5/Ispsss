@@ -52,7 +52,7 @@ function CallbackContent() {
           <p style={{ color: 'var(--text-muted)' }}>Your payment has been processed. Check your billing page for details.</p>
           <div style={{ display: 'flex', gap: 12 }}>
             <button className="btn-primary" onClick={() => router.push('/billing')}>View Billing</button>
-            <button className="btn-primary" style={{ background: '#8B5CF6' }} onClick={() => router.push('/payments')}>View Payments</button>
+            <button className="btn-primary" style={{ background: '#8B5CF6' }} onClick={() => router.push('/billing?tab=Payments')}>View Payments</button>
           </div>
         </>
       )}

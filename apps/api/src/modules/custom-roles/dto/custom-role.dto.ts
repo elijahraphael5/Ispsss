@@ -3,29 +3,29 @@ import { Type } from 'class-transformer';
 
 export class PermissionDto {
   @IsString()
-  module: string;
+  module!: string;
 
   @IsBoolean()
-  canView: boolean;
+  canView!: boolean;
 
   @IsBoolean()
-  canCreate: boolean;
+  canCreate!: boolean;
 
   @IsBoolean()
-  canEdit: boolean;
+  canEdit!: boolean;
 
   @IsBoolean()
-  canDelete: boolean;
+  canDelete!: boolean;
 }
 
 export class CreateCustomRoleDto {
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name!: string;
 
   @ValidateNested({ each: true })
   @Type(() => PermissionDto)
-  permissions: PermissionDto[];
+  permissions!: PermissionDto[];
 }
 
 export class UpdateCustomRoleDto {

@@ -36,6 +36,16 @@ export interface QuotationMailData {
   pdf: Buffer;
 }
 
+export interface ExpiryReminderData {
+  email: string;
+  customerName: string;
+  planName: string;
+  expiresAt: Date;
+  daysLeft: number;
+  amountKobo: number;
+  isSuspended?: boolean;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -84,6 +94,15 @@ export class MailService {
 
   private getAppName(): string { return this.config.get<string>('APP_NAME', 'Hikonnect'); }
   private getFrom(): string { return this.config.get<string>('MAIL_FROM', 'noreply@hikonnectng.com'); }
+  private getAppUrl(): string { return this.config.get<string>('APP_URL') || this.config.get<string>('CUSTOMER_URL') || 'http://localhost:3001'; }
+
+  private renderButton(url: string, label: string): string {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 20px auto;">
+      <tr><td style="border-radius:24px;background-color:#F15925;">
+        <a href="${url}" target="_blank" style="display:inline-block;padding:13px 32px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;border-radius:24px;">${label}</a>
+      </td></tr>
+    </table>`;
+  }
 
   private fmtKobo(kobo: number): string {
     return '₦' + (kobo / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -128,16 +147,22 @@ export class MailService {
 </html>`;
   }
 
-  async send(options: MailOptions): Promise<void> {
+  /**
+   * Returns true when the mail was actually handed to the SMTP server.
+   * Errors are logged, not thrown, so fire-and-forget callers keep working.
+   */
+  async send(options: MailOptions): Promise<boolean> {
     if (!this.transporter) {
       this.logger.warn('Mail skipped — SMTP client missing');
-      return;
+      return false;
     }
     try {
       await this.transporter.sendMail({ from: this.getFrom(), ...options });
       this.logger.log(`Mail sent to ${options.to}: "${options.subject}"`);
+      return true;
     } catch (err) {
       this.logger.error(`Failed to send mail to ${options.to}: ${(err as Error).message}`);
+      return false;
     }
   }
 
@@ -194,6 +219,43 @@ export class MailService {
       subject: `Quotation ${data.quotationNumber} — ${this.getAppName()}`,
       html: body,
       attachments: [{ filename: `quotation-${data.quotationNumber}.pdf`, content: data.pdf, contentType: 'application/pdf' }],
+    });
+  }
+
+  /**
+   * Daily "your subscription expires soon" reminder — sent every day during the
+   * 5 days before expiry so the customer pays before being disconnected.
+   */
+  async sendExpiryReminder(data: ExpiryReminderData): Promise<boolean> {
+    const appUrl = this.getAppUrl();
+    const expires = data.expiresAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+    const amount = this.fmtKobo(data.amountKobo);
+    const dayWord = data.daysLeft === 1 ? 'day' : 'days';
+    const urgency = data.daysLeft <= 1
+      ? 'Your subscription expires <strong>today</strong>'
+      : `Your subscription expires in <strong>${data.daysLeft} ${dayWord}</strong>`;
+
+    const body = this.h(
+      `<h2 style="margin:0 0 12px 0;font-size:20px;color:#0F172A;font-weight:700;">Payment reminder</h2>
+      <p style="margin:0 0 16px 0;color:#475569;font-size:14px;">Hello ${data.customerName},</p>
+      <p style="margin:0 0 20px 0;color:#475569;font-size:14px;line-height:1.5;">${urgency} on <strong>${expires}</strong>. To avoid disconnection, please renew your plan as soon as possible.</p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F8FAFC;border-radius:8px;padding:16px;margin-bottom:20px;border:1px solid #E2E8F0;">
+        <tr><td colspan="2" style="padding-bottom:8px;font-size:12px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:0.5px;">Renewal Details</td></tr>
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Plan</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${data.planName}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Expiry Date</td><td style="padding:4px 0;font-weight:600;color:#0F172A;font-size:13px;" align="right">${expires}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748B;font-size:13px;">Amount Due</td><td style="padding:4px 0;font-weight:700;color:#F15925;font-size:13px;" align="right">${amount}</td></tr>
+      </table>
+
+      ${this.renderButton(`${appUrl}/subscription`, 'Renew / Pay Now')}
+      <p style="margin:0;font-size:13px;color:#64748B;text-align:center;">${data.isSuspended ? 'Your service is currently suspended — renew now to be reconnected.' : 'You are receiving this because your subscription is due for renewal. Please ignore if you have already paid.'}</p>`,
+      `Your ${data.planName} plan expires in ${data.daysLeft} ${dayWord}`
+    );
+
+    return this.send({
+      to: data.email,
+      subject: `${data.daysLeft <= 1 ? 'Action required: ' : ''}Your ${data.planName} plan expires in ${data.daysLeft} ${dayWord} — ${this.getAppName()}`,
+      html: body,
     });
   }
 }

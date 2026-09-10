@@ -10,25 +10,26 @@ describe('SubscriptionsService', () => {
   const prisma = {
     subscriber: { findMany: jest.fn(), count: jest.fn(), findUniqueOrThrow: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     plan: { findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
-    subscription: { create: jest.fn(), update: jest.fn(), deleteMany: jest.fn() },
-    invoice: { findMany: jest.fn(), deleteMany: jest.fn() },
-    invoiceLine: { deleteMany: jest.fn() },
-    creditNote: { deleteMany: jest.fn() },
-    receipt: { deleteMany: jest.fn() },
-    refund: { deleteMany: jest.fn() },
-    payment: { findMany: jest.fn(), deleteMany: jest.fn() },
-    wallet: { findMany: jest.fn(), deleteMany: jest.fn() },
-    walletTransaction: { deleteMany: jest.fn() },
-    cpe: { deleteMany: jest.fn() },
-    ticket: { deleteMany: jest.fn() },
+    subscription: { create: jest.fn(), update: jest.fn(), deleteMany: jest.fn(), updateMany: jest.fn() },
+    invoice: { findMany: jest.fn(), deleteMany: jest.fn(), updateMany: jest.fn() },
+    invoiceLine: { deleteMany: jest.fn(), updateMany: jest.fn() },
+    creditNote: { deleteMany: jest.fn(), updateMany: jest.fn() },
+    receipt: { deleteMany: jest.fn(), updateMany: jest.fn() },
+    refund: { deleteMany: jest.fn(), updateMany: jest.fn() },
+    payment: { findMany: jest.fn(), deleteMany: jest.fn(), updateMany: jest.fn() },
+    wallet: { findMany: jest.fn(), deleteMany: jest.fn(), updateMany: jest.fn() },
+    walletTransaction: { deleteMany: jest.fn(), updateMany: jest.fn() },
+    cpe: { deleteMany: jest.fn(), updateMany: jest.fn() },
+    ticket: { deleteMany: jest.fn(), updateMany: jest.fn() },
     ticketComment: { deleteMany: jest.fn() },
-    chatSession: { deleteMany: jest.fn() },
+    chatSession: { deleteMany: jest.fn(), updateMany: jest.fn() },
     chatMessage: { deleteMany: jest.fn() },
-    contract: { deleteMany: jest.fn() },
+    contract: { deleteMany: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
   const tenant = { resolveTenant: jest.fn().mockResolvedValue('tenant-1') };
-  const audit = { log: jest.fn().mockResolvedValue(undefined) };
+  const audit = { log: jest.fn().mockResolvedValue(undefined), makerOf: jest.fn().mockResolvedValue(null), assertNotMaker: jest.fn() };
   const notifications = { create: jest.fn().mockResolvedValue(undefined) };
 
   beforeEach(async () => {
@@ -83,10 +84,13 @@ describe('SubscriptionsService', () => {
     it('creates subscriber with resolved tenant, audits, and notifies', async () => {
       const row = { id: 's1', user: { email: 'a@b.co' } };
       prisma.subscriber.create.mockResolvedValue(row);
-      const result = await service.create({ userId: 'u1', type: 'RESIDENTIAL', address: '2nd St' });
+      const result = await service.create({ userId: 'u1', type: 'RESIDENTIAL', address: '2nd St' }, 'maker-1');
       expect(result).toBe(row);
       expect(prisma.subscriber.create).toHaveBeenCalledWith({
-        data: { tenantId: 'tenant-1', userId: 'u1', type: 'RESIDENTIAL', address: '2nd St' },
+        data: {
+          tenantId: 'tenant-1', userId: 'u1', type: 'RESIDENTIAL', address: '2nd St',
+          kycSubmittedById: 'maker-1', kycSubmittedAt: expect.any(Date),
+        },
         include: expect.anything(),
       });
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SUBSCRIBER_CREATED' }));
@@ -104,18 +108,45 @@ describe('SubscriptionsService', () => {
   });
 
   describe('remove', () => {
-    it('hard-deletes the subscriber with cascades inside a transaction', async () => {
+    it('soft-deletes the subscriber, its financial records, and soft-deletable children', async () => {
       prisma.invoice.findMany.mockResolvedValue([{ id: 'i1' }]);
       prisma.payment.findMany.mockResolvedValue([{ id: 'p1' }]);
       prisma.wallet.findMany.mockResolvedValue([{ id: 'w1' }]);
-      prisma.subscriber.delete.mockResolvedValue({ id: 's1' });
+      prisma.subscriber.update.mockResolvedValue({ id: 's1' });
       prisma.$transaction.mockImplementation((fn: (tx: any) => Promise<any>) => fn(prisma));
 
       const result = await service.remove('s1');
       expect(result).toEqual({ id: 's1' });
-      expect(prisma.invoiceLine.deleteMany).toHaveBeenCalledWith({ where: { invoiceId: { in: ['i1'] } } });
-      expect(prisma.wallet.deleteMany).toHaveBeenCalled();
-      expect(prisma.subscriber.delete).toHaveBeenCalledWith({ where: { id: 's1' } });
+      // financial leaves are soft-deleted (deletedAt set), preserving the ledger
+      expect(prisma.invoiceLine.updateMany).toHaveBeenCalledWith({
+        where: { invoiceId: { in: ['i1'] } },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { invoiceId: { in: ['i1'] } },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(prisma.receipt.updateMany).toHaveBeenCalled();
+      expect(prisma.creditNote.updateMany).toHaveBeenCalled();
+      expect(prisma.refund.updateMany).toHaveBeenCalled();
+      expect(prisma.walletTransaction.updateMany).toHaveBeenCalled();
+      expect(prisma.invoice.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['i1'] } },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(prisma.wallet.updateMany).toHaveBeenCalled();
+      expect(prisma.subscription.updateMany).toHaveBeenCalledWith({
+        where: { subscriberId: 's1' },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(prisma.subscriber.update).toHaveBeenCalledWith({
+        where: { id: 's1' },
+        data: { deletedAt: expect.any(Date) },
+      });
+      // chat/ticket content is not soft-deletable and is still hard-deleted
+      expect(prisma.ticketComment.deleteMany).toHaveBeenCalled();
+      expect(prisma.chatMessage.deleteMany).toHaveBeenCalled();
+      expect(prisma.subscriber.delete).not.toHaveBeenCalled();
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SUBSCRIBER_DELETED' }));
     });
   });

@@ -167,7 +167,7 @@ export class PaymentsController {
   // ── Customer Self-Service Checkout ─────────────────────────
 
   @Post('customer/initialize')
-  initializeCustomer(@Req() req: any, @Body() body: { action: 'renew' | 'change_plan' | 'add_plan'; planId?: string; email?: string }) {
+  initializeCustomer(@Req() req: any, @Body() body: { action: 'renew' | 'change_plan' | 'add_plan'; planId?: string; email?: string; months?: number }) {
     return this.service.initializeCustomerPayment(req.user.id, body);
   }
 

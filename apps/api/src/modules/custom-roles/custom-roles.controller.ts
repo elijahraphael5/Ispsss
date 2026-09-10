@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CustomRolesService } from './custom-roles.service';
 import { CreateCustomRoleDto, UpdateCustomRoleDto } from './dto/custom-role.dto';
 
@@ -38,7 +39,7 @@ export class CustomRolesController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null }) {
+    return this.service.remove(id, actor);
   }
 }

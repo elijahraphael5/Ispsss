@@ -25,12 +25,15 @@ interface SocketIdentity {
   namespace: '/chat',
   perMessageDeflate: false,
   cors: {
-      origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-        const allowed = ['http://localhost:3000', 'http://localhost:3001', 'http://10.169.146.56:3000', 'http://10.169.146.56:3001'];
-        cb(null, !origin || allowed.includes(origin) || /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(origin));
-      },
-      credentials: true,
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      const allowed = (process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:3001')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      cb(null, !origin || allowed.includes(origin));
     },
+    credentials: true,
+  },
 })
 export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(SupportGateway.name);
@@ -79,11 +82,12 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   private async authenticate(client: Socket): Promise<SocketIdentity | null> {
+    // Identity MUST come from a verified JWT. The legacy `?userId=` fallback
+    // was removed: it allowed anyone to impersonate any user (incl. staff)
+    // just by guessing their id.
     const authToken =
       (client.handshake.auth as any)?.token ??
       (client.handshake.query?.token as string | undefined);
-    const fallbackUserId = client.handshake.query?.userId as string | undefined;
-    const fallbackRole = client.handshake.query?.role as string | undefined;
 
     let userId: string | null = null;
 
@@ -98,8 +102,6 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
         this.logger.warn('Socket JWT verification failed');
       }
     }
-
-    if (!userId && fallbackUserId) userId = fallbackUserId;
 
     if (!userId) return null;
 
@@ -116,7 +118,8 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     });
     if (!user) return null;
 
-    if (fallbackRole === 'agent') {
+    const requestedRole = client.handshake.query?.role as string | undefined;
+    if (requestedRole === 'agent') {
       if (!user.isSuperAdmin && !AGENT_ROLES.includes(user.customRole?.name ?? '')) return null;
       return {
         userId: user.id,
@@ -206,9 +209,13 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   @SubscribeMessage('chat:typing')
-  handleTyping(client: Socket, data: { sessionId: string; isTyping: boolean }) {
+  async handleTyping(client: Socket, data: { sessionId: string; isTyping: boolean }) {
     const identity: SocketIdentity = client.data.identity;
     if (!identity) return;
+    const allowed = await TenantContext.run(identity.tenantId, () =>
+      this.canAccessSession(identity, data?.sessionId),
+    );
+    if (!allowed) return;
     client.to(`session:${data.sessionId}`).emit('chat:typing', {
       sessionId: data.sessionId,
       userId: identity.userId,

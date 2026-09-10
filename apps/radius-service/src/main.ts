@@ -9,7 +9,7 @@ import { PrismaService } from './common/prisma/prisma.service';
 import { createLogger, withRequestId, assertProdEnv } from '@isp/logger';
 import { makeMetricsMiddleware, recordHttpRequest } from '@isp/metrics';
 import { HealthService, makeLivenessHandler, makeReadinessHandler } from '@isp/health';
-import { SlidingWindowRateLimiter, MemoryRateLimitStore, DEFAULT_TIERS, RateLimitRule } from '@isp/rate-limit';
+import { SlidingWindowRateLimiter, MemoryRateLimitStore, RateLimitRule, envLimit } from '@isp/rate-limit';
 
 async function bootstrap() {
   assertProdEnv([
@@ -48,8 +48,8 @@ async function bootstrap() {
 
   const limiter = new SlidingWindowRateLimiter(new MemoryRateLimitStore());
   const tierFor = (req: Request): RateLimitRule => {
-    if (req.method !== 'GET') return DEFAULT_TIERS.mutation;
-    return DEFAULT_TIERS.read;
+    if (req.method !== 'GET') return { limit: envLimit('RATE_LIMIT_MUTATION_PER_MIN', 60), windowMs: 60_000 };
+    return { limit: envLimit('RATE_LIMIT_READ_PER_MIN', 300), windowMs: 60_000 };
   };
 
   app.use(helmet());
@@ -71,7 +71,13 @@ async function bootstrap() {
     // Internal machine-to-machine routes are authenticated by WEBHOOK_SERVICE_TOKEN,
     // not rate-limited (bulk operations like import-activation would trip the limit).
     if (req.path.startsWith('/api/v1/internal/')) return next();
-    const ip = ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown').split(',')[0].trim();
+    // Only honor X-Forwarded-For when explicitly behind a trusted proxy,
+    // otherwise clients can spoof it to bypass IP rate limiting.
+    const trustProxy = process.env.TRUST_PROXY === 'true';
+    const ip = (trustProxy
+      ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
+      : (req.ip ?? 'unknown')
+    ).split(',')[0].trim();
     const result = await limiter.consume(`ip:${ip}`, tierFor(req));
     if (!result.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)));

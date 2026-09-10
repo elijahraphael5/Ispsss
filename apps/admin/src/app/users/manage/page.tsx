@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { api, apiUpload, timeAgo } from '@isp/shared';
+import { api, apiUpload, timeAgo, onCustomersChanged, notifyCustomersChanged } from '@isp/shared';
 import { useRouter } from 'next/navigation';
 import { SkeletonTable } from '../../../components/Skeleton';
 
@@ -130,9 +130,8 @@ export default function CustomerPage() {
   const [error, setError] = useState('');
   const [cached, setCached] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [filter, setFilter] = useState<'All' | 'PPPoE' | 'Static IP'>('All');
+  const [filter, setFilter] = useState<'All' | 'Active' | 'Non Active'>('All');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
   const [planFilter, setPlanFilter] = useState('All');
 
   // excel import
@@ -147,6 +146,17 @@ export default function CustomerPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [createSuccess, setCreateSuccess] = useState('');
+
+  // purge customers
+  const [showPurge, setShowPurge] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [purgeConfirmText, setPurgeConfirmText] = useState('');
+
+  // delete selected customers
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: '', email: '', phone: '', address: '',
     planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '',
@@ -158,6 +168,7 @@ export default function CustomerPage() {
     if (!f.name.trim() || !f.email.trim()) { setCreateError('Name and email are required'); return; }
     setCreating(true);
     setCreateError('');
+    setCreateSuccess('');
     try {
       const password = f.portalPassword || Math.random().toString(36).slice(2, 10);
       const user = await api<{ id: string }>('/users', {
@@ -199,6 +210,7 @@ export default function CustomerPage() {
       }
       setShowCreate(false);
       setCreateForm({ name: '', email: '', phone: '', address: '', planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '', expiry: '', fee: '', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: false });
+      setCreateSuccess('Customer created — it will appear in the Customers list after KYC approval (see the KYC tab).');
       await load();
     } catch (e: any) {
       setCreateError(e?.message ?? 'Failed to create customer');
@@ -239,37 +251,132 @@ export default function CustomerPage() {
     }
   }
 
+  async function handlePurge() {
+    setPurging(true);
+    setError('');
+    try {
+      const res = await api<{ removedSubscribers: number }>('/users/purge-customers', { method: 'POST', body: '{}' });
+      setShowPurge(false);
+      setPurgeConfirmText('');
+      setCreateSuccess(`All ${res.removedSubscribers} customers purged — the customer table is now empty.`);
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? 'Purge failed');
+    } finally {
+      setPurging(false);
+    }
+  }
+
+  // Selection key per row: DB customers (`sub:<id>`) and cached RouterOS
+  // snapshots (`snap:<id>`) can be deleted; live router-only rows cannot.
+  function rowKey(row: Row): string | null {
+    const cust = matchCustomer(row);
+    if (cust) return `sub:${cust.id}`;
+    if (row._type === 'PPPOE' && (row as RosSubscriber & { _type: 'PPPOE' }).cached) return `snap:${row.id}`;
+    return null;
+  }
+
+  function toggleRow(key: string) {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function togglePage() {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      const pageKeys = [...selectableKeys];
+      const allSelected = pageKeys.length > 0 && pageKeys.every(k => next.has(k));
+      for (const k of pageKeys) {
+        if (allSelected) next.delete(k); else next.add(k);
+      }
+      return next;
+    });
+  }
+
+  async function handleDeleteSelected() {
+    setDeleting(true);
+    setError('');
+    setCreateSuccess('');
+    let done = 0, failed = 0;
+    for (const key of Array.from(selectedKeys)) {
+      try {
+        if (key.startsWith('sub:')) {
+          await api(`/subscriptions/${key.slice(4)}`, { method: 'DELETE' });
+        } else if (key.startsWith('snap:')) {
+          await api(`/routeros/snapshots/${key.slice(5)}`, { method: 'DELETE' });
+        }
+        done++;
+      } catch {
+        failed++;
+      }
+    }
+    setSelectedKeys(new Set());
+    setDeleteOpen(false);
+    setCreateSuccess(failed
+      ? `${done} deleted, ${failed} failed — refresh and retry the rest.`
+      : `${done} customer${done === 1 ? '' : 's'} deleted.`);
+    notifyCustomersChanged();
+    await load();
+    setDeleting(false);
+  }
+
   const allRows: Row[] = useMemo(() => {
     const pppoe: Row[] = subscribers.map(s => ({ ...s, _type: 'PPPOE' as const }));
     const pppoeNames = new Set(pppoe.map(r => r.username.toLowerCase()));
+    const staticIp: Row[] = staticConns.map(s => ({ ...s, _type: 'STATIC_IP' as const }));
+
+    const matchPppoe = (username: string): Customer | undefined => {
+      const byUser = customers.find(c => c.name === username || c.email === username || c.pppoeUsername === username);
+      if (byUser) return byUser;
+      return customers.find(c => c.cpes.some(x => x.name === username));
+    };
+    const dbRow = (c: Customer, username: string): Row => ({
+      id: c.id,
+      username,
+      customer: c.name || username,
+      plan: c.plan || '—',
+      active: c.status === 'ACTIVE',
+      service: 'pppoe',
+      lastCallerId: null,
+      lastDisconnectReason: null,
+      lastLoggedOut: null,
+      comment: null,
+      dbOnly: true,
+      isOnline: false,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      address: c.address,
+      installerName: c.cpes[0]?.installerName ?? null,
+      _type: 'PPPOE' as const,
+    });
+
     const dbOnly: Row[] = customers
       .filter(c => c.pppoeUsername
         && !c.cpes.some(cp => cp.connectionType === 'STATIC_IP')
         && !pppoeNames.has(c.pppoeUsername.toLowerCase()))
-      .map(c => ({
-        id: c.id,
-        username: c.pppoeUsername as string,
-        customer: c.name || c.pppoeUsername as string,
-        plan: c.plan || '—',
-        active: c.status === 'ACTIVE',
-        service: 'pppoe',
-        lastCallerId: null,
-        lastDisconnectReason: null,
-        lastLoggedOut: null,
-        comment: null,
-        dbOnly: true,
-        isOnline: false,
-        name: c.name,
-        email: c.email,
-        phone: c.phone,
-        address: c.address,
-        _type: 'PPPOE' as const,
-      }));
-    const staticIp: Row[] = staticConns.map(s => ({ ...s, _type: 'STATIC_IP' as const }));
-    if (filter === 'PPPoE') return [...pppoe, ...dbOnly];
-    if (filter === 'Static IP') return staticIp;
-    return [...pppoe, ...dbOnly, ...staticIp];
-  }, [subscribers, staticConns, customers, filter]);
+      .map(c => dbRow(c, c.pppoeUsername as string));
+
+    // Customers already represented by a RouterOS secret row or a static
+    // connection row must not be listed a second time. Everyone else (e.g.
+    // freshly created accounts with no PPPoE username yet) gets a DB-only row
+    // so they still show up in the list.
+    const shown = new Set<string>(dbOnly.map(r => r.id));
+    for (const r of pppoe) { const c = matchPppoe(r.username); if (c) shown.add(c.id); }
+    for (const sc of staticIp) {
+      const s = sc as StaticConn;
+      const c = customers.find(x => (s.subscriberName && x.name === s.subscriberName) || (s.ipAddress && x.cpes.some(cp => cp.ipAddress === s.ipAddress)));
+      if (c) shown.add(c.id);
+    }
+    const portalOnly: Row[] = customers
+      .filter(c => !shown.has(c.id))
+      .map(c => dbRow(c, c.pppoeUsername || c.cpes[0]?.name || c.name || `portal-${c.id.slice(0, 8)}`));
+
+    return [...pppoe, ...dbOnly, ...portalOnly, ...staticIp];
+  }, [subscribers, staticConns, customers]);
 
   function rowActive(row: Row): boolean {
     if (row._type === 'PPPOE') return !!(row.isOnline || row.active);
@@ -290,7 +397,7 @@ export default function CustomerPage() {
     }
     return {
       rows: allRows.filter(row => {
-        if (statusFilter !== 'All' && rowActive(row) !== (statusFilter === 'Active')) return false;
+        if (filter !== 'All' && rowActive(row) !== (filter === 'Active')) return false;
         if (planFilter !== 'All' && rowPlan(row) !== planFilter) return false;
         if (!q) return true;
         const cust = matchCustomer(row);
@@ -305,17 +412,33 @@ export default function CustomerPage() {
       }),
       planOptions: [...planOptions].sort(),
     };
-  }, [allRows, search, statusFilter, planFilter, customers]);
+  }, [allRows, search, filter, planFilter, customers]);
 
   const filteredRows = filtered.rows;
   const totalPagesFiltered = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const paged = useMemo(() => filteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filteredRows, page]);
-  useEffect(() => { setPage(0); }, [search, statusFilter, planFilter, filter]);
+  useEffect(() => { setPage(0); }, [search, filter, planFilter]);
+
+  // Selection keys for the current page (rows without a platform DB record or
+  // snapshot, e.g. live RouterOS-only secrets, are not deletable here).
+  const selectableKeys = useMemo(() => new Set(
+    paged.map(rowKey).filter((v): v is string => !!v),
+  ), [paged, customers]);
 
   const rosHealth = routerHealth.find(h => h.deviceId === rosDevice?.id);
   const staleDevice = rosHealth && rosHealth.linkStatus !== 'up' ? rosHealth : null;
 
   useEffect(() => { load(); }, []);
+
+  // Keep the table fresh when customer data changes elsewhere (detail-page
+  // edits, KYC approvals) — Next's router cache would otherwise serve stale
+  // rows after navigating back. Also reload when the window regains focus.
+  useEffect(() => {
+    const off = onCustomersChanged(load);
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => { off(); window.removeEventListener('focus', onFocus); };
+  }, []);
 
   function matchCustomer(row: Row): Customer | undefined {
     if (row._type === 'PPPOE') {
@@ -403,7 +526,9 @@ export default function CustomerPage() {
           cached: true,
           capturedAt: s.capturedAt,
         })));
-        setCached('router unreachable — showing last known data from DB');
+        // Only warn about stale data when there actually is cached data to show —
+        // an empty table (e.g. after a purge) has nothing "stale" to explain.
+        setCached(snapshots.length ? 'router unreachable — showing last known data from DB' : null);
       }
       setPage(0);
     } catch (err: any) {
@@ -520,11 +645,21 @@ export default function CustomerPage() {
           padding: '8px 20px', borderRadius: 20, border: 'none', background: 'var(--primary)',
           color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
         }}>Import Excel</button>
+        <button onClick={() => { setPurgeConfirmText(''); setShowPurge(true); }} style={{
+          padding: '8px 20px', borderRadius: 20, border: '1px solid #DC2626', background: 'transparent',
+          color: '#DC2626', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+        }}>Purge Customers</button>
+        <button onClick={() => setDeleteOpen(true)} disabled={selectedKeys.size === 0} style={{
+          padding: '8px 20px', borderRadius: 20, border: '1px solid #DC2626', background: selectedKeys.size ? '#DC2626' : 'transparent',
+          color: selectedKeys.size ? '#fff' : '#DC2626', fontWeight: 600, fontSize: '0.85rem', cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 0.55,
+        }}>
+          Delete Selected{selectedKeys.size ? ` (${selectedKeys.size})` : ''}
+        </button>
       </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['All', 'PPPoE', 'Static IP'] as const).map(f => (
+        {(['All', 'Active', 'Non Active'] as const).map(f => (
           <button key={f} onClick={() => { setFilter(f); setPage(0); }}
             style={{ padding: '6px 16px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', backgroundColor: filter === f ? 'var(--primary)' : '#fff', color: filter === f ? '#fff' : 'var(--text-color)' }}>
             {f}
@@ -539,15 +674,6 @@ export default function CustomerPage() {
           placeholder="Search name, email, phone, username, address…"
           style={{ flex: '1 1 220px', padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', minWidth: 0 }}
         />
-        <select
-          value={statusFilter}
-          onChange={e => { setStatusFilter(e.target.value); }}
-          style={{ padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer', background: '#fff' }}
-        >
-          <option value="All">All statuses</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
-        </select>
         <select
           value={planFilter}
           onChange={e => { setPlanFilter(e.target.value); }}
@@ -564,6 +690,12 @@ export default function CustomerPage() {
         </div>
       )}
 
+      {createSuccess && (
+        <div style={{ padding: '12px 16px', background: '#DCFCE7', color: '#166534', borderRadius: 12, marginBottom: 16, fontSize: '0.85rem' }}>
+          {createSuccess}
+        </div>
+      )}
+
       {cached && (
         <div style={{ padding: '10px 16px', background: '#FEF3C7', color: '#92400E', borderRadius: 12, marginBottom: 16, fontSize: '0.85rem', display: 'flex', gap: 8, alignItems: 'center' }}>
           <span>⚠</span>
@@ -573,9 +705,9 @@ export default function CustomerPage() {
 
       {filteredRows.length === 0 ? (
         <div className="data-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          {search || statusFilter !== 'All' || planFilter !== 'All'
+          {search || filter !== 'All' || planFilter !== 'All'
             ? 'No customers match your search/filters'
-            : filter === 'PPPoE' ? 'No PPPoE subscribers found on RouterOS' : filter === 'Static IP' ? 'No static IP connections found' : 'No subscribers found'}
+            : 'No subscribers found'}
         </div>
       ) : (
         <div className="data-card" style={{ padding: 0, overflowY: 'auto', overflowX: 'hidden', height: 'calc(100vh - 280px)', minHeight: 360 }}>
@@ -583,6 +715,9 @@ export default function CustomerPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                  <th style={{ ...cell('8px 12px'), width: 40 }}>
+                    <input type="checkbox" checked={selectableKeys.size > 0 && [...selectableKeys].every(k => selectedKeys.has(k))} onChange={togglePage} title="Select all on this page" style={{ width: 15, height: 15, cursor: 'pointer' }} />
+                  </th>
                   <th style={cell('8px 12px')}>NAME</th>
                   <th style={cell('8px 12px')}>EMAIL</th>
                   <th style={cell('8px 12px')}>PHONE</th>
@@ -604,6 +739,9 @@ export default function CustomerPage() {
                     const s = row as RosSubscriber & { _type: 'PPPOE' };
                     return (
                       <tr key={s.id} onClick={() => openRow(row)} style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = '#FAFAFA')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                        <td style={cell()} onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" disabled={!rowKey(row)} checked={!!(rowKey(row) && selectedKeys.has(rowKey(row)!))} onChange={() => { const k = rowKey(row); if (k) toggleRow(k); }} title={rowKey(row) ? 'Select for deletion' : 'No customer record in the platform DB'} style={{ width: 15, height: 15, cursor: rowKey(row) ? 'pointer' : 'not-allowed' }} />
+                        </td>
                         <td style={{ ...cell(), fontWeight: 600 }}>{cust?.name || s.name || s.customer || '—'}{s.dbOnly && <span title="in the platform DB, not yet seen on RouterOS" style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: 8, backgroundColor: '#F1592518', color: '#B33A1D' }}>DB</span>}{s.cached && <span title={`last synced ${s.capturedAt}`} style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: 8, backgroundColor: '#F59E0B18', color: '#B45309' }}>cached</span>}</td>
                         <td style={cell()}>{cust?.email || s.email || '—'}</td>
                         <td style={cell()}>{cust?.phone || s.phone || '—'}</td>
@@ -628,6 +766,9 @@ export default function CustomerPage() {
                   const cpe = cust?.cpes.find(cp => cp.ipAddress === c.ipAddress);
                   return (
                     <tr key={c.id} onClick={() => openRow(row)} style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = '#FAFAFA')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={cell()} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" disabled={!rowKey(row)} checked={!!(rowKey(row) && selectedKeys.has(rowKey(row)!))} onChange={() => { const k = rowKey(row); if (k) toggleRow(k); }} title={rowKey(row) ? 'Select for deletion' : 'No customer record in the platform DB'} style={{ width: 15, height: 15, cursor: rowKey(row) ? 'pointer' : 'not-allowed' }} />
+                      </td>
                       <td style={{ ...cell(), fontWeight: 600 }}>{cust?.name || c.subscriberName || '—'}</td>
                       <td style={cell()}>{cust?.email || '—'}</td>
                       <td style={cell()}>{cust?.phone || '—'}</td>
@@ -768,7 +909,7 @@ export default function CustomerPage() {
 
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.6 }}>
               Upload an <b>.xlsx</b>, <b>.xls</b> or <b>.csv</b> file. The first row must be headers. Recognized columns (case-insensitive):
-              <b>Name</b> (or <b>First Name</b> + <b>Last Name</b>), <b>Email</b> (required), <b>Phone</b>/<b>Contact Number</b>, <b>Address</b> (or <b>Station</b>),
+              <b>Name</b> (or <b>First Name</b> + <b>Last Name</b>), <b>Email</b> (optional — auto-generated from the ID when blank), <b>Phone</b>/<b>Contact Number</b>, <b>Address</b> (or <b>Station</b>),
               <b>Plan</b>, <b>Installation Fee</b>, <b>Expiry Date</b>, <b>ID</b>/<b>ID2</b> (PPPoE username), <b>Password</b> (RADIUS), <b>Portal Password</b> (app login),
               <b>User Type</b> (PPPOE/STATIC), <b>IP Address</b>. PPPoE customers are activated on RADIUS immediately with the expiry written to FreeRADIUS so it's enforced the moment the connection starts.
               <br/><b>Warning:</b> uploading wipes ALL existing customer data first — the file is the new source of truth.
@@ -851,6 +992,58 @@ export default function CustomerPage() {
               <button onClick={() => setShowImport(false)} className="btn-outline">Close</button>
               <button onClick={handleImport} disabled={importing || !importFile || importProgress?.status === 'running'} className="btn-primary">
                 {importing ? 'Importing...' : 'Import File'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPurge && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowPurge(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 28, width: 440, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: 12, color: '#DC2626' }}>Purge all customers?</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16 }}>
+              This <b>permanently deletes every customer</b> — their accounts, subscriptions, invoices, payments, receipts, quotations, tickets, chats and plans. Staff users are kept. This cannot be undone.
+            </p>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Type <b>PURGE</b> to confirm
+            </label>
+            <input
+              value={purgeConfirmText}
+              onChange={e => setPurgeConfirmText(e.target.value)}
+              placeholder="PURGE"
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 12, fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button className="btn-outline" onClick={() => setShowPurge(false)}>Cancel</button>
+              <button
+                className="btn-primary"
+                style={{ backgroundColor: '#DC2626' }}
+                disabled={purging || purgeConfirmText.trim() !== 'PURGE'}
+                onClick={handlePurge}
+              >
+                {purging ? 'Purging…' : 'Purge Customers'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setDeleteOpen(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 28, width: 440, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: 12, color: '#DC2626' }}>Delete selected customers?</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
+              This removes <b>{selectedKeys.size} selected row{selectedKeys.size === 1 ? '' : 's'}</b> from the table. Customers are deleted together with their subscriptions, invoices, payments, receipts, tickets and chats; cached router rows are cleared from the database. Staff accounts are not affected. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="btn-outline" onClick={() => setDeleteOpen(false)}>Cancel</button>
+              <button className="btn-primary" style={{ backgroundColor: '#DC2626' }} disabled={deleting} onClick={handleDeleteSelected}>
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

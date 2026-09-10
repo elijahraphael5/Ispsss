@@ -63,15 +63,16 @@ export default function CustomerDashboard() {
 
   const d = data;
   const sc = statusColors[d?.status ?? 'PENDING'] ?? statusColors.PENDING;
+  const firstName = user.name?.trim().split(/\s+/)[0] || user.email?.split('@')[0] || 'Customer';
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-            My Dashboard
+            Welcome, {firstName}
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Welcome back, {user.email?.split('@')[0] ?? 'Customer'}</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Here&apos;s an overview of your account</p>
         </div>
       </div>
 
@@ -121,7 +122,7 @@ export default function CustomerDashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             {[
               { label: 'View Invoices', href: '/billing', icon: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
-              { label: 'Make Payment', href: '/payments', icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
+              { label: 'Make Payment', href: '/billing?tab=Payments', icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
               { label: 'Open Ticket', href: '/support', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
               { label: 'Check Usage', href: '/internet', icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
             ].map((a) => (

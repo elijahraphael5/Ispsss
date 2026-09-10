@@ -21,6 +21,8 @@ async function bootstrap() {
     { name: 'PAYSTACK_SECRET_KEY' }
   ]);
   const app = await NestFactory.create(AppModule, {
+    // Keep the exact bytes Paystack signed so webhook HMAC verification works.
+    rawBody: true,
     cors: {
       origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
         const allowed = (process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:3001')
@@ -73,7 +75,13 @@ async function bootstrap() {
   app.use('/healthz', makeLivenessHandler(health) as any);
   app.use('/readyz', makeReadinessHandler(health) as any);
   app.use(async (req: Request, res: Response, next: NextFunction) => {
-    const ip = ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown').split(',')[0].trim();
+    // Only honor X-Forwarded-For when explicitly behind a trusted proxy,
+    // otherwise clients can spoof it to bypass IP rate limiting.
+    const trustProxy = process.env.TRUST_PROXY === 'true';
+    const ip = (trustProxy
+      ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
+      : (req.ip ?? 'unknown')
+    ).split(',')[0].trim();
     const result = await limiter.consume(`ip:${ip}`, tierFor(req));
     if (!result.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)));

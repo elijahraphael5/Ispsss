@@ -8,13 +8,21 @@ import { RouterHealthModule } from '../modules/router-health/router-health.modul
 
 const enableDataSimulator = process.env.ENABLE_DATA_SIMULATOR === 'true';
 
+// Keep Redis from growing unbounded and retry transient failures with backoff.
+const JOB_DEFAULTS = {
+  removeOnComplete: true,
+  removeOnFail: 500,
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 1000 },
+};
+
 @Module({
   imports: [
     RouterHealthModule,
     BullModule.registerQueue(
-      { name: 'suspension' },
-      { name: 'data-simulator' },
-      { name: 'router-heartbeat' },
+      { name: 'suspension', defaultJobOptions: JOB_DEFAULTS },
+      { name: 'data-simulator', defaultJobOptions: JOB_DEFAULTS },
+      { name: 'router-heartbeat', defaultJobOptions: JOB_DEFAULTS },
     ),
   ],
   providers: [

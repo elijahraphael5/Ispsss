@@ -12,7 +12,7 @@ export class ApiError extends Error {
 
 let refreshPromise: Promise<string | null> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
@@ -85,10 +85,25 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
 export async function apiUpload<T>(path: string, file: File): Promise<T> {
   const form = new FormData();
   form.append('file', file);
-  const headers: Record<string, string> = {};
-  const token = getAccessToken();
-  if (token) headers['Authorization'] = token;
-  const res = await fetch(`${API_BASE}${path}`, { method: 'POST', body: form, headers });
+  const send = (token: string | null) => {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = token;
+    return fetch(`${API_BASE}${path}`, { method: 'POST', body: form, headers, credentials: 'include' });
+  };
+
+  let res = await send(getAccessToken());
+  if (res.status === 401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      res = await send(newToken);
+    } else {
+      localStorage.removeItem('accessToken');
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+      throw new ApiError(401, 'Session expired');
+    }
+  }
   if (!res.ok) {
     throw new ApiError(res.status, await errorMessage(res));
   }
@@ -96,10 +111,22 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
 }
 
 export async function apiFileUrl(uploadId: string): Promise<string> {
-  const headers: Record<string, string> = {};
-  const token = getAccessToken();
-  if (token) headers['Authorization'] = token;
-  const res = await fetch(`${API_BASE}/chat/attachments/${uploadId}`, { headers });
+  const send = (token: string | null) => {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = token;
+    return fetch(`${API_BASE}/chat/attachments/${uploadId}`, { headers, credentials: 'include' });
+  };
+
+  let res = await send(getAccessToken());
+  if (res.status === 401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) res = await send(newToken);
+  }
   if (!res.ok) throw new ApiError(res.status, 'Failed to fetch file');
   return URL.createObjectURL(await res.blob());
+}
+
+/** Call when a URL from apiFileUrl is no longer shown, to free the blob. */
+export function revokeFileUrl(url: string): void {
+  if (typeof window !== 'undefined' && url.startsWith('blob:')) URL.revokeObjectURL(url);
 }

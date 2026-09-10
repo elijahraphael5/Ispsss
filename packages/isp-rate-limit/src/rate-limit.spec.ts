@@ -85,4 +85,27 @@ describe('@isp/rate-limit — sliding window', () => {
     expect(DEFAULT_TIERS.read.limit).toBe(300);
     expect(DEFAULT_TIERS.globalPerIp.limit).toBe(600);
   });
+
+  describe('envLimit', () => {
+    const { envLimit } = require('./index');
+
+    it('falls back when the env var is unset, invalid, or non-positive', () => {
+      expect(envLimit('RATE_LIMIT_NEVER_SET_VAR', 120)).toBe(120);
+      process.env.RATE_LIMIT_BAD = 'abc';
+      expect(envLimit('RATE_LIMIT_BAD', 120)).toBe(120);
+      process.env.RATE_LIMIT_ZERO = '0';
+      expect(envLimit('RATE_LIMIT_ZERO', 120)).toBe(120);
+      process.env.RATE_LIMIT_NEG = '-5';
+      expect(envLimit('RATE_LIMIT_NEG', 120)).toBe(120);
+      delete process.env.RATE_LIMIT_BAD;
+      delete process.env.RATE_LIMIT_ZERO;
+      delete process.env.RATE_LIMIT_NEG;
+    });
+
+    it('honors a valid override', () => {
+      process.env.RATE_LIMIT_OK = '250';
+      expect(envLimit('RATE_LIMIT_OK', 120)).toBe(250);
+      delete process.env.RATE_LIMIT_OK;
+    });
+  });
 });

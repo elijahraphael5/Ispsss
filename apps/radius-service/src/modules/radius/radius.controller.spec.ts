@@ -37,7 +37,7 @@ describe('RadiusControllers', () => {
     await expect(controller.deactivate('c1')).resolves.toEqual({ deactivated: true });
     await expect(controller.changePlan('c1', { rateLimit: '10M/10M' })).resolves.toMatchObject({ rateLimit: '10M/10M' });
     await expect(controller.usage('c1')).resolves.toMatchObject({ online: true });
-    expect(radius.activate).toHaveBeenCalledWith('c1');
+    expect(radius.activate).toHaveBeenCalledWith('c1', {});
   });
 
   it('enforces the webhook token on internal endpoints when configured', async () => {

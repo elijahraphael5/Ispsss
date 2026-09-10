@@ -86,7 +86,8 @@ export class SupportCustomerController {
   async downloadAttachment(@Param('id') id: string, @Req() req: any, @Res() res: Response) {
     const file = await this.service.getAttachmentFile(id, req.user);
     res.setHeader('Content-Type', file.mimeType);
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.fileName)}"`);
+    res.setHeader('Content-Disposition', file.contentDisposition);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.sendFile(file.absPath);
   }
 }

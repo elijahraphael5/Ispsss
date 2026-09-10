@@ -10,6 +10,7 @@ function fmtD(d: string) { return new Date(d).toLocaleDateString('en-GB'); }
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: '#6B7280', ISSUED: '#2563EB', PAID: '#16A34A', OVERDUE: '#DC2626', VOID: '#94A3B8',
+  PENDING: '#CA8A04', SUCCESSFUL: '#16A34A', FAILED: '#DC2626', REFUNDED: '#8B5CF6',
 };
 
 function badge(label: string, color: string) {
@@ -21,27 +22,48 @@ interface Invoice {
   lines: { description: string; amountKobo: number; quantity: number }[];
 }
 
+interface Payment {
+  id: string; amountKobo: number; reference: string; provider: string; status: string; paidAt: string | null;
+  invoice: { invoiceNumber: string } | null;
+  createdAt: string;
+}
+
+interface Receipt {
+  id: string; receiptNumber: string; amountKobo: number; paymentMethod: string; paidAt: string;
+  invoice: { invoiceNumber: string } | null;
+}
+
 interface DashboardData {
   outstandingKobo: number;
   lastInvoice: { id: string; amountKobo: number; status: string; dueAt: string } | null;
 }
+
+const TABS = ['Invoices', 'Payments', 'Receipts'] as const;
+type Tab = (typeof TABS)[number];
 
 export default function BillingPage() {
   const { accessToken } = useAuthStore();
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDetail, setShowDetail] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [tab, setTab] = useState<Tab>('Invoices');
 
   const fetchData = async () => {
-    const [d, inv] = await Promise.all([
+    const [d, inv, p, r] = await Promise.all([
       api<DashboardData>('/customer/dashboard').catch(() => null),
       api<Invoice[]>('/customer/invoices').catch(() => []),
+      api<Payment[]>('/customer/payments').catch(() => []),
+      api<Receipt[]>('/customer/receipts').catch(() => []),
     ]);
     if (d) setData(d);
     setInvoices(inv);
+    setPayments(p);
+    setReceipts(r);
   };
 
   useEffect(() => {
@@ -51,6 +73,11 @@ export default function BillingPage() {
     }
     fetchData().finally(() => setLoading(false));
   }, [accessToken, router]);
+
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t && (TABS as readonly string[]).includes(t)) setTab(t as Tab);
+  }, []);
 
   // Auto-refresh on focus
   useEffect(() => {
@@ -65,8 +92,8 @@ export default function BillingPage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <SkeletonBlock width={200} height={28} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="data-card" style={{ padding: 24, height: 90 }} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="data-card" style={{ padding: 24, height: 90 }} />)}
         </div>
         <div className="data-card" style={{ padding: 24 }}>
           <SkeletonTable rows={6} cols={5} />
@@ -76,27 +103,16 @@ export default function BillingPage() {
   }
 
   const d = data;
+  const totalPaid = receipts.reduce((s, r) => s + r.amountKobo, 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <h1 style={{ fontSize: '1.6rem', fontWeight: 700 }}>Billing</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>View invoices and outstanding balance</p>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={async () => { setRefreshing(true); await fetchData(); setRefreshing(false); }}
-          style={{ padding: '8px 16px', borderRadius: 20, border: '1px solid var(--border-color)',
-            cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', background: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-            style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }}>
-            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-          </svg>
-          Refresh
-        </button>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+        <h1 style={{ fontSize: '1.6rem', fontWeight: 700 }}>Billing & Payments</h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Invoices, payments and receipts in one place</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <div className="data-card" style={{ padding: '18px 20px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Outstanding Balance</div>
           <div style={{ fontSize: '1.3rem', fontWeight: 700, color: (d?.outstandingKobo ?? 0) > 0 ? '#DC2626' : '#16A34A' }}>{d ? fmtK(d.outstandingKobo) : '—'}</div>
@@ -110,40 +126,134 @@ export default function BillingPage() {
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Next Due Date</div>
           <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{d?.lastInvoice?.dueAt ? fmtD(d.lastInvoice.dueAt) : '—'}</div>
         </div>
-      </div>
-
-      <div className="data-card" style={{ padding: 0 }}>
-        <div className="table-container">
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Due Date</th>
-                  <th style={{ width: 80 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.length === 0 ? (
-                  <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No invoices found</td></tr>
-                ) : invoices.map(inv => (
-                  <tr key={inv.id} onClick={() => setShowDetail(inv.id)} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{inv.invoiceNumber}</td>
-                    <td style={{ fontWeight: 600 }}>{fmtK(inv.amountKobo)}</td>
-                    <td>{badge(inv.status, STATUS_COLORS[inv.status] ?? '#6B7280')}</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{fmtD(inv.dueAt)}</td>
-                    <td>
-                      <button className="btn-sm" onClick={(e) => { e.stopPropagation(); }}>Pay Now</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="data-card" style={{ padding: '18px 20px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Total Paid</div>
+          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#16A34A' }}>{fmtK(totalPaid)}</div>
         </div>
       </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer',
+            fontWeight: 600, fontSize: '0.8rem', background: tab === t ? 'var(--primary)' : '#fff',
+            color: tab === t ? '#fff' : 'var(--text-color)',
+          }}>{t}</button>
+        ))}
+        <button onClick={async () => { setRefreshing(true); await fetchData(); setRefreshing(false); }}
+          style={{ marginLeft: 'auto', padding: '8px 16px', borderRadius: 20, border: '1px solid var(--border-color)',
+            cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', background: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+            style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }}>
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+          Refresh
+        </button>
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+
+      {tab === 'Invoices' && (
+        <div className="data-card" style={{ padding: 0 }}>
+          <div className="table-container">
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Due Date</th>
+                    <th style={{ width: 80 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.length === 0 ? (
+                    <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No invoices found</td></tr>
+                  ) : invoices.map(inv => (
+                    <tr key={inv.id} onClick={() => setShowDetail(inv.id)} style={{ cursor: 'pointer' }}>
+                      <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{inv.invoiceNumber}</td>
+                      <td style={{ fontWeight: 600 }}>{fmtK(inv.amountKobo)}</td>
+                      <td>{badge(inv.status, STATUS_COLORS[inv.status] ?? '#6B7280')}</td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{fmtD(inv.dueAt)}</td>
+                      <td>
+                        <button className="btn-sm" onClick={(e) => { e.stopPropagation(); }}>Pay Now</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'Payments' && (
+        <div className="data-card" style={{ padding: 0 }}>
+          <div className="table-container">
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Invoice</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.length === 0 ? (
+                    <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No payments found</td></tr>
+                  ) : payments.map(p => (
+                    <tr key={p.id}>
+                      <td style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{p.reference.slice(0, 16)}...</td>
+                      <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.invoice?.invoiceNumber ?? '—'}</td>
+                      <td style={{ fontWeight: 600 }}>{fmtK(p.amountKobo)}</td>
+                      <td>{badge(p.provider, '#6366F1')}</td>
+                      <td>{badge(p.status, p.status === 'SUCCESSFUL' ? '#16A34A' : p.status === 'PENDING' ? '#CA8A04' : '#DC2626')}</td>
+                      <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.paidAt ? fmtD(p.paidAt) : fmtD(p.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'Receipts' && (
+        <div className="data-card" style={{ padding: 0 }}>
+          <div className="table-container">
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Receipt #</th>
+                    <th>Invoice</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receipts.length === 0 ? (
+                    <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No receipts found</td></tr>
+                  ) : receipts.map(r => (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{r.receiptNumber}</td>
+                      <td>{r.invoice?.invoiceNumber ?? '—'}</td>
+                      <td style={{ fontWeight: 600 }}>{fmtK(r.amountKobo)}</td>
+                      <td>{badge(r.paymentMethod, '#6366F1')}</td>
+                      <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{fmtD(r.paidAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDetail && (() => {
         const inv = invoices.find(i => i.id === showDetail);

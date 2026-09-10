@@ -359,9 +359,9 @@ export default function UsersPage() {
 
       <div className="data-card">
         <div className="table-container">
-          <div className="table-scroll">
+          <div className="table-scroll" style={{ overflowY: 'auto', maxHeight: 460 }}>
             <table>
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
                 <tr>
                   <th style={{ width: 40 }}><input type="checkbox" /></th>
                   <th>NAME</th>
@@ -498,9 +498,9 @@ export default function UsersPage() {
           <button className="btn-primary" onClick={() => openRolesModal()}>Add Role</button>
         </div>
         <div className="table-container">
-          <div className="table-scroll">
+          <div className="table-scroll" style={{ overflowY: 'auto', maxHeight: 320 }}>
             <table>
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
                 <tr>
                   <th>ROLE NAME</th>
                   <th>USERS</th>
@@ -552,9 +552,9 @@ export default function UsersPage() {
               <input value={quickRoleName} onChange={(e) => setQuickRoleName(e.target.value)} placeholder="e.g. Support Manager" style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 12, fontSize: '0.85rem', outline: 'none' }} />
             </div>
 
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: 16, overflowY: 'auto', maxHeight: 360 }}>
               <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                <thead>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
                   <tr style={{ background: '#F8FAFC' }}>
                     <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, borderBottom: '1px solid var(--border-color)', width: '40%', color: '#0F172A' }}>Module</th>
                     <th style={{ padding: '10px 4px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid var(--border-color)', width: '15%', color: '#0F172A' }}>View</th>
@@ -607,9 +607,9 @@ export default function UsersPage() {
               <input value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Support Manager" style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 12, fontSize: '0.85rem', outline: 'none' }} />
             </div>
 
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: 16, overflowY: 'auto', maxHeight: 360 }}>
               <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                <thead>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
                   <tr style={{ background: '#F8FAFC' }}>
                     <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, borderBottom: '1px solid var(--border-color)', width: '40%', color: '#0F172A' }}>Module</th>
                     <th style={{ padding: '10px 4px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid var(--border-color)', width: '15%', color: '#0F172A' }}>View</th>

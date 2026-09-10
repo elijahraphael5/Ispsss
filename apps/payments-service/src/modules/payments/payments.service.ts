@@ -148,7 +148,24 @@ export class PaymentsService {
 
   // ── Customer Self-Service Checkout (Paystack) ──────────────
 
-  async initializeCustomerPayment(userId: string, body: { action: 'renew' | 'change_plan' | 'add_plan'; planId?: string; email?: string }) {
+  /** Allowed pay-ahead durations (months). */
+  private static readonly PAY_AHEAD_MONTHS = [1, 2, 3, 4, 5, 6, 9, 12];
+
+  private normalizeMonths(months?: number): number {
+    const n = Number(months ?? 1);
+    return PaymentsService.PAY_AHEAD_MONTHS.includes(n) ? n : 1;
+  }
+
+  /** Calendar-aware month addition, clamped to the last day of the target month. */
+  private addMonths(date: Date, months: number): Date {
+    const d = new Date(date);
+    const day = d.getDate();
+    d.setMonth(d.getMonth() + months);
+    if (d.getDate() < day) d.setDate(0);
+    return d;
+  }
+
+  async initializeCustomerPayment(userId: string, body: { action: 'renew' | 'change_plan' | 'add_plan'; planId?: string; email?: string; months?: number }) {
     const subscriber = await this.prisma.subscriber.findFirst({
       where: { userId, deletedAt: null },
       include: { user: { select: { email: true } } },
@@ -156,6 +173,11 @@ export class PaymentsService {
     if (!subscriber) throw new NotFoundException('Subscriber not found');
 
     const { action, planId } = body;
+    const months = Number(body.months ?? 1);
+    if (!PaymentsService.PAY_AHEAD_MONTHS.includes(months)) {
+      throw new BadRequestException('months must be one of 1, 2, 3, 4, 5, 6, 9 or 12');
+    }
+
     let plan: any = null;
     if (action === 'renew') {
       const current = await this.prisma.subscription.findFirst({
@@ -171,31 +193,24 @@ export class PaymentsService {
       if (!plan) throw new NotFoundException('Plan not found');
     }
 
-    const priceKobo = plan.priceKobo;
+    const priceKobo = plan.priceKobo * months;
     const now = new Date();
-    const invNum = 'INV-' + now.getFullYear() + '-' + String(await this.nextInvoiceSeq()).padStart(6, '0');
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        invoiceNumber: invNum,
-        subscriberId: subscriber.id,
-        type: 'SUBSCRIPTION',
-        status: 'ISSUED',
-        amountKobo: priceKobo,
-        subtotalKobo: priceKobo,
-        vatKobo: 0,
-        discountKobo: 0,
-        dueAt: new Date(now.getTime() + 14 * 86400000),
-        issuedAt: now,
-        lines: {
-          create: {
-            description: action === 'change_plan' ? 'Plan Change: ' + plan.name
-              : action === 'renew' ? 'Renewal: ' + plan.name
-              : 'New Plan: ' + plan.name,
-            amountKobo: priceKobo,
-            quantity: 1,
-          },
-        },
-      },
+    const baseLabel =
+      action === 'change_plan' ? 'Plan Change: ' + plan.name
+      : action === 'renew' ? 'Renewal: ' + plan.name
+      : 'New Plan: ' + plan.name;
+    const lineDescription = months > 1 ? `${baseLabel} (${months} months)` : baseLabel;
+
+    const invoice = await this.createInvoiceWithUniqueNumber({
+      subscriberId: subscriber.id,
+      type: 'SUBSCRIPTION',
+      amountKobo: priceKobo,
+      subtotalKobo: priceKobo,
+      vatKobo: 0,
+      discountKobo: 0,
+      dueAt: new Date(now.getTime() + 14 * 86400000),
+      issuedAt: now,
+      lineDescription,
     });
 
     const reference = 'PAY-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
@@ -210,7 +225,7 @@ export class PaymentsService {
         amountKobo: priceKobo,
         reference,
         callbackUrl,
-        metadata: { action, planId, invoiceId: invoice.id, paymentId: payment.id },
+        metadata: { action, planId, months, invoiceId: invoice.id, paymentId: payment.id },
       });
       await this.prisma.paymentAttempt.create({
         data: {
@@ -218,10 +233,10 @@ export class PaymentsService {
           provider: 'PAYSTACK',
           reference,
           status: 'PENDING',
-          response: { action: 'initialize', meta: { action, planId } },
+          response: { action: 'initialize', meta: { action, planId, months } },
         },
       });
-      return { authorizationUrl: result.authorizationUrl, reference, amountKobo: priceKobo, paymentId: payment.id, invoiceId: invoice.id };
+      return { authorizationUrl: result.authorizationUrl, reference, amountKobo: priceKobo, months, paymentId: payment.id, invoiceId: invoice.id };
     } catch (err: any) {
       await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
       throw new BadRequestException(`Payment initialization failed: ${err.message}`);
@@ -232,7 +247,8 @@ export class PaymentsService {
    * Completes a customer self-service payment. Idempotent — safe to call from
    * both the Paystack webhook and the browser redirect verify endpoint.
    */
-  async completeCustomerPayment(paymentId: string, opts: { action: string; planId?: string; reference: string }) {
+  async completeCustomerPayment(paymentId: string, opts: { action: string; planId?: string; reference: string; months?: number }) {
+    const months = this.normalizeMonths(opts.months);
     const payment = await this.prisma.payment.findUniqueOrThrow({
       where: { id: paymentId },
       include: { invoice: true },
@@ -263,18 +279,18 @@ export class PaymentsService {
       await this.prisma.subscription.update({
         where: { id: existingSub.id },
         data: {
-          expiresAt: new Date(Math.max((existingSub.expiresAt ?? now).getTime(), now.getTime()) + 30 * 86400000),
+          expiresAt: this.addMonths(new Date(Math.max((existingSub.expiresAt ?? now).getTime(), now.getTime())), months),
           suspendedAt: null,
         },
       });
     } else if (action === 'change_plan' && planId && existingSub) {
       await this.prisma.subscription.update({
         where: { id: existingSub.id },
-        data: { planId, startedAt: now, expiresAt: new Date(now.getTime() + 30 * 86400000), suspendedAt: null },
+        data: { planId, startedAt: now, expiresAt: this.addMonths(now, months), suspendedAt: null },
       });
     } else if (action === 'add_plan' && planId) {
       await this.prisma.subscription.create({
-        data: { subscriberId, planId, expiresAt: new Date(now.getTime() + 30 * 86400000), autoRenew: true },
+        data: { subscriberId, planId, expiresAt: this.addMonths(now, months), autoRenew: true },
       });
     }
 
@@ -301,10 +317,17 @@ export class PaymentsService {
     if (payment.status === 'SUCCESSFUL') return { status: 'SUCCESSFUL', reference };
 
     const verified = await this.paystack.verifyTransaction(reference);
-    if (verified.status !== 'success') {
-      this.logger.warn(`Paystack verification for ${reference} returned '${verified.status}'`);
+    if (verified.status === 'failed') {
+      this.logger.warn(`Paystack verification for ${reference} returned 'failed'`);
       await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } }).catch(() => {});
       return { status: 'FAILED', reference };
+    }
+    if (verified.status !== 'success') {
+      // 'abandoned'/pending/unknown — leave the payment PENDING so a webhook
+      // or later verify can still complete it. Do not mark FAILED on
+      // transient/ambiguous states.
+      this.logger.warn(`Paystack verification for ${reference} inconclusive ('${verified.status}') — leaving payment pending`);
+      return { status: verified.status.toUpperCase(), reference };
     }
 
     const attempt = await this.prisma.paymentAttempt.findFirst({
@@ -315,6 +338,7 @@ export class PaymentsService {
     await this.completeCustomerPayment(payment.id, {
       action: meta.action ?? 'renew',
       planId: meta.planId,
+      months: meta.months,
       reference,
     });
     return { status: 'SUCCESSFUL', reference };
@@ -472,26 +496,27 @@ export class PaymentsService {
   }
 
   async debitWallet(subscriberId: string, amountKobo: number, reference: string, description?: string, invoiceId?: string) {
-    const wallet = await this.getWallet(subscriberId);
-    if (wallet.balanceKobo < amountKobo) throw new BadRequestException('Insufficient wallet balance');
-
     return this.prisma.$transaction(async tx => {
-      const updated = await tx.wallet.update({
-        where: { id: wallet.id },
+      // Atomic conditional decrement — prevents a TOCTOU double-spend where
+      // two concurrent debits both pass a pre-transaction balance check.
+      const updated = await tx.wallet.updateMany({
+        where: { subscriberId, balanceKobo: { gte: amountKobo } },
         data: { balanceKobo: { decrement: amountKobo } },
       });
+      if (updated.count === 0) throw new BadRequestException('Insufficient wallet balance');
+      const wallet = await tx.wallet.findFirstOrThrow({ where: { subscriberId } });
       await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
           type: 'DEBIT',
           amountKobo,
-          balanceKobo: updated.balanceKobo,
+          balanceKobo: wallet.balanceKobo,
           reference,
           description,
           invoiceId,
         },
       });
-      return updated;
+      return wallet;
     });
   }
 
@@ -505,21 +530,32 @@ export class PaymentsService {
 
     const reference = `WAL-${Date.now()}`;
 
-    await this.debitWallet(subscriberId, invoice.amountKobo, reference, `Payment for ${invoice.invoiceNumber}`, invoiceId);
+    try {
+      await this.debitWallet(subscriberId, invoice.amountKobo, reference, `Payment for ${invoice.invoiceNumber}`, invoiceId);
 
-    await this.prisma.payment.create({
-      data: {
-        invoiceId,
-        provider: 'BANK_TRANSFER',
-        amountKobo: invoice.amountKobo,
-        reference,
-        status: 'SUCCESSFUL',
-        paidAt: new Date(),
-      },
-    });
+      await this.prisma.payment.create({
+        data: {
+          invoiceId,
+          provider: 'BANK_TRANSFER',
+          amountKobo: invoice.amountKobo,
+          reference,
+          status: 'SUCCESSFUL',
+          paidAt: new Date(),
+        },
+      });
 
-await this.billing.markPaid(invoiceId);
-    await this.notifyRadiusActivation(invoiceId);
+      await this.billing.markPaid(invoiceId);
+      await this.notifyRadiusActivation(invoiceId);
+    } catch (err) {
+      // Don't leave the wallet debited if anything after the debit failed.
+      await this.creditWallet(
+        subscriberId,
+        invoice.amountKobo,
+        `REF-${reference}`,
+        `Refund — failed to mark ${invoice.invoiceNumber} paid`,
+      ).catch(() => {});
+      throw err;
+    }
 
     return { message: 'Invoice paid from wallet', invoiceNumber: invoice.invoiceNumber };
   }
@@ -530,34 +566,16 @@ await this.billing.markPaid(invoiceId);
     return this.prisma.virtualAccount.findMany({ where: { subscriberId, isActive: true } });
   }
 
-  async assignVirtualAccount(subscriberId: string) {
-    const existing = await this.prisma.virtualAccount.findFirst({ where: { subscriberId, isActive: true } });
-    if (existing) return existing;
-
-    const banks = [
-      { bank: 'Wema Bank', prefix: '5310' },
-      { bank: 'Providus Bank', prefix: '7890' },
-      { bank: 'Sterling Bank', prefix: '1122' },
-    ];
-
-    const count = await this.prisma.virtualAccount.count();
-    const bank = banks[count % banks.length];
-    const accountNumber = `${bank.prefix}${String(100000 + count).slice(0, 6)}`;
-
-    const subscriber = await this.prisma.subscriber.findUnique({
-      where: { id: subscriberId },
-      include: { user: { select: { email: true } } },
-    });
-
-    return this.prisma.virtualAccount.create({
-      data: {
-        subscriberId,
-        bankName: bank.bank,
-        accountNumber,
-        accountName: `Hikonnect - ${subscriber?.user?.email?.split('@')[0] ?? 'Customer'}`,
-        provider: 'BANK_TRANSFER',
-      },
-    });
+  /**
+   * Disabled — this previously FABRICATED local bank account numbers that were
+   * never provisioned with any bank. Customers could transfer real money to
+   * accounts that don't exist. Re-introduce only behind a real provider
+   * integration (e.g. Paystack Dedicated Virtual Accounts / Wema API).
+   */
+  async assignVirtualAccount(subscriberId: string): Promise<never> {
+    throw new BadRequestException(
+      'Virtual account issuance is not available — no bank provider is integrated',
+    );
   }
 
   // ── Refunds ────────────────────────────────────────────────
@@ -586,17 +604,29 @@ await this.billing.markPaid(invoiceId);
     const payment = await this.prisma.payment.findUniqueOrThrow({ where: { id: data.paymentId } });
     if (payment.status !== 'SUCCESSFUL') throw new BadRequestException('Can only refund successful payments');
 
-    const refundNumber = await this.nextRefundNumber();
-    return this.prisma.refund.create({
-      data: {
-        refundNumber,
-        paymentId: data.paymentId,
-        invoiceId: payment.invoiceId,
-        amountKobo: data.amountKobo,
-        reason: data.reason,
-        status: 'PENDING',
-      },
-    });
+    // Retry with a fresh sequence number when concurrent requests collide on
+    // the unique refundNumber.
+    let lastErr: any;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const refundNumber = await this.nextRefundNumber();
+        return await this.prisma.refund.create({
+          data: {
+            refundNumber,
+            paymentId: data.paymentId,
+            invoiceId: payment.invoiceId,
+            amountKobo: data.amountKobo,
+            reason: data.reason,
+            status: 'PENDING',
+          },
+        });
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('refundNumber')) continue;
+        throw e;
+      }
+    }
+    throw lastErr;
   }
 
   async approveRefund(id: string, approvedById: string) {
@@ -644,10 +674,25 @@ await this.billing.markPaid(invoiceId);
 
   // ── Webhook ────────────────────────────────────────────────
 
-  async handlePaystackWebhook(body: any, signature: string) {
-    const hash = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY ?? '').update(JSON.stringify(body)).digest('hex');
-    if (hash !== signature) {
+  async handlePaystackWebhook(rawBody: Buffer, signature: string) {
+    const secret = process.env.PAYSTACK_SECRET_KEY ?? '';
+    if (!secret) {
+      this.logger.error('Paystack webhook rejected — PAYSTACK_SECRET_KEY not configured');
+      return;
+    }
+    const hash = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+    const expected = Buffer.from(hash, 'utf8');
+    const received = Buffer.from(String(signature ?? ''), 'utf8');
+    if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
       this.logger.warn('Paystack webhook signature mismatch');
+      return;
+    }
+
+    let body: any;
+    try {
+      body = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      this.logger.warn('Paystack webhook payload is not valid JSON');
       return;
     }
 
@@ -675,7 +720,7 @@ await this.billing.markPaid(invoiceId);
       });
       const meta = (initAttempt?.response as any)?.meta;
       if (meta?.action) {
-        await this.completeCustomerPayment(payment.id, { action: meta.action, planId: meta.planId, reference });
+        await this.completeCustomerPayment(payment.id, { action: meta.action, planId: meta.planId, months: meta.months, reference });
         return;
       }
 
@@ -758,6 +803,55 @@ await this.billing.markPaid(invoiceId);
     if (!last) return 1;
     const parts = last.invoiceNumber.split('-');
     return (parseInt(parts[parts.length - 1], 10) || 0) + 1;
+  }
+
+  /**
+   * Creates the checkout invoice, retrying with a fresh sequence number when
+   * concurrent creators collide on the unique invoiceNumber.
+   */
+  private async createInvoiceWithUniqueNumber(data: {
+    subscriberId: string;
+    type: 'SUBSCRIPTION';
+    amountKobo: number;
+    subtotalKobo: number;
+    vatKobo: number;
+    discountKobo: number;
+    dueAt: Date;
+    issuedAt: Date;
+    lineDescription: string;
+  }) {
+    let lastErr: any;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const invNum = 'INV-' + new Date().getFullYear() + '-' + String(await this.nextInvoiceSeq() + attempt).padStart(6, '0');
+        return await this.prisma.invoice.create({
+          data: {
+            invoiceNumber: invNum,
+            subscriberId: data.subscriberId,
+            type: data.type,
+            status: 'ISSUED',
+            amountKobo: data.amountKobo,
+            subtotalKobo: data.subtotalKobo,
+            vatKobo: data.vatKobo,
+            discountKobo: data.discountKobo,
+            dueAt: data.dueAt,
+            issuedAt: data.issuedAt,
+            lines: {
+              create: {
+                description: data.lineDescription,
+                amountKobo: data.amountKobo,
+                quantity: 1,
+              },
+            },
+          },
+        });
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('invoiceNumber')) continue;
+        throw e;
+      }
+    }
+    throw lastErr;
   }
 
   // ── Reconciliation ─────────────────────────────────────────

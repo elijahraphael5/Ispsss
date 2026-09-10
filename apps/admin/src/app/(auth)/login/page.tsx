@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, api } from '@isp/shared';
 
@@ -8,16 +8,24 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const { setAccessToken, setUser } = useAuthStore();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reason') === 'idle') {
+      setNotice('You were logged out due to inactivity. Please sign in again.');
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const result = await api<{ accessToken?: string; twoFaRequired?: boolean; userId?: string }>(
+      const result = await api<{ accessToken?: string; twoFaRequired?: boolean; userId?: string; email?: string }>(
         '/auth/login',
         { method: 'POST', body: JSON.stringify({ email, password }), skipAuth: true },
       );
@@ -27,7 +35,7 @@ export default function LoginPage() {
         setUser(user);
         router.push('/');
       } else if (result.twoFaRequired) {
-        router.push(`/login/2fa?userId=${result.userId}`);
+        router.push(`/login/2fa?userId=${result.userId}&email=${encodeURIComponent(result.email ?? email)}`);
       }
     } catch (err: any) {
       setError(err.message || 'Invalid email or password');
@@ -79,6 +87,12 @@ export default function LoginPage() {
               </label>
               <a href="#" style={{ color: '#111', textDecoration: 'none', fontWeight: 600 }}>Forgot Password ?</a>
             </div>
+
+            {notice && (
+              <div style={{ backgroundColor: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 10, padding: '12px 16px', marginBottom: 18, color: '#92400e', fontSize: '0.85rem' }}>
+                {notice}
+              </div>
+            )}
 
             {error && (
               <div style={{ backgroundColor: '#fde8e8', border: '1px solid #e53e3e', borderRadius: 10, padding: '12px 16px', marginBottom: 18, color: '#e53e3e', fontSize: '0.85rem' }}>

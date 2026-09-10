@@ -12,6 +12,9 @@ export class WebhookController {
 
   @Post('webhook/paystack')
   async paystackWebhook(@Req() req: any) {
-    return this.service.handlePaystackWebhook(req.body, req.headers['x-paystack-signature']);
+    // rawBody is enabled in main.ts — the HMAC must be computed over the
+    // exact bytes Paystack signed, not a re-serialized parse of them.
+    const rawBody: Buffer = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
+    return this.service.handlePaystackWebhook(rawBody, req.headers['x-paystack-signature']);
   }
 }

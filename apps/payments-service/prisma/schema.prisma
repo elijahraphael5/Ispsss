@@ -3,7 +3,8 @@
 // - RBAC roles enumerated explicitly (was a loose list in the spec)
 // - Subscriber vs User separated: `User` = portal identity/auth, `Subscriber` = ISP account/service record
 // - Billing normalized: Invoice -> InvoiceLine, separate Payment ledger
-// - Soft-delete via `deletedAt` on core entities for audit-log compliance
+// - Soft-delete via `deletedAt` on ALL models (whole-DB) for audit-log compliance
+// - Edit/delete history via `EntityHistory` (written by the @isp/prisma extension)
 
 generator client {
   provider      = "prisma-client-js"
@@ -124,6 +125,7 @@ model Tenant {
   routerSnapshots   RouterSnapshot[]
   routerMetrics     RouterMetric[]
   routerUsageDays   RouterUsageDay[]
+  deletedAt   DateTime?
   createdAt   DateTime      @default(now())
 }
 
@@ -136,6 +138,7 @@ model CustomRole {
   users       User[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
 
   @@index([tenantId])
 }
@@ -149,6 +152,7 @@ model Permission {
   canCreate Boolean     @default(false)
   canEdit   Boolean     @default(false)
   canDelete Boolean     @default(false)
+  deletedAt DateTime?
 
   @@unique([roleId, module])
 }
@@ -166,6 +170,8 @@ model User {
   customRole    CustomRole? @relation(fields: [customRoleId], references: [id])
   twoFaEnabled  Boolean     @default(false)
   twoFaSecret   String?
+  twoFaOtpHash  String?
+  twoFaOtpExpiresAt DateTime?
   subscriber    Subscriber?
   agentSessions     ChatSession[]     @relation("ChatSessionAgent")
   assignedTickets  Ticket[]          @relation("TicketAssignedAgent")
@@ -179,27 +185,38 @@ model User {
 }
 
 model Subscriber {
-  id             String            @id @default(uuid())
-  tenantId       String
-  tenant         Tenant            @relation(fields: [tenantId], references: [id])
-  user           User              @relation(fields: [userId], references: [id])
-  userId         String            @unique
-  type           SubscriberType
-  status         SubscriberStatus  @default(PENDING_KYC)
-  kycVerified    Boolean           @default(false)
-  pppoeUsername  String?           @unique
-  address        String?
-  networkType    String?           // RADIO, FIBER, DIA — display override, falls back to plan.technology
-  subscriptions  Subscription[]
-  invoices       Invoice[]
-  tickets        Ticket[]
-  chatSessions   ChatSession[]
-  devices        Cpe[]
-  contracts      Contract[]
-  wallet         Wallet?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  deletedAt      DateTime?
+  id               String            @id @default(uuid())
+  tenantId         String
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  userId           String            @unique
+  type             SubscriberType
+  status           SubscriberStatus  @default(PENDING_KYC)
+  kycVerified      Boolean           @default(false)
+  // Maker–checker KYC trail: the admin who created the account (maker) cannot
+  // be the same admin who approves it (checker).
+  kycSubmittedById String?
+  kycSubmittedAt   DateTime?
+  kycApprovedById  String?
+  kycApprovedAt    DateTime?
+  kycRejectedById  String?
+  kycRejectedAt    DateTime?
+  kycRejectReason  String?
+  pppoeUsername    String?           @unique
+  staticIpAddress  String?           @unique // per-subscriber Framed-IP-Address (fiber static clients)
+  staticIpNetmask  String?           // optional Framed-IP-Netmask (defaults to /32 when omitted)
+  address          String?
+  networkType      String?           // RADIO, FIBER, DIA — display override, falls back to plan.technology
+  subscriptions    Subscription[]
+  invoices         Invoice[]
+  tickets          Ticket[]
+  chatSessions     ChatSession[]
+  devices          Cpe[]
+  contracts        Contract[]
+  wallet           Wallet?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
 
   @@index([status])
   @@index([tenantId])
@@ -213,6 +230,7 @@ model Plan {
   type                PlanType
   technology          String         // RADIO, FIBER, DIA
   category            String         // PERSONAL, HOME, SME, DIA_BRONZE, DIA_SILVER, DIA_GOLD, DIA_PLATINUM
+  level               String?        // BRONZE, SILVER, GOLD
   speedMbps           Int
   speedLabel          String?        // display string, e.g. "2–5 Mbps", "Custom"
   targetUsers         Int?           // max number of users
@@ -230,6 +248,7 @@ model Plan {
   isActive            Boolean        @default(true)
   subscriptions       Subscription[]
   createdAt           DateTime       @default(now())
+  deletedAt           DateTime?
 
   @@index([tenantId])
 }
@@ -246,8 +265,10 @@ model Subscription {
   routerCostKobo     Int?
   startedAt          DateTime     @default(now())
   expiresAt          DateTime?
+  expiryReminderSentAt DateTime?  // last daily "expires soon" reminder email
   suspendedAt        DateTime?
   cancelledAt        DateTime?
+  deletedAt          DateTime?
 
   @@index([subscriberId])
   @@index([expiresAt])
@@ -274,6 +295,7 @@ model Invoice {
   creditNotes   CreditNote[]
   refunds       Refund[]
   createdAt     DateTime      @default(now())
+  deletedAt     DateTime?
 
   @@index([invoiceNumber])
   @@index([subscriberId, status])
@@ -287,6 +309,7 @@ model InvoiceLine {
   description String
   amountKobo  Int
   quantity    Int     @default(1)
+  deletedAt   DateTime?
 }
 
 model Payment {
@@ -302,6 +325,7 @@ model Payment {
   paidAt            DateTime?
   refunds           Refund[]
   createdAt         DateTime        @default(now())
+  deletedAt         DateTime?
 
   @@index([status])
   @@index([providerReference])
@@ -317,6 +341,7 @@ model Receipt {
   transactionRef     String
   paidAt             DateTime
   createdAt          DateTime @default(now())
+  deletedAt          DateTime?
 
   @@index([receiptNumber])
 }
@@ -340,6 +365,7 @@ model Quotation {
   createdBy         String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
 
   @@index([quotationNumber])
   @@index([status])
@@ -353,6 +379,7 @@ model QuotationItem {
   quantity      Int       @default(1)
   unitPriceKobo Int
   amountKobo    Int
+  deletedAt     DateTime?
 }
 
 model CreditNote {
@@ -363,6 +390,7 @@ model CreditNote {
   amountKobo       Int
   reason           String
   createdAt        DateTime @default(now())
+  deletedAt        DateTime?
 
   @@index([creditNoteNumber])
 }
@@ -381,6 +409,7 @@ model Refund {
   processedAt    DateTime?
   invoice        Invoice       @relation(fields: [invoiceId], references: [id])
   createdAt      DateTime      @default(now())
+  deletedAt      DateTime?
 
   @@index([status])
 }
@@ -393,6 +422,7 @@ model Wallet {
   transactions   WalletTransaction[]
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
+  deletedAt      DateTime?
 
   @@index([subscriberId])
 }
@@ -408,6 +438,7 @@ model WalletTransaction {
   description String?
   invoiceId   String?
   createdAt   DateTime @default(now())
+  deletedAt   DateTime?
 
   @@index([walletId])
 }
@@ -422,6 +453,7 @@ model VirtualAccount {
   isActive      Boolean  @default(true)
   assignedAt    DateTime @default(now())
   createdAt     DateTime @default(now())
+  deletedAt     DateTime?
 
   @@unique([subscriberId, provider])
 }
@@ -434,6 +466,7 @@ model PaymentAttempt {
   status    String   // PENDING, SUCCESSFUL, FAILED
   response  Json?
   createdAt DateTime @default(now())
+  deletedAt DateTime?
 
   @@index([paymentId])
 }
@@ -449,6 +482,7 @@ model PaymentReconciliation {
   notes          String?
   resolvedAt     DateTime?
   createdAt      DateTime @default(now())
+  deletedAt      DateTime?
 
   @@index([referenceDate])
 }
@@ -474,6 +508,7 @@ model Ticket {
   uploads             FileUpload[]
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
+  deletedAt           DateTime?
 
   @@index([tenantId, status])
   @@index([tenantId, priority])
@@ -490,6 +525,7 @@ model TicketComment {
   body       String
   internal   Boolean             @default(false)
   createdAt  DateTime            @default(now())
+  deletedAt  DateTime?
   attachments FileUpload[]
 
   @@index([ticketId])
@@ -530,6 +566,7 @@ model ChatSession {
   closedAt        DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
   messages        ChatMessage[]
   tickets         Ticket[]
   uploads         FileUpload[]
@@ -550,6 +587,7 @@ model ChatMessage {
   deliveredAt DateTime?
   readAt      DateTime?
   createdAt   DateTime      @default(now())
+  deletedAt   DateTime?
   attachments FileUpload[]
 
   @@index([sessionId, createdAt])
@@ -568,6 +606,7 @@ model FileUpload {
   sizeBytes       Int
   storedPath      String         // path on disk relative to upload root
   createdAt       DateTime       @default(now())
+  deletedAt       DateTime?
   session         ChatSession?   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   message         ChatMessage?   @relation(fields: [messageId], references: [id], onDelete: Cascade)
   ticket          Ticket?        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -596,6 +635,7 @@ model AgentPresence {
   lastSeenAt DateTime?
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
+  deletedAt  DateTime?
 
   @@index([tenantId, status])
 }
@@ -610,6 +650,7 @@ model CannedResponse {
   usageCount Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
 
   @@index([tenantId])
 }
@@ -626,6 +667,7 @@ model Cpe {
   installerName   String?
   lastSeenAt      DateTime?
   createdAt       DateTime       @default(now())
+  deletedAt       DateTime?
 
   @@index([status])
 }
@@ -648,6 +690,7 @@ model NetworkDevice {
   routerosPassword String?
   routerosPort     Int?     @default(443)
   updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
   routerHealth     RouterHealth?
   routerSnapshots  RouterSnapshot[]
   routerMetrics    RouterMetric[]
@@ -666,6 +709,7 @@ model RouterHealth {
   lastErrorAt DateTime?
   lastError   String?
   updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
 }
 
 model Contract {
@@ -675,24 +719,28 @@ model Contract {
   documentUrl   String     // object storage key
   signedAt      DateTime?
   createdAt     DateTime   @default(now())
+  deletedAt     DateTime?
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid())
-  userId    String
-  family    String
-  tokenHash String    @unique
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
+  id         String    @id @default(uuid())
+  userId     String
+  family     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  // Sliding idle window: bumped on every token issue, checked on refresh.
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
 
   @@index([userId])
 }
 
 model AuditLog {
   id          String   @id @default(uuid())
-  actor       User     @relation(fields: [actorId], references: [id])
-  actorId     String
+  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorId     String?
   action      String
   entityType  String
   entityId    String
@@ -700,8 +748,7 @@ model AuditLog {
   afterData   Json?
   metadata    Json?
   createdAt   DateTime @default(now())
-
-  @@index([entityType, entityId])
+  deletedAt   DateTime?
 }
 
 model Notification {
@@ -714,6 +761,7 @@ model Notification {
   link         String?
   read         Boolean   @default(false)
   createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
 
   @@index([tenantId, read])
   @@index([createdAt])
@@ -726,6 +774,7 @@ model PasswordResetToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+  deletedAt DateTime?
 
   @@index([userId])
 }
@@ -742,6 +791,7 @@ model ActionQueue {
   errorMsg   String?
   createdAt  DateTime  @default(now())
   appliedAt  DateTime?
+  deletedAt  DateTime?
 
   @@index([tenantId, status])
   @@index([createdAt])
@@ -773,6 +823,7 @@ model RouterSnapshot {
   raw                  Json?
   capturedAt           DateTime @default(now())
   updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
 
   @@unique([tenantId, deviceId, username])
 }
@@ -799,6 +850,7 @@ model RouterMetric {
   queueRate     String?
   raw           Json?
   capturedAt    DateTime  @default(now())
+  deletedAt     DateTime?
 
   @@index([tenantId, username, capturedAt])
   @@index([capturedAt])
@@ -817,6 +869,7 @@ model RouterUsageDay {
   peakDownBps BigInt   @default(0)
   peakUpBps   BigInt   @default(0)
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
 
   @@unique([tenantId, deviceId, username, date])
   @@index([tenantId, username, date])
@@ -843,9 +896,29 @@ model PppoeSession {
   subscriberId    String?
   isActive        Boolean  @default(true)
   lastSyncedAt    DateTime @default(now())
+  deletedAt       DateTime?
 
   @@index([username])
   @@index([nasIpAddress])
   @@index([isActive])
+}
+
+// Append-only change log written by the @isp/prisma history extension. Keeps a
+// before/after snapshot for every UPDATE/DELETE on business models, so neither
+// deleted nor edited data is ever lost. Deliberately has NO deletedAt: it is
+// the store of record for deleted/edited data and is never soft-deleted itself.
+model EntityHistory {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  model     String
+  recordId  String?
+  action    String   // UPDATED, SOFT_DELETED, RESTORED, DELETED, UPSERTED (+ _MANY variants)
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  @@index([model, recordId, createdAt])
+  @@index([model, createdAt])
+  @@index([tenantId, createdAt])
 }
 

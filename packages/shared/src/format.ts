@@ -3,6 +3,25 @@ export function formatNaira(kobo: number | null | undefined): string {
   return '₦' + (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Parse a Naira amount (string or number, commas/₦ allowed, decimals = kobo) into integer kobo. */
+export function nairaToKobo(value: string | number | null | undefined): number {
+  if (value === null || value === undefined || value === '') return 0;
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/[₦,\s]/g, ''));
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+/** Convert integer kobo into a plain Naira number for form inputs (e.g. 2500050 → 25000.5). */
+export function koboToNaira(kobo: number | null | undefined): number {
+  if (kobo === null || kobo === undefined || Number.isNaN(kobo)) return 0;
+  return kobo / 100;
+}
+
+/** Convert integer kobo into a Naira input string ('' when zero, so placeholders show). */
+export function koboToNairaInput(kobo: number | null | undefined): string {
+  if (!kobo) return '';
+  return String(kobo / 100);
+}
+
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return 'unknown';
   const then = new Date(iso).getTime();

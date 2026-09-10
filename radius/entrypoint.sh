@@ -1,18 +1,11 @@
 #!/bin/sh
 set -e
 
-# ── Template RADIUS_* env vars into clients.conf ──────────────────────────────
-NAS_IP="${RADIUS_NAS_IP:-192.168.5.2}"
+# ── Template the shared secret into clients.conf ──────────────────────────────
+# NAS entries themselves come from the MariaDB `nas` table (read_clients = yes)
+# and are managed from the admin NOC page — see radius/README.md.
 SECRET="${RADIUS_SHARED_SECRET:-testing123}"
-if [ -n "$NAS_IP" ] && [ "$NAS_IP" != "127.0.0.1" ]; then
-  # Keep the stock localhost client (for radtest) + add the MikroTik NAS client.
-  sed -i "s/@@RADIUS_NAS_IP@@/${NAS_IP}/g; s/@@RADIUS_SHARED_SECRET@@/${SECRET}/g" /etc/raddb/clients.conf
-else
-  # NAS == localhost: drop the templated block entirely (duplicate client
-  # definition would make radiusd refuse to start).
-  sed -i '/^client mikrotik {/,/^}/d' /etc/raddb/clients.conf
-  sed -i "s/@@RADIUS_SHARED_SECRET@@/${SECRET}/g" /etc/raddb/clients.conf
-fi
+sed -i "s/@@RADIUS_SHARED_SECRET@@/${SECRET}/g" /etc/raddb/clients.conf
 
 # ── Template DB env vars into the sql module config ───────────────────────────
 DB_HOST="${RADIUS_DB_HOST:-mariadb}"

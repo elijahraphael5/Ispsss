@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { api, formatNaira } from '@isp/shared';
+import { api, formatNaira, notifyCustomersChanged } from '@isp/shared';
 import { useParams, useRouter } from 'next/navigation';
 import { SkeletonTable } from '../../../../../components/Skeleton';
 import EditableCustomerFields from '../../../../../components/EditableCustomerFields';
@@ -141,6 +141,63 @@ export default function PppoeDetailPage() {
       setToast(`change-plan failed: ${e?.message ?? e}`);
     } finally {
       setRadiusBusy(false);
+    }
+  }
+
+  const [radiusProfiles, setRadiusProfiles] = useState<Array<{ name: string; staticIpMode: boolean; rateLimit: string | null }>>([]);
+  const [profileForm, setProfileForm] = useState({ profile: '', staticIpAddress: '', staticIpNetmask: '' });
+  const [profileInfo, setProfileInfo] = useState<any | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+
+  async function loadProfile() {
+    if (!radiusCustomerId) return;
+    try {
+      const info = await api<any>(`/customers/${radiusCustomerId}/radius/profile`);
+      setProfileInfo(info);
+      setProfileForm({
+        profile: info.profile ?? '',
+        staticIpAddress: info.staticIpAddress ?? '',
+        staticIpNetmask: info.staticIpNetmask ?? '',
+      });
+    } catch {
+      setProfileInfo(null);
+    }
+  }
+
+  useEffect(() => {
+    api<any[]>('/radius/profiles').then(setRadiusProfiles).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (radiusCustomerId) void loadProfile();
+  }, [radiusCustomerId]);
+
+  const selectedProfile = radiusProfiles.find((p) => p.name === profileForm.profile);
+  const staticMode = !!selectedProfile?.staticIpMode;
+
+  async function saveProfile() {
+    if (!radiusCustomerId) return;
+    setProfileBusy(true);
+    try {
+      const res = await api<any>(`/customers/${radiusCustomerId}/radius/profile`, {
+        method: 'POST',
+        body: JSON.stringify({
+          profile: profileForm.profile || null,
+          staticIpAddress: staticMode ? profileForm.staticIpAddress : undefined,
+          staticIpNetmask: staticMode && profileForm.staticIpNetmask ? profileForm.staticIpNetmask : undefined,
+        }),
+      });
+      setProfileInfo(res);
+      setProfileForm({
+        profile: res.profile ?? '',
+        staticIpAddress: res.staticIpAddress ?? '',
+        staticIpNetmask: res.staticIpNetmask ?? '',
+      });
+      setToast('RADIUS profile updated');
+    } catch (e: any) {
+      setToast(`Profile update failed: ${e?.message ?? e}`);
+    } finally {
+      setProfileBusy(false);
     }
   }
 
@@ -554,7 +611,7 @@ export default function PppoeDetailPage() {
             </>
           ) : (
             <>
-              <EditableCustomerFields customer={cust} onSaved={setCust} />
+              <EditableCustomerFields customer={cust} onSaved={u => { setCust(u); notifyCustomersChanged(); }} />
               <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                   <div>
@@ -897,6 +954,67 @@ export default function PppoeDetailPage() {
             </button>
           </div>
         </div>
+
+        {radiusCustomerId && (
+          <div style={{ padding: '14px 16px', borderRadius: 14, background: '#F8FAFC', border: '1px solid #E5E7EB', marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ minWidth: 220 }}>
+                <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>PPPoE Profile</div>
+                <select
+                  value={profileForm.profile}
+                  onChange={(e) => setProfileForm((f) => ({ ...f, profile: e.target.value }))}
+                  style={{ padding: '7px 10px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: '0.8rem', background: '#fff', width: '100%' }}
+                >
+                  <option value="">— No profile —</option>
+                  {radiusProfiles.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name}{p.staticIpMode ? ' · static IP' : ''}</option>
+                  ))}
+                </select>
+              </div>
+              {staticMode && (
+                <>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Static IP (192.x)</div>
+                    <input
+                      value={profileForm.staticIpAddress}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, staticIpAddress: e.target.value }))}
+                      placeholder="192.168.10.5"
+                      style={{ padding: '7px 10px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: '0.8rem', fontFamily: 'monospace', width: 150 }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Netmask (optional)</div>
+                    <input
+                      value={profileForm.staticIpNetmask}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, staticIpNetmask: e.target.value }))}
+                      placeholder="255.255.255.0"
+                      style={{ padding: '7px 10px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: '0.8rem', fontFamily: 'monospace', width: 150 }}
+                    />
+                  </div>
+                </>
+              )}
+              <button onClick={saveProfile} disabled={profileBusy}
+                style={{ padding: '8px 16px', borderRadius: 20, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: profileBusy ? 'not-allowed' : 'pointer' }}>
+                {profileBusy ? 'Saving…' : 'Save profile'}
+              </button>
+            </div>
+            {staticMode && !profileForm.staticIpAddress && (
+              <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: '#B45309' }}>
+                This profile requires a static IP — enter the customer's 192.x address before saving.
+              </p>
+            )}
+            {profileInfo?.staticIpActive && (
+              <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: '#16A34A' }}>
+                Static IP {profileInfo.framedIpAddress} is applied to this user{profileInfo.framedIpNetmask ? ` (netmask ${profileInfo.framedIpNetmask})` : ''}.
+              </p>
+            )}
+            {profileInfo?.staticIpUnused && (
+              <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: '#B45309' }}>
+                Stored static IP {profileInfo.staticIpAddress} is unused — the assigned profile is dynamic, so it is not applied.
+              </p>
+            )}
+          </div>
+        )}
 
         {radiusLoading && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading usage…</div>}
 

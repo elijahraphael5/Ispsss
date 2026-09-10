@@ -17,6 +17,7 @@ export interface CustomRoleInfo {
 export interface User {
   id: string;
   email: string;
+  name?: string | null;
   isSuperAdmin?: boolean;
   phone?: string;
   twoFaEnabled: boolean;
@@ -44,8 +45,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ accessToken: token });
   },
   logout: () => {
+    // Revoke the refresh-token family server-side, then wipe every local trace
+    // of the session (access token, impersonation context) before redirecting.
     fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
-    if (typeof window !== 'undefined') localStorage.removeItem('accessToken');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('impersonatingTenantName');
+    }
     set({ user: null, accessToken: null });
   },
 }));

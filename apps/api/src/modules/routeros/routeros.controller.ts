@@ -217,6 +217,12 @@ export class RouterOsController {
     return this.snapshot.listSnapshots();
   }
 
+  @Delete('snapshots/:id')
+  @Roles('NOC_ENGINEER', 'CEO', 'OPERATIONS_MANAGER', 'SUPER_ADMIN', 'FIELD_ENGINEER')
+  deleteSnapshot(@Param('id') id: string) {
+    return this.snapshot.removeSnapshot(id);
+  }
+
   @Patch('snapshots/:username')
   @Roles('NOC_ENGINEER', 'CEO', 'OPERATIONS_MANAGER', 'SUPER_ADMIN', 'FIELD_ENGINEER')
   updateSnapshotProfile(@Param('username') username: string, @Body() body: { name?: string; email?: string; phone?: string; address?: string; installerName?: string }) {

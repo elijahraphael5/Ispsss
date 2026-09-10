@@ -8,7 +8,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "prisma:generate": "pnpm --filter api prisma:generate",
-    "prisma:migrate": "pnpm --filter api prisma migrate dev"
+    "prisma:migrate": "pnpm --filter api prisma migrate dev",
+    "prisma:check": "node scripts/check-prisma-identical.mjs"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

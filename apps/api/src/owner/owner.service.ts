@@ -1,9 +1,10 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, ForbiddenException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { applyPrismaExtensions } from '@isp/prisma';
 
 @Injectable()
 export class OwnerService implements OnModuleInit, OnModuleDestroy {
-  private prisma = new PrismaClient();
+  private prisma = applyPrismaExtensions(new PrismaClient());
 
   async onModuleInit() {
     await this.prisma.$connect();

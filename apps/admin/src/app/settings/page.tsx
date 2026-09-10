@@ -64,6 +64,10 @@ export default function SettingsPage() {
   const [testEmail, setTestEmail] = useState('');
   const [launchResult, setLaunchResult] = useState<any>(null);
   const [launchConfirm, setLaunchConfirm] = useState(false);
+  const [showRoleForm, setShowRoleForm] = useState(false);
+  const [editRoleId, setEditRoleId] = useState<string | null>(null);
+  const [roleForm, setRoleForm] = useState<{ name: string; permissions: Permission[] }>({ name: '', permissions: [] });
+  const [roleSaving, setRoleSaving] = useState(false);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -92,6 +96,63 @@ export default function SettingsPage() {
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, customRoleId: roleId, customRole: role ? { id: role.id, name: role.name } : null } : u));
       toast('Role updated', 'success', toasts, setToasts);
     } catch { toast('Failed to update role', 'error', toasts, setToasts); }
+  }
+
+  function openCreateRole() {
+    setEditRoleId(null);
+    setRoleForm({ name: '', permissions: MODULES.map(m => ({ module: m, canView: false, canCreate: false, canEdit: false, canDelete: false })) });
+    setShowRoleForm(true);
+  }
+
+  function openEditRole(role: CustomRoleFull) {
+    setEditRoleId(role.id);
+    const map = new Map(role.permissions.map(p => [p.module, p]));
+    setRoleForm({
+      name: role.name,
+      permissions: MODULES.map(m => {
+        const p = map.get(m);
+        return p
+          ? { module: m, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete }
+          : { module: m, canView: false, canCreate: false, canEdit: false, canDelete: false };
+      }),
+    });
+    setShowRoleForm(true);
+  }
+
+  function setRolePerm(module: string, key: 'canView' | 'canCreate' | 'canEdit' | 'canDelete') {
+    setRoleForm(f => ({
+      ...f,
+      permissions: f.permissions.map(p => {
+        if (p.module !== module) return p;
+        const next = { ...p, [key]: !p[key] };
+        if (key === 'canView' && !next.canView) { next.canCreate = false; next.canEdit = false; next.canDelete = false; }
+        if (key !== 'canView' && next[key]) next.canView = true;
+        return next;
+      }),
+    }));
+  }
+
+  async function saveRole() {
+    if (!roleForm.name.trim()) { toast('Role name is required', 'error', toasts, setToasts); return; }
+    setRoleSaving(true);
+    try {
+      const body = JSON.stringify({ name: roleForm.name.trim(), permissions: roleForm.permissions });
+      if (editRoleId) await api(`/custom-roles/${editRoleId}`, { method: 'PATCH', body });
+      else await api('/custom-roles', { method: 'POST', body });
+      setRoles(await api<CustomRoleFull[]>('/custom-roles'));
+      setShowRoleForm(false);
+      toast(editRoleId ? 'Role updated' : 'Role created', 'success', toasts, setToasts);
+    } catch (e: any) { toast(e?.message ?? 'Failed to save role', 'error', toasts, setToasts); }
+    finally { setRoleSaving(false); }
+  }
+
+  async function deleteRole(role: CustomRoleFull) {
+    if (!confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
+    try {
+      await api(`/custom-roles/${role.id}`, { method: 'DELETE' });
+      setRoles(prev => prev.filter(r => r.id !== role.id));
+      toast('Role deleted', 'success', toasts, setToasts);
+    } catch (e: any) { toast(e?.message ?? 'Failed to delete role', 'error', toasts, setToasts); }
   }
 
   async function resetPassword(userId: string, email: string) {
@@ -239,7 +300,12 @@ export default function SettingsPage() {
         </>
       ) : tab === 'Roles' ? (
         <>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>{roles.length} custom roles defined</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>{roles.length} custom roles defined</p>
+            <button className="btn-primary" onClick={openCreateRole}>
+              Create Role <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </div>
           {roles.length === 0 ? (
             <div className="data-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No roles created yet</div>
           ) : roles.map(role => {
@@ -249,7 +315,11 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div>
                     <strong style={{ fontSize: '0.95rem' }}>{role.name}</strong>
-                    {role._count && <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>{role._count.users} users</span>}
+                    {role._count && <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>{role._count.users} user{role._count.users === 1 ? '' : 's'}</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-sm-outline" onClick={() => openEditRole(role)}>Edit</button>
+                    <button className="btn-sm-outline" style={{ color: '#DC2626', borderColor: '#DC2626' }} onClick={() => deleteRole(role)}>Delete</button>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6 }}>
@@ -382,6 +452,57 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {showRoleForm && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
+          onClick={() => setShowRoleForm(false)}>
+          <div style={{ background: 'white', padding: 32, width: 640, maxWidth: '95vw', height: '100vh', overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,0.1)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>{editRoleId ? 'Edit Role' : 'Create Role'}</h2>
+              <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowRoleForm(false)}>
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Role Name</label>
+                <input value={roleForm.name} onChange={e => setRoleForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. ACCOUNTANT" style={inp} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Module Permissions</label>
+                  <div style={{ display: 'flex', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                    {(Object.keys(PERM_LABELS) as (keyof Permission)[]).map(k => <span key={k}>{PERM_LABELS[k]}</span>)}
+                  </div>
+                </div>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden' }}>
+                  {roleForm.permissions.map((p, i) => (
+                    <div key={p.module} style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderTop: i ? '1px solid var(--border-color)' : 'none', background: p.canView ? '#F0FDF4' : '#fff' }}>
+                      <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: p.canView ? 600 : 500, color: p.canView ? '#166534' : 'var(--text-color)' }}>{p.module}</span>
+                      <div style={{ display: 'flex', gap: 24 }}>
+                        {(['canView', 'canCreate', 'canEdit', 'canDelete'] as const).map(k => (
+                          <div key={k} style={{ width: 36, display: 'flex', justifyContent: 'center' }}>
+                            <ToggleBtn on={p[k]} onClick={() => setRolePerm(p.module, k)} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+                <button className="btn-outline" onClick={() => setShowRoleForm(false)}>Cancel</button>
+                <button className="btn-primary" disabled={roleSaving || !roleForm.name.trim()} onClick={saveRole}>
+                  {roleSaving ? 'Saving...' : editRoleId ? 'Save Changes' : 'Create Role'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
+
+const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1px solid var(--border-color)', borderRadius: 10, fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };

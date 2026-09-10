@@ -60,4 +60,24 @@ export class RadiusController {
   usage(@Param('id') id: string) {
     return this.radius.getUsage(id);
   }
+
+  @Get(':id/radius/profile')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'NOC_ENGINEER', 'SALES_AGENT', 'CEO', 'CUSTOMER_SUPPORT')
+  getProfile(@Param('id') id: string) {
+    return this.radius.getProfile(id);
+  }
+
+  @Post(':id/radius/profile')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'NOC_ENGINEER')
+  @UseGuards(RadiusMutationGuard)
+  assignProfile(
+    @Param('id') id: string,
+    @Body() body: { profile: string | null; staticIpAddress?: string; staticIpNetmask?: string },
+  ) {
+    return this.radius.assignProfile(id, {
+      profile: body?.profile ?? null,
+      staticIpAddress: body?.staticIpAddress,
+      staticIpNetmask: body?.staticIpNetmask,
+    });
+  }
 }

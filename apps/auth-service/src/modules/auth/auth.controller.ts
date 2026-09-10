@@ -11,6 +11,14 @@ import * as crypto from 'crypto';
 export class AuthController {
   constructor(private readonly service: AuthService) {}
 
+  /**
+   * Registration is staff/admin-only. It was previously public, letting anyone
+   * mint accounts in the tenant and use customer-authenticated endpoints.
+   * Customer accounts are provisioned by admins (POST /users), the Excel
+   * import, or billing's newCustomer flow.
+   */
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
   @Post('register')
   async register(@Body() body: { email: string; password: string; phone?: string }) {
     return this.service.register(body.email, body.password, body.phone);
@@ -33,6 +41,23 @@ export class AuthController {
     const result = await this.service.verify2fa(body.userId, body.token, ip, ua);
     this.setRefreshCookie(res, result.refreshToken);
     return { accessToken: result.accessToken };
+  }
+
+  @Post('2fa/resend')
+  async resend2fa(@Body() body: { userId: string }) {
+    return this.service.resend2fa(body.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('2fa/enable')
+  async enable2fa(@Req() req: any) {
+    return this.service.enable2fa(req.user.id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('2fa/disable')
+  async disable2fa(@Req() req: any) {
+    return this.service.disable2fa(req.user.id);
   }
 
   @Post('refresh')
@@ -80,6 +105,12 @@ export class AuthController {
   @Post('reset-password')
   async resetPassword(@Body() body: { token: string; password: string }) {
     return this.service.resetPassword(body.token, body.password);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('change-password')
+  async changePassword(@Req() req: any, @Body() body: { currentPassword: string; newPassword: string }) {
+    return this.service.changePassword(req.user.id, body.currentPassword, body.newPassword);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

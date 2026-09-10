@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as Sentry from '@sentry/node';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -26,6 +27,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       exception instanceof HttpException ? exception.getResponse() : 'Internal server error';
 
     this.logger.error(`${req.method} ${req.url}`, (exception as Error)?.stack);
+
+    if (process.env.SENTRY_DSN) {
+      Sentry.withScope((scope) => {
+        scope.setTag('method', req.method);
+        scope.setTag('statusCode', String(status));
+        scope.setExtra('path', req.url);
+        Sentry.captureException(exception);
+      });
+    }
 
     res.status(status).json({
       statusCode: status,

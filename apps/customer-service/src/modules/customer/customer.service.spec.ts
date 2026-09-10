@@ -64,8 +64,8 @@ describe('CustomerService', () => {
     it('aggregates billing trend by month and ticket stats', async () => {
       prisma.subscriber.findFirst.mockResolvedValue(subscriber);
       prisma.invoice.findMany.mockResolvedValue([
-        { amountKobo: 50000, status: 'PAID', paidAt: new Date(), dueAt: new Date(), createdAt: new Date('2026-08-05') },
-        { amountKobo: 50000, status: 'OVERDUE', paidAt: null, dueAt: new Date(), createdAt: new Date('2026-08-07') },
+        { amountKobo: 50000, status: 'PAID', paidAt: new Date(), dueAt: new Date(), createdAt: new Date() },
+        { amountKobo: 50000, status: 'OVERDUE', paidAt: null, dueAt: new Date(), createdAt: new Date() },
       ]);
       prisma.payment.findMany.mockResolvedValue([{ amountKobo: 20000, createdAt: new Date() }]);
       prisma.ticket.findMany.mockResolvedValue([

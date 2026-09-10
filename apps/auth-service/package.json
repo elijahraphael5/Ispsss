@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@isp/cache": "workspace:*",
+    "@isp/prisma": "workspace:*",
     "@isp/health": "workspace:*",
     "@isp/logger": "workspace:*",
     "@isp/metrics": "workspace:*",

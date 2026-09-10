@@ -11,5 +11,5 @@ export class ChangePlanDto {
   @Matches(/^[0-9]+[kKmMgG]?\/[0-9]+[kKmMgG]?(\s+[0-9]+[kKmMgG]?\/[0-9]+[kKmMgG]?){0,2}$/, {
     message: 'rateLimit must look like "10M/10M" (optionally with burst pairs)',
   })
-  rateLimit: string;
+  rateLimit!: string;
 }

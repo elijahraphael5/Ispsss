@@ -17,6 +17,10 @@ interface Plan {
   id: string; name: string; speedMbps: number; priceKobo: number; dataCapGb?: number; technology?: string; category: string; type: string;
 }
 
+/** Pay-ahead durations offered on the subscription page. */
+const MONTH_OPTIONS = [1, 2, 3, 4, 5, 6, 9, 12];
+function monthsLabel(m: number) { return m === 12 ? '1 year' : `${m} month${m > 1 ? 's' : ''}`; }
+
 function loadPaystackInline(): Promise<void> {
   if ((window as any).PaystackPop) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -36,6 +40,7 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [drawer, setDrawer] = useState<'change' | 'add' | null>(null);
   const [paying, setPaying] = useState(false);
+  const [months, setMonths] = useState(1);
 
   const fetchAll = useCallback(async () => {
     const [d, p] = await Promise.all([
@@ -72,9 +77,9 @@ export default function SubscriptionPage() {
 
     setPaying(true);
     try {
-      const res = await api<{ authorizationUrl: string; reference: string; amountKobo: number }>('/payments/customer/initialize', {
+      const res = await api<{ authorizationUrl: string; reference: string; amountKobo: number; months?: number }>('/payments/customer/initialize', {
         method: 'POST',
-        body: JSON.stringify({ action, planId }),
+        body: JSON.stringify({ action, planId, months }),
       });
       if (!res?.reference) throw new Error('Payment initialization failed');
 
@@ -85,7 +90,7 @@ export default function SubscriptionPage() {
         amount: res.amountKobo,
         currency: 'NGN',
         ref: res.reference,
-        metadata: { action, planId },
+        metadata: { action, planId, months },
         callback: () => router.push('/payment/callback?reference=' + encodeURIComponent(res.reference)),
         onClose: () => setPaying(false),
       });
@@ -108,8 +113,6 @@ export default function SubscriptionPage() {
     );
   }
 
-  const planPrice = plan?.priceKobo ? plan.priceKobo / 100 : 0;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -127,23 +130,25 @@ export default function SubscriptionPage() {
       <div className="data-card" style={{ padding: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Current Plan</div>
-          {(isDue || isExpired) && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {(isDue || isExpired) && (
               <span style={{
                 fontSize: '0.75rem', padding: '4px 12px', borderRadius: 20, fontWeight: 600,
                 background: isExpired ? '#FEE2E2' : '#FEF3C7', color: isExpired ? '#DC2626' : '#D97706'
               }}>
                 {isExpired ? 'Expired' : 'Due Soon'}
               </span>
+            )}
+            {plan && (
               <button onClick={() => pay('renew')} disabled={paying}
                 style={{
-                  padding: '6px 18px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: '0.8rem',
+                  padding: '8px 18px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: '0.8rem',
                   cursor: paying ? 'not-allowed' : 'pointer', background: 'var(--primary)', color: '#fff'
                 }}>
-                {paying ? 'Processing...' : 'Renew ' + formatNaira(planPrice * 100)}
+                {paying ? 'Processing...' : `Pay ${fmtK(plan.priceKobo * months)} · ${monthsLabel(months)}`}
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         {plan ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
@@ -166,6 +171,34 @@ export default function SubscriptionPage() {
           </div>
         ) : (
           <p style={{ color: 'var(--text-muted)' }}>No active plan</p>
+        )}
+
+        {plan && (
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Pay Ahead</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Total: <strong style={{ color: 'var(--primary)', fontSize: '1rem' }}>{fmtK(plan.priceKobo * months)}</strong> for {monthsLabel(months)}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {MONTH_OPTIONS.map(m => (
+                <button key={m} onClick={() => setMonths(m)} disabled={paying}
+                  style={{
+                    padding: '7px 16px', borderRadius: 20, cursor: paying ? 'not-allowed' : 'pointer',
+                    border: '1px solid ' + (months === m ? 'var(--primary)' : 'var(--border-color)'),
+                    background: months === m ? 'var(--primary)' : '#fff',
+                    color: months === m ? '#fff' : 'var(--text-color)',
+                    fontWeight: 600, fontSize: '0.8rem',
+                  }}>
+                  {monthsLabel(m)}
+                </button>
+              ))}
+            </div>
+            <p style={{ margin: '10px 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Pay for several months at once — your expiry date is extended by the selected period.
+            </p>
+          </div>
         )}
       </div>
 
@@ -199,7 +232,7 @@ export default function SubscriptionPage() {
                   {drawer === 'change' ? 'Choose a New Plan' : 'Add Another Plan'}
                 </h2>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  {drawer === 'change' ? 'Select a plan to switch. You will be charged the difference.' : 'Add an additional ISP plan to your account.'}
+                  {drawer === 'change' ? 'Select a plan to switch. You will be charged the plan price for the selected period.' : 'Add an additional ISP plan to your account.'}
                 </p>
               </div>
               <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => { if (!paying) setDrawer(null); }}>
@@ -239,8 +272,8 @@ export default function SubscriptionPage() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right', marginLeft: 16 }}>
-                      <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--primary)' }}>{fmtK(p.priceKobo)}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>/month</div>
+                      <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--primary)' }}>{fmtK(p.priceKobo * months)}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{months > 1 ? `${fmtK(p.priceKobo)}/mo · ${monthsLabel(months)}` : '/month'}</div>
                     </div>
                   </div>
                   {paying && (

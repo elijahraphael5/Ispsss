@@ -386,4 +386,13 @@ export class RouterSnapshotService implements OnModuleInit {
       },
     });
   }
+
+  /** Removes a single cached snapshot row (e.g. stale PPPoE data after a wipe). */
+  async removeSnapshot(id: string) {
+    const tenantId = await this.resolveTenantId();
+    const row = await this.prisma.routerSnapshot.findFirst({ where: tenantId ? { tenantId, id } : { id } });
+    if (!row) throw new NotFoundException('Snapshot not found');
+    await this.prisma.routerSnapshot.delete({ where: { id: row.id } });
+    return { deleted: true, username: row.username };
+  }
 }

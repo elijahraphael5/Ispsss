@@ -5,6 +5,7 @@ x-build: &app_build
   args:
     NEXT_PUBLIC_API_URL: /api/v1
     NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY:-}
+    NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
 
 services:
   postgres:
@@ -38,6 +39,7 @@ services:
     command: ["node", "apps/api/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4000"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
@@ -49,6 +51,9 @@ services:
       SUPPORT_SERVICE_URL: http://support-service:4104
       CUSTOMER_SERVICE_URL: http://customer-service:4105
       RADIUS_SERVICE_URL: http://radius-service:4106
+      RATE_LIMIT_MUTATION_PER_MIN: ${RATE_LIMIT_MUTATION_PER_MIN:-120}
+      RATE_LIMIT_READ_PER_MIN: ${RATE_LIMIT_READ_PER_MIN:-600}
+      RATE_LIMIT_GLOBAL_PER_MIN: ${RATE_LIMIT_GLOBAL_PER_MIN:-1200}
     ports:
       - "4000:4000"
     depends_on:
@@ -72,11 +77,16 @@ services:
     command: ["node", "apps/auth-service/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4101"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
       JWT_ACCESS_SECRET: change-me
       JWT_REFRESH_SECRET: change-me
+      SESSION_IDLE_TIMEOUT_MS: ${SESSION_IDLE_TIMEOUT_MS:-3600000}
+      AUTH_LOGIN_RATE_LIMIT_PER_MIN: ${AUTH_LOGIN_RATE_LIMIT_PER_MIN:-10}
+      AUTH_ACCOUNT_RATE_LIMIT_PER_HOUR: ${AUTH_ACCOUNT_RATE_LIMIT_PER_HOUR:-30}
+      AUTH_GLOBAL_RATE_LIMIT_PER_MIN: ${AUTH_GLOBAL_RATE_LIMIT_PER_MIN:-600}
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +96,7 @@ services:
     command: ["node", "apps/payments-service/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4102"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
@@ -108,6 +119,7 @@ services:
     command: ["node", "apps/billing-service/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4103"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
@@ -123,6 +135,7 @@ services:
     command: ["node", "apps/support-service/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4104"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
@@ -140,6 +153,7 @@ services:
     command: ["node", "apps/customer-service/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4105"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
@@ -199,6 +213,7 @@ services:
     command: ["node", "apps/radius-service/dist/main.js"]
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      TRUST_PROXY: "true"
       APP_PORT: "4106"
       DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
       REDIS_URL: none
@@ -214,6 +229,10 @@ services:
       RADIUS_NAS_PORT: "3799"
       RADIUS_SHARED_SECRET: "${RADIUS_SHARED_SECRET:-testing123}"
       RADIUS_DEFAULT_PASSWORD: "${RADIUS_DEFAULT_PASSWORD:-ChangeMe1!}"
+      RADIUS_SERVER_HOST: freeradius
+      RADIUS_SERVER_PORT: "1812"
+      RADIUS_PROBE_USER: "${RADIUS_PROBE_USER:-radius-probe}"
+      RADIUS_PROBE_PASSWORD: "${RADIUS_PROBE_PASSWORD:-Probe#12345}"
     depends_on:
       postgres:
         condition: service_healthy

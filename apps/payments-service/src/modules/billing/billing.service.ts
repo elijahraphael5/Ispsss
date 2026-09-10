@@ -189,25 +189,42 @@ export class BillingService {
     const discountKobo = data.discountKobo ?? 0;
     const vatKobo = data.vatKobo ?? Math.round((subtotalKobo - discountKobo) * 0.075);
     const amountKobo = subtotalKobo - discountKobo + vatKobo;
-    const invoiceNumber = await this.nextInvoiceNumber(data.type);
 
-    const result = await this.prisma.invoice.create({
-      data: {
-        invoiceNumber,
-        subscriberId: subscriberId!,
-        type: data.type,
-        status: 'DRAFT',
-        amountKobo,
-        subtotalKobo,
-        vatKobo,
-        discountKobo,
-        dueAt: data.dueAt,
-        notes: data.notes,
-        lines: { createMany: { data: data.lines.map(l => ({ description: l.description, amountKobo: l.amountKobo, quantity: l.quantity ?? 1 })) } },
-      },
-      include: { lines: true, subscriber: { select: { id: true, user: { select: { id: true, email: true } } } } },
-    });
-    await this.audit.log({ actorId, action: 'INVOICE_CREATED', entityType: 'Invoice', entityId: result.id, metadata: { invoiceNumber, amountKobo, type: data.type, lineCount: data.lines.length } });
+    // Retry with a fresh sequence number when concurrent creators collide on
+    // the unique invoiceNumber.
+    let result: any;
+    let lastErr: any;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const invoiceNumber = await this.nextInvoiceNumber(data.type);
+        result = await this.prisma.invoice.create({
+          data: {
+            invoiceNumber,
+            subscriberId: subscriberId!,
+            type: data.type,
+            status: 'DRAFT',
+            amountKobo,
+            subtotalKobo,
+            vatKobo,
+            discountKobo,
+            dueAt: data.dueAt,
+            notes: data.notes,
+            lines: { createMany: { data: data.lines.map(l => ({ description: l.description, amountKobo: l.amountKobo, quantity: l.quantity ?? 1 })) } },
+          },
+          include: { lines: true, subscriber: { select: { id: true, user: { select: { id: true, email: true } } } } },
+        });
+        lastErr = null;
+        break;
+      } catch (e: any) {
+        if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('invoiceNumber')) {
+          lastErr = e;
+          continue;
+        }
+        throw e;
+      }
+    }
+    if (lastErr) throw lastErr;
+    await this.audit.log({ actorId, action: 'INVOICE_CREATED', entityType: 'Invoice', entityId: result.id, metadata: { invoiceNumber: result.invoiceNumber, amountKobo, type: data.type, lineCount: data.lines.length } });
     return result;
   }
 
@@ -286,38 +303,54 @@ export class BillingService {
     this.assertTransition(invoice.status, 'PAID');
 
     if (paymentData) {
-      const receiptNumber = await this.nextReceiptNumber();
-      await this.prisma.$transaction(async (tx) => {
-        await tx.payment.upsert({
-          where: { reference: paymentData.reference },
-          update: { status: 'SUCCESSFUL', paidAt: new Date(), invoiceId: id, amountKobo: paymentData.amountKobo },
-          create: {
-            invoiceId: id,
-            provider: paymentData.provider as any,
-            reference: paymentData.reference,
-            amountKobo: paymentData.amountKobo,
-            status: 'SUCCESSFUL',
-            paidAt: new Date(),
-          },
-        });
-        const existingReceipt = await tx.receipt.findFirst({ where: { transactionRef: paymentData.reference } });
-        if (!existingReceipt) {
-          await tx.receipt.create({
-            data: {
-              receiptNumber,
-              invoiceId: id,
-              amountKobo: paymentData.amountKobo,
-              paymentMethod: paymentData.provider,
-              transactionRef: paymentData.reference,
-              paidAt: new Date(),
-            },
+      // Retry the whole transaction when concurrent callers collide on the
+      // unique receiptNumber (sequence is read outside any lock).
+      let lastErr: any;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const receiptNumber = await this.nextReceiptNumber();
+          await this.prisma.$transaction(async (tx) => {
+            await tx.payment.upsert({
+              where: { reference: paymentData.reference },
+              update: { status: 'SUCCESSFUL', paidAt: new Date(), invoiceId: id, amountKobo: paymentData.amountKobo },
+              create: {
+                invoiceId: id,
+                provider: paymentData.provider as any,
+                reference: paymentData.reference,
+                amountKobo: paymentData.amountKobo,
+                status: 'SUCCESSFUL',
+                paidAt: new Date(),
+              },
+            });
+            const existingReceipt = await tx.receipt.findFirst({ where: { transactionRef: paymentData.reference } });
+            if (!existingReceipt) {
+              await tx.receipt.create({
+                data: {
+                  receiptNumber,
+                  invoiceId: id,
+                  amountKobo: paymentData.amountKobo,
+                  paymentMethod: paymentData.provider,
+                  transactionRef: paymentData.reference,
+                  paidAt: new Date(),
+                },
+              });
+            }
+            await tx.invoice.update({
+              where: { id },
+              data: { status: 'PAID', paidAt: new Date() },
+            });
           });
+          lastErr = null;
+          break;
+        } catch (e: any) {
+          if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('receiptNumber')) {
+            lastErr = e;
+            continue;
+          }
+          throw e;
         }
-        await tx.invoice.update({
-          where: { id },
-          data: { status: 'PAID', paidAt: new Date() },
-        });
-      });
+      }
+      if (lastErr) throw lastErr;
     } else {
       const result = await this.prisma.invoice.update({
         where: { id },
@@ -376,7 +409,6 @@ export class BillingService {
     discountKobo?: number;
     notes?: string;
   }) {
-    const quotationNumber = await this.nextQuotationNumber();
     const subtotalKobo = data.items.reduce((s, i) => s + i.unitPriceKobo * i.quantity, 0);
     const discountKobo = data.discountKobo ?? 0;
     const vatKobo = Math.round((subtotalKobo - discountKobo) * 0.075);
@@ -409,24 +441,39 @@ export class BillingService {
       subscriberAddress = subscriberAddress || sub.address || undefined;
     }
 
-    return this.prisma.quotation.create({
-      data: {
-        quotationNumber,
-        subscriberId,
-        subscriberName: subscriberName || 'Customer',
-        subscriberEmail,
-        subscriberPhone,
-        subscriberAddress,
-        validUntil: data.validUntil,
-        subtotalKobo,
-        vatKobo,
-        discountKobo,
-        totalKobo,
-        notes: data.notes,
-        items: { createMany: { data: data.items.map(i => ({ description: i.description, quantity: i.quantity, unitPriceKobo: i.unitPriceKobo, amountKobo: i.unitPriceKobo * i.quantity })) } },
-      },
-      include: { items: true },
-    });
+    // Retry with a fresh sequence number when concurrent creators collide on
+    // the unique quotationNumber.
+    let lastErr: any;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const quotationNumber = await this.nextQuotationNumber();
+        return await this.prisma.quotation.create({
+          data: {
+            quotationNumber,
+            subscriberId,
+            subscriberName: subscriberName || 'Customer',
+            subscriberEmail,
+            subscriberPhone,
+            subscriberAddress,
+            validUntil: data.validUntil,
+            subtotalKobo,
+            vatKobo,
+            discountKobo,
+            totalKobo,
+            notes: data.notes,
+            items: { createMany: { data: data.items.map(i => ({ description: i.description, quantity: i.quantity, unitPriceKobo: i.unitPriceKobo, amountKobo: i.unitPriceKobo * i.quantity })) } },
+          },
+          include: { items: true },
+        });
+      } catch (e: any) {
+        if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('quotationNumber')) {
+          lastErr = e;
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw lastErr;
   }
 
   async updateQuotationStatus(id: string, status: string) {

@@ -4,8 +4,12 @@ import { useEffect, useState } from 'react';
 import { api, formatNaira } from '@isp/shared';
 
 const NETWORK_OPTIONS = [
+  { value: '', label: '— None —' },
   { value: 'RADIO', label: 'Radio' },
   { value: 'FIBER', label: 'Fiber' },
+  { value: 'DIA', label: 'DIA' },
+  { value: 'PPPOE', label: 'PPPoE' },
+  { value: 'STATIC_IP', label: 'Static IP' },
 ];
 
 interface Plan {
@@ -51,7 +55,7 @@ export default function EditableCustomerFields({ customer, onSaved }: { customer
     email: customer.email ?? '',
     phone: customer.phone ?? '',
     address: customer.address ?? '',
-    networkType: customer.networkType ?? 'RADIO',
+    networkType: customer.networkType ?? '',
     plan: customer.plan ?? '',
     installerName: customer.cpes[0]?.installerName ?? '',
     dueAt: customer.dueAt ? new Date(customer.dueAt).toISOString().slice(0, 10) : '',
@@ -63,26 +67,39 @@ export default function EditableCustomerFields({ customer, onSaved }: { customer
     api<Plan[]>('/subscriptions/plans').then(setPlans).catch(() => {});
   }, []);
 
-  const filteredPlans = plans.filter(p => p.technology === draft.networkType);
+  const filteredPlans = draft.networkType ? plans.filter(p => p.technology === draft.networkType) : plans;
   const hasCurrent = draft.plan && filteredPlans.some(p => p.name === draft.plan);
-  const options = hasCurrent ? filteredPlans : [{ name: draft.plan || '', technology: draft.networkType, speedLabel: null, speedMbps: 0, priceKobo: 0 } as Plan, ...filteredPlans];
+  const options = draft.plan
+    ? hasCurrent ? filteredPlans : [{ name: draft.plan, technology: draft.networkType, speedLabel: null, speedMbps: 0, priceKobo: 0 } as Plan, ...filteredPlans]
+    : filteredPlans;
+  // Preserve a network type that isn't in the standard list (custom values from
+  // imports) instead of silently flipping it on save.
+  const networkOptions = NETWORK_OPTIONS.some(o => o.value === draft.networkType)
+    ? NETWORK_OPTIONS
+    : [{ value: draft.networkType, label: draft.networkType || '— None —' }, ...NETWORK_OPTIONS];
 
   const set = (k: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setDraft(d => ({ ...d, [k]: e.target.value }));
 
   async function save() {
+    // Imported customers often have no real email (hidden '@lan' addresses):
+    // allow saving as long as we're not wiping an existing login email.
+    if (!draft.email.trim() && customer.email) {
+      setMsg('Email cannot be empty — the customer needs it to sign in');
+      return;
+    }
     setSaving(true);
     setMsg('');
     try {
       const body: Record<string, string> = {
         name: draft.name,
-        email: draft.email,
         phone: draft.phone,
         address: draft.address,
         networkType: draft.networkType,
         planName: draft.plan,
         installerName: draft.installerName,
       };
+      if (draft.email.trim()) body.email = draft.email;
       if (draft.dueAt) body.dueAt = draft.dueAt;
       const updated = await api<any>(`/users/customers/${customer.id}`, { method: 'PATCH', body: JSON.stringify(body) });
       onSaved(updated);
@@ -103,12 +120,12 @@ export default function EditableCustomerFields({ customer, onSaved }: { customer
         <EditableField label="Address"><input style={inputStyle} value={draft.address} onChange={set('address')} /></EditableField>
         <EditableField label="Network Type">
           <select style={inputStyle} value={draft.networkType} onChange={set('networkType')}>
-            {NETWORK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {networkOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </EditableField>
         <EditableField label="Plan">
           <select style={inputStyle} value={draft.plan} onChange={set('plan')}>
-            {options.length === 0 && <option value="">—</option>}
+            {!draft.plan && <option value="">— No plan —</option>}
             {options.map(p => (
               <option key={p.name} value={p.name}>
                 {p.name}{p.speedLabel ? ` · ${p.speedLabel}` : ''}{p.priceKobo ? ` · ${formatNaira(p.priceKobo)}` : ' · On request'}

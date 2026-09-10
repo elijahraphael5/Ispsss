@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
@@ -85,7 +85,7 @@ describe('AuthService', () => {
     it('requests 2FA when enabled and does not issue tokens', async () => {
       prisma.user.findUnique.mockResolvedValue({ ...user, twoFaEnabled: true });
       const result = await service.login('a@b.co', 'pass123');
-      expect(result).toEqual({ twoFaRequired: true, userId: 'u1' });
+      expect(result).toEqual(expect.objectContaining({ twoFaRequired: true, userId: 'u1', method: 'email' }));
       expect(jwt.sign).not.toHaveBeenCalled();
       expect(prisma.refreshToken.create).not.toHaveBeenCalled();
     });
@@ -123,6 +123,57 @@ describe('AuthService', () => {
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
       const result = await service.verify2fa('u1', token);
       expect(result.accessToken).toBe('Bearer signed.jwt.token');
+    });
+
+    it('login with 2FA enabled emails a 6-digit code and returns a masked email', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', email: 'customer@x.co', passwordHash: bcrypt.hashSync('pass123', 4), twoFaEnabled: true });
+      prisma.user.update.mockResolvedValue({});
+      const res: any = await service.login('customer@x.co', 'pass123');
+      expect(res.twoFaRequired).toBe(true);
+      expect(res.method).toBe('email');
+      expect(res.email).toBe('cu******@x.co');
+      expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'customer@x.co' }));
+      const html = mail.send.mock.calls[mail.send.mock.calls.length - 1][0].html;
+      expect(html).toMatch(/\d{6}/);
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: expect.objectContaining({ twoFaOtpHash: expect.any(String), twoFaOtpExpiresAt: expect.any(Date) }),
+      });
+    });
+
+    it('accepts a valid emailed OTP, clears it, and issues tokens', async () => {
+      const code = '123456';
+      const otpHash = hashOf(code);
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'u1', email: 'a@b.co', twoFaSecret: null,
+        twoFaOtpHash: otpHash, twoFaOtpExpiresAt: new Date(Date.now() + 60000),
+      });
+      prisma.user.update.mockResolvedValue({});
+      prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
+      const result = await service.verify2fa('u1', code);
+      expect(result.accessToken).toBe('Bearer signed.jwt.token');
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { twoFaOtpHash: null, twoFaOtpExpiresAt: null },
+      });
+    });
+
+    it('rejects an expired emailed OTP', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'u1', email: 'a@b.co', twoFaSecret: null,
+        twoFaOtpHash: hashOf('123456'), twoFaOtpExpiresAt: new Date(Date.now() - 1000),
+      });
+      await expect(service.verify2fa('u1', '123456')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('enable2fa / disable2fa toggle the flag', async () => {
+      prisma.user.update.mockResolvedValue({});
+      await expect(service.enable2fa('u1')).resolves.toEqual({ twoFaEnabled: true, method: 'email' });
+      await expect(service.disable2fa('u1')).resolves.toEqual({ twoFaEnabled: false });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { twoFaEnabled: false, twoFaOtpHash: null, twoFaOtpExpiresAt: null },
+      });
     });
 
     it('setup returns otpauth URL and persists the secret', async () => {
@@ -169,6 +220,57 @@ describe('AuthService', () => {
       prisma.refreshToken.findUnique.mockResolvedValue({ id: 'rt1', family: 'f1', userId: 'u1', revokedAt: null, expiresAt: new Date(Date.now() - 1000) });
       await expect(service.refreshTokens(raw)).rejects.toThrow(UnauthorizedException);
     });
+
+    it('revokes the family and rejects when the session was idle too long', async () => {
+      const prev = process.env.SESSION_IDLE_TIMEOUT_MS;
+      process.env.SESSION_IDLE_TIMEOUT_MS = '60000';
+      try {
+        prisma.refreshToken.findUnique.mockResolvedValue({
+          id: 'rt1', family: 'f1', userId: 'u1', revokedAt: null,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          lastUsedAt: new Date(Date.now() - 120 * 1000),
+        });
+        prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+        await expect(service.refreshTokens(raw)).rejects.toThrow('inactivity');
+        expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+          where: { family: 'f1', revokedAt: null },
+          data: { revokedAt: expect.any(Date) },
+        });
+      } finally {
+        if (prev === undefined) delete process.env.SESSION_IDLE_TIMEOUT_MS;
+        else process.env.SESSION_IDLE_TIMEOUT_MS = prev;
+      }
+    });
+
+    it('allows refresh within the idle window', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'rt1', family: 'f1', userId: 'u1', revokedAt: null,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        lastUsedAt: new Date(Date.now() - 60 * 1000),
+      });
+      prisma.refreshToken.update.mockResolvedValue({});
+      prisma.refreshToken.create.mockResolvedValue({ id: 'rt2' });
+      const result = await service.refreshTokens(raw);
+      expect(result.refreshToken).toEqual(expect.any(String));
+    });
+  });
+
+  describe('logout', () => {
+    it('revokes the entire token family', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue({ id: 'rt1', family: 'f1' });
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+      await service.logout('hash-of-cookie');
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { family: 'f1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('is a no-op for unknown tokens', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue(null);
+      await service.logout('hash-of-cookie');
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('password reset', () => {
@@ -209,6 +311,33 @@ describe('AuthService', () => {
       expect(prisma.$transaction).toHaveBeenCalled();
       const data = prisma.user.update.mock.calls[0][0].data;
       expect(await bcrypt.compare('newpass123', data.passwordHash)).toBe(true);
+    });
+  });
+
+  describe('changePassword', () => {
+    it('rejects a new password shorter than 8 characters', async () => {
+      await expect(service.changePassword('u1', 'oldpass1', 'short')).rejects.toThrow(BadRequestException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an incorrect current password', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', passwordHash: bcrypt.hashSync('oldpass1', 4) });
+      await expect(service.changePassword('u1', 'wrongpass', 'newpass123')).rejects.toThrow(UnauthorizedException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('updates the hash and revokes every active refresh token', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', passwordHash: bcrypt.hashSync('oldpass1', 4) });
+      prisma.user.update.mockResolvedValue({});
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 3 });
+      const res = await service.changePassword('u1', 'oldpass1', 'newpass123');
+      expect(res.message).toContain('Password updated successfully');
+      const data = prisma.user.update.mock.calls[0][0].data;
+      expect(await bcrypt.compare('newpass123', data.passwordHash)).toBe(true);
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
     });
   });
 });

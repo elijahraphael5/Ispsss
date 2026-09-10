@@ -126,3 +126,14 @@ export const DEFAULT_TIERS = {
   read: { limit: 300, windowMs: 60_000 },
   globalPerIp: { limit: 600, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
+
+/**
+ * Positive integer limit from env with a safe fallback: missing, non-numeric
+ * or non-positive values fall back (never disable a limit by accident).
+ */
+export function envLimit(name: string, fallback: number): number {
+  const raw = (globalThis as any)?.process?.env?.[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}

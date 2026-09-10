@@ -504,7 +504,7 @@ export default function Dashboard() {
           {payments.length > 0 && (
             <div style={{ marginTop: 16, textAlign: 'center' }}>
               <button
-                onClick={() => router.push('/payments')}
+                onClick={() => router.push('/billing?tab=Payments')}
                 style={{
                   padding: '8px 24px', borderRadius: 20, border: '1px solid var(--primary)', background: 'transparent',
                   color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',

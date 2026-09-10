@@ -21,6 +21,7 @@
       "node",
       "jest",
       "express",
+      "multer",
       "passport-jwt"
     ]
   },

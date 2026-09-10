@@ -13,7 +13,7 @@ interface AuditLog {
   afterData: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;
-  actor: { id: string; email: string };
+  actor: { id: string; email: string } | null;
 }
 
 interface PaginatedResult {
@@ -199,7 +199,7 @@ export default function AuditLogsPage() {
                     return (
                       <tr key={log.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                         <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{new Date(log.createdAt).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>{log.actor.email}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>{log.actor?.email ?? 'deleted user'}</td>
                         <td style={{ padding: '10px 12px' }}>
                           <span style={{ display: 'inline-block', padding: '3px 12px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, background: ac.bg, color: ac.fg, whiteSpace: 'nowrap' }}>
                             {log.action}

@@ -90,7 +90,7 @@ export class MailService {
   }
 
   private getAppName(): string { return this.config.get<string>('APP_NAME', 'Hikonnect'); }
-  private getAppUrl(): string { return this.config.get<string>('APP_URL', 'http://localhost:3000'); }
+  private getAppUrl(): string { return this.config.get<string>('APP_URL') || this.config.get<string>('CUSTOMER_URL') || 'http://localhost:3001'; }
   private getFrom(): string { return this.config.get<string>('MAIL_FROM', 'noreply@hikonnectng.com'); }
 
   private fmtKobo(kobo: number): string {
@@ -177,16 +177,22 @@ export class MailService {
       </table>`;
   }
 
-  async send(options: MailOptions): Promise<void> {
+  /**
+   * Returns true when the mail was actually handed to the SMTP server.
+   * Errors are logged, not thrown, so fire-and-forget callers keep working.
+   */
+  async send(options: MailOptions): Promise<boolean> {
     if (!this.transporter) {
       this.logger.warn('Mail skipped — SMTP client missing');
-      return;
+      return false;
     }
     try {
       await this.transporter.sendMail({ from: this.getFrom(), ...options });
       this.logger.log(`Mail sent to ${options.to}: "${options.subject}"`);
+      return true;
     } catch (err) {
       this.logger.error(`Failed to send mail to ${options.to}: ${(err as Error).message}`);
+      return false;
     }
   }
 

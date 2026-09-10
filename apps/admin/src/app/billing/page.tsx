@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api, formatNaira } from '@isp/shared';
+import { api, formatNaira, nairaToKobo } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard, SkeletonTable } from '../../components/Skeleton';
+import PaymentsSection from './PaymentsSection';
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -74,7 +75,8 @@ function badge(label: string, color: string, bg?: string) {
   return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: bg ?? color + '18', color }}>{label}</span>;
 }
 
-const TABS = ['Invoices', 'Quotations', 'Paid & Accepted'];
+const TABS = ['Invoices', 'Quotations', 'Paid & Accepted', 'Payments', 'Refunds', 'Reconciliation'];
+const PAYMENT_TABS = ['Payments', 'Refunds', 'Reconciliation'];
 const INVOICE_TYPES = ['ALL', 'SUBSCRIPTION', 'INSTALLATION', 'ONE_TIME', 'MANUAL'];
 const QUOTATION_STATUSES = ['ALL', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'];
 
@@ -96,6 +98,8 @@ export default function BillingPage() {
   const [invFilter, setInvFilter] = useState('ALL');
   const [qFilter, setQFilter] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   // drawers
   const [showCreate, setShowCreate] = useState(false);
@@ -107,8 +111,8 @@ export default function BillingPage() {
   // create form
   const [form, setForm] = useState({
     subscriberId: '', email: '', type: 'SUBSCRIPTION', dueAt: '', notes: '',
-    lines: [{ description: '', amountKobo: 0, quantity: 1 }],
-    vatKobo: 0, discountKobo: 0,
+    lines: [{ description: '', amountNaira: '', quantity: 1 }],
+    vatNaira: '', discountNaira: '',
     newName: '', newEmail: '', newPhone: '', newAddress: '',
   });
 
@@ -118,8 +122,8 @@ export default function BillingPage() {
   // quotation form
   const [qForm, setQForm] = useState({
     subscriberId: '', subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '',
-    validUntil: '', items: [{ description: '', quantity: 1, unitPriceKobo: 0 }],
-    notes: '', discountKobo: 0,
+    validUntil: '', items: [{ description: '', quantity: 1, unitPriceNaira: '' }],
+    notes: '', discountNaira: '',
   });
 
   const [subs, setSubs] = useState<{ id: string; name: string; email: string; phone: string; address: string }[]>([]);
@@ -129,6 +133,11 @@ export default function BillingPage() {
   const [qCustomerMode, setQCustomerMode] = useState<'existing' | 'new'>('existing');
 
   useEffect(() => { fetchAll(); fetchSubs(); }, []);
+
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t && TABS.includes(t)) setTab(t);
+  }, []);
 
   async function fetchAll() {
     setLoading(true);
@@ -161,8 +170,35 @@ async function fetchSubs() {
   const filteredInvoices = invoices.filter(i => {
     if (invFilter !== 'ALL' && i.type !== invFilter) return false;
     if (search && !i.invoiceNumber.toLowerCase().includes(search.toLowerCase()) && !i.subscriber?.user?.email?.toLowerCase().includes(search.toLowerCase())) return false;
+    const d = i.createdAt.slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
     return true;
   });
+
+  function exportInvoicesCsv() {
+    const rows = [
+      ['Invoice', 'Customer', 'Type', 'Amount (NGN)', 'Status', 'Due Date', 'Created', 'Paid'],
+      ...filteredInvoices.map(i => [
+        i.invoiceNumber,
+        i.subscriber?.user?.email ?? '',
+        i.type,
+        (i.amountKobo / 100).toFixed(2),
+        i.status,
+        i.dueAt.slice(0, 10),
+        i.createdAt.slice(0, 10),
+        i.paidAt ? i.paidAt.slice(0, 10) : '',
+      ]),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   const filteredQuotations = qFilter === 'ALL' ? quotations : quotations.filter(q => q.status === qFilter);
 
@@ -172,12 +208,12 @@ async function fetchSubs() {
   /* ── Invoice Create ───────────────────────────────────── */
 
   const openCreate = () => {
-    setForm({ subscriberId: '', email: '', type: 'SUBSCRIPTION', dueAt: '', notes: '', lines: [{ description: '', amountKobo: 0, quantity: 1 }], vatKobo: 0, discountKobo: 0, newName: '', newEmail: '', newPhone: '', newAddress: '' });
+    setForm({ subscriberId: '', email: '', type: 'SUBSCRIPTION', dueAt: '', notes: '', lines: [{ description: '', amountNaira: '', quantity: 1 }], vatNaira: '', discountNaira: '', newName: '', newEmail: '', newPhone: '', newAddress: '' });
     setInvCustomerMode('existing');
     setShowCreate(true);
   };
 
-  const addLine = () => setForm(f => ({ ...f, lines: [...f.lines, { description: '', amountKobo: 0, quantity: 1 }] }));
+  const addLine = () => setForm(f => ({ ...f, lines: [...f.lines, { description: '', amountNaira: '', quantity: 1 }] }));
   const updateLine = (i: number, field: string, value: any) => {
     setForm(f => {
       const lines = [...f.lines];
@@ -187,15 +223,15 @@ async function fetchSubs() {
   };
   const removeLine = (i: number) => setForm(f => ({ ...f, lines: f.lines.filter((_, idx) => idx !== i) }));
 
-  const calcSubtotal = () => form.lines.reduce((s, l) => s + l.amountKobo * l.quantity, 0);
-  const calcVat = () => form.vatKobo || Math.round((calcSubtotal() - form.discountKobo) * 0.075);
-  const calcTotal = () => calcSubtotal() - form.discountKobo + calcVat();
+  const lineKobo = (l: { amountNaira: string }) => nairaToKobo(l.amountNaira);
+  const discountKobo = () => nairaToKobo(form.discountNaira);
+  const calcSubtotal = () => form.lines.reduce((s, l) => s + lineKobo(l) * (l.quantity || 0), 0);
+  const calcVat = () => form.vatNaira !== '' ? nairaToKobo(form.vatNaira) : Math.round((calcSubtotal() - discountKobo()) * 0.075);
+  const calcTotal = () => calcSubtotal() - discountKobo() + calcVat();
 
   async function handleCreate() {
     setSubmitting(true);
     try {
-      const subtotal = calcSubtotal();
-      const vat = calcVat();
       const created = await api<any>('/billing', {
         method: 'POST',
         body: JSON.stringify({
@@ -205,9 +241,9 @@ async function fetchSubs() {
             : undefined,
           type: form.type,
           dueAt: form.dueAt,
-          lines: form.lines.map(l => ({ description: l.description, amountKobo: l.amountKobo, quantity: l.quantity })),
-          vatKobo: vat,
-          discountKobo: form.discountKobo,
+          lines: form.lines.map(l => ({ description: l.description, amountKobo: lineKobo(l), quantity: l.quantity })),
+          vatKobo: calcVat(),
+          discountKobo: discountKobo(),
           notes: form.notes,
         }),
       });
@@ -251,12 +287,12 @@ async function fetchSubs() {
   /* ── Quotation Create ─────────────────────────────────── */
 
   const openQuotation = () => {
-    setQForm({ subscriberId: '', subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '', validUntil: '', items: [{ description: '', quantity: 1, unitPriceKobo: 0 }], notes: '', discountKobo: 0 });
+    setQForm({ subscriberId: '', subscriberName: '', subscriberEmail: '', subscriberPhone: '', subscriberAddress: '', validUntil: '', items: [{ description: '', quantity: 1, unitPriceNaira: '' }], notes: '', discountNaira: '' });
     setQCustomerMode('existing');
     setShowQuotation(true);
   };
 
-  const addQItem = () => setQForm(f => ({ ...f, items: [...f.items, { description: '', quantity: 1, unitPriceKobo: 0 }] }));
+  const addQItem = () => setQForm(f => ({ ...f, items: [...f.items, { description: '', quantity: 1, unitPriceNaira: '' }] }));
   const updateQItem = (i: number, field: string, value: any) => {
     setQForm(f => {
       const items = [...f.items];
@@ -266,9 +302,11 @@ async function fetchSubs() {
   };
   const removeQItem = (i: number) => setQForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
 
-  const qCalcSubtotal = () => qForm.items.reduce((s, l) => s + l.unitPriceKobo * l.quantity, 0);
-  const qCalcVat = () => Math.round((qCalcSubtotal() - qForm.discountKobo) * 0.075);
-  const qCalcTotal = () => qCalcSubtotal() - qForm.discountKobo + qCalcVat();
+  const qItemKobo = (i: { unitPriceNaira: string }) => nairaToKobo(i.unitPriceNaira);
+  const qDiscountKobo = () => nairaToKobo(qForm.discountNaira);
+  const qCalcSubtotal = () => qForm.items.reduce((s, i) => s + qItemKobo(i) * (i.quantity || 0), 0);
+  const qCalcVat = () => Math.round((qCalcSubtotal() - qDiscountKobo()) * 0.075);
+  const qCalcTotal = () => qCalcSubtotal() - qDiscountKobo() + qCalcVat();
 
   async function handleCreateQuotation() {
     setSubmitting(true);
@@ -282,8 +320,8 @@ async function fetchSubs() {
           subscriberPhone: qForm.subscriberPhone || undefined,
           subscriberAddress: qForm.subscriberAddress || undefined,
           validUntil: qForm.validUntil || undefined,
-          items: qForm.items.map(i => ({ description: i.description, quantity: i.quantity, unitPriceKobo: i.unitPriceKobo })),
-          discountKobo: qForm.discountKobo || undefined,
+          items: qForm.items.map(i => ({ description: i.description, quantity: i.quantity, unitPriceKobo: qItemKobo(i) })),
+          discountKobo: qDiscountKobo() || undefined,
           notes: qForm.notes || undefined,
         }),
       });
@@ -383,8 +421,8 @@ async function fetchSubs() {
       {/* ── Invoices Tab ─────────────────────────────────── */}
       {tab === 'Invoices' && (
         <>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice # or email..." style={{ ...inp, maxWidth: 300 }} />
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice # or email..." style={{ ...inp, maxWidth: 240 }} />
             <div style={{ display: 'flex', gap: 6 }}>
               {INVOICE_TYPES.map(t => (
                 <button key={t} onClick={() => setInvFilter(t)} style={{ padding: '5px 12px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: invFilter === t ? 600 : 400, fontSize: '0.75rem', background: invFilter === t ? 'var(--primary)' : '#fff', color: invFilter === t ? '#fff' : 'var(--text-color)' }}>
@@ -392,6 +430,14 @@ async function fetchSubs() {
                 </button>
               ))}
             </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>From</label>
+              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ ...inp, width: 150 }} />
+              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>To</label>
+              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ ...inp, width: 150 }} />
+            </div>
+            <div style={{ flex: 1 }} />
+            <button className="btn-outline" onClick={exportInvoicesCsv}>Export CSV</button>
           </div>
 
           <div className="data-card" style={{ padding: 0 }}>
@@ -580,6 +626,9 @@ async function fetchSubs() {
         </div>
       )}
 
+      {/* ── Payments / Refunds / Reconciliation ─────────── */}
+      {PAYMENT_TABS.includes(tab) && <PaymentsSection tab={tab} />}
+
       {/* ── Create Invoice Drawer ────────────────────────── */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
@@ -662,7 +711,7 @@ async function fetchSubs() {
                 {form.lines.map((line, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                     <input value={line.description} onChange={e => updateLine(i, 'description', e.target.value)} placeholder="Description" style={{ ...inp, flex: 1 }} />
-                    <input type="number" value={line.amountKobo || ''} onChange={e => updateLine(i, 'amountKobo', Number(e.target.value))} placeholder="Amount" style={{ ...inp, width: 100 }} />
+                    <input type="text" inputMode="decimal" value={line.amountNaira} onChange={e => updateLine(i, 'amountNaira', e.target.value)} placeholder="Amount (₦)" style={{ ...inp, width: 100 }} />
                     <input type="number" value={line.quantity} onChange={e => updateLine(i, 'quantity', Number(e.target.value))} min={1} style={{ ...inp, width: 50 }} />
                     {form.lines.length > 1 && <button onClick={() => removeLine(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#DC2626', padding: 4 }}>
                       <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -677,15 +726,15 @@ async function fetchSubs() {
                   <div style={{ padding: '9px 12px', background: '#F8FAFC', borderRadius: 10, fontSize: '0.9rem', fontWeight: 600 }}>{fmtK(calcSubtotal())}</div>
                 </div>
                 <div>
-                  <label style={lbl}>Discount (kobo)</label>
-                  <input type="number" value={form.discountKobo} onChange={e => setForm(f => ({ ...f, discountKobo: Number(e.target.value) }))} style={inp} />
+                  <label style={lbl}>Discount (₦)</label>
+                  <input type="text" inputMode="decimal" value={form.discountNaira} onChange={e => setForm(f => ({ ...f, discountNaira: e.target.value }))} placeholder="0" style={inp} />
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={lbl}>VAT (auto 7.5%)</label>
-                  <input type="number" value={calcVat()} onChange={e => setForm(f => ({ ...f, vatKobo: Number(e.target.value) }))} style={inp} />
+                  <label style={lbl}>VAT (₦, auto 7.5%)</label>
+                  <input type="text" inputMode="decimal" value={form.vatNaira !== '' ? form.vatNaira : String(calcVat() / 100)} onChange={e => setForm(f => ({ ...f, vatNaira: e.target.value }))} style={inp} />
                 </div>
                 <div>
                   <label style={lbl}>Total Due</label>
@@ -860,7 +909,7 @@ async function fetchSubs() {
                 {qForm.items.map((item, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                     <input value={item.description} onChange={e => updateQItem(i, 'description', e.target.value)} placeholder="Description" style={{ ...inp, flex: 1 }} />
-                    <input type="number" value={item.unitPriceKobo || ''} onChange={e => updateQItem(i, 'unitPriceKobo', Number(e.target.value))} placeholder="Price" style={{ ...inp, width: 100 }} />
+                    <input type="text" inputMode="decimal" value={item.unitPriceNaira} onChange={e => updateQItem(i, 'unitPriceNaira', e.target.value)} placeholder="Price (₦)" style={{ ...inp, width: 100 }} />
                     <input type="number" value={item.quantity} onChange={e => updateQItem(i, 'quantity', Number(e.target.value))} min={1} style={{ ...inp, width: 50 }} />
                     {qForm.items.length > 1 && <button onClick={() => removeQItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#DC2626', padding: 4 }}>
                       <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -870,8 +919,8 @@ async function fetchSubs() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={lbl}>Discount (kobo)</label>
-                  <input type="number" value={qForm.discountKobo} onChange={e => setQForm(f => ({ ...f, discountKobo: Number(e.target.value) }))} style={inp} />
+                  <label style={lbl}>Discount (₦)</label>
+                  <input type="text" inputMode="decimal" value={qForm.discountNaira} onChange={e => setQForm(f => ({ ...f, discountNaira: e.target.value }))} placeholder="0" style={inp} />
                 </div>
                 <div>
                   <label style={lbl}>Total</label>

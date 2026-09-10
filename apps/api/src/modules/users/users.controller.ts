@@ -38,8 +38,26 @@ export class UsersController {
 
   @Patch('customers/:id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO', 'FIELD_ENGINEER')
-  updateCustomer(@Param('id') id: string, @Body() body: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; planName?: string; dueAt?: string }, @CurrentUser('id') actorId: string) {
+  updateCustomer(@Param('id') id: string, @Body() body: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string }, @CurrentUser('id') actorId: string) {
     return this.service.updateCustomer(id, body, actorId);
+  }
+
+  @Get('kyc')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO', 'NOC_ENGINEER', 'FIELD_ENGINEER', 'SALES_AGENT', 'CUSTOMER_SUPPORT', 'SUPPORT_AGENT', 'BILLING_OFFICER', 'FINANCE_MANAGER')
+  kycQueue() {
+    return this.service.kycQueue();
+  }
+
+  @Post('kyc/:id/approve')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO')
+  approveKyc(@Param('id') id: string, @CurrentUser() actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null }) {
+    return this.service.approveKyc(id, actor);
+  }
+
+  @Post('kyc/:id/reject')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO')
+  rejectKyc(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser('id') actorId: string) {
+    return this.service.rejectKyc(id, actorId, body?.reason);
   }
 
   @Post('import')
@@ -47,6 +65,12 @@ export class UsersController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   importCustomers(@UploadedFile() file: Express.Multer.File, @CurrentUser('id') actorId: string) {
     return this.service.startImport(file, actorId);
+  }
+
+  @Post('purge-customers')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
+  purgeCustomers(@CurrentUser('id') actorId: string) {
+    return this.service.purgeCustomers(actorId);
   }
 
   @Get('import/:jobId')
@@ -81,7 +105,15 @@ export class UsersController {
 
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  update(@Param('id') id: string, @Body() body: { email?: string; phone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean }, @CurrentUser('id') actorId: string) {
+  update(
+    @Param('id') id: string,
+    @Body() body: { email?: string; phone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean },
+    @CurrentUser('id') actorId: string,
+    @CurrentUser('isSuperAdmin') actorIsSuperAdmin: boolean,
+  ) {
+    // Only a superadmin may grant/revoke the platform superadmin flag —
+    // otherwise an OPERATIONS_MANAGER could escalate themselves.
+    if (!actorIsSuperAdmin) delete body.isSuperAdmin;
     return this.service.update(id, body, actorId);
   }
 

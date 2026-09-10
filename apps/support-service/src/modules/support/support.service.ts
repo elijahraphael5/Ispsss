@@ -24,6 +24,33 @@ function isAgentActor(actor: Actor): boolean {
   return AGENT_ROLES.includes(actor.customRole?.name ?? '');
 }
 
+const SAFE_MIME_PREFIXES = ['image/', 'video/', 'audio/', 'text/plain', 'application/pdf'];
+const SAFE_MIME_EXACT = new Set([
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/zip',
+  'application/octet-stream',
+]);
+
+/**
+ * Client-supplied mime types are untrusted. Anything that could execute in
+ * the browser (html/svg/javascript) is downgraded to a binary download.
+ */
+function sanitizeMimeType(mime: string | null | undefined): string {
+  const value = String(mime ?? '').toLowerCase().trim();
+  if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(value)) return 'application/octet-stream';
+  if (value === 'text/html' || value === 'image/svg+xml' || value.startsWith('text/javascript') || value === 'application/xhtml+xml' || value === 'application/javascript' || value === 'text/xml' || value === 'application/xml') {
+    return 'application/octet-stream';
+  }
+  if (SAFE_MIME_EXACT.has(value)) return value;
+  if (SAFE_MIME_PREFIXES.some((p) => value.startsWith(p))) return value;
+  return 'application/octet-stream';
+}
+
 @Injectable()
 export class SupportService {
   constructor(
@@ -704,6 +731,7 @@ export class SupportService {
     absPath: string;
     fileName: string;
     mimeType: string;
+    contentDisposition: string;
     sizeBytes: number;
   }> {
     const upload = await this.prisma.fileUpload.findUnique({
@@ -735,10 +763,16 @@ export class SupportService {
 
     const absPath = path.join(this.uploadRoot, upload.storedPath);
     if (!fs.existsSync(absPath)) throw new NotFoundException('Attachment file missing on disk');
+
+    // Serve uploads as downloads with a normalized content type. The stored
+    // mimeType comes from the uploading client, so serving it verbatim (and
+    // inline) would let text/html or image/svg+xml execute on our origin.
+    const safeMime = sanitizeMimeType(upload.mimeType);
     return {
       absPath,
       fileName: upload.fileName,
-      mimeType: upload.mimeType,
+      mimeType: safeMime,
+      contentDisposition: `attachment; filename="${encodeURIComponent(upload.fileName)}"`,
       sizeBytes: upload.sizeBytes,
     };
   }

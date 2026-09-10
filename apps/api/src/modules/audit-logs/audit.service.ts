@@ -14,6 +14,32 @@ const MODEL_MAP: Record<string, string> = {
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** The user who originally created an entity (maker), from the audit trail. */
+  async makerOf(entityType: string, entityId: string): Promise<string | null> {
+    const row = await this.prisma.auditLog.findFirst({
+      where: { entityType, entityId, action: { endsWith: '_CREATED' } },
+      orderBy: { createdAt: 'desc' },
+      select: { actorId: true },
+    });
+    return row?.actorId ?? null;
+  }
+
+  /**
+   * Maker–checker guard for deletions: the admin who created a record cannot
+   * delete it themselves — unless they hold the platform admin role
+   * (SUPER_ADMIN custom role or isSuperAdmin), which is exempt.
+   */
+  assertNotMaker(
+    actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null },
+    makerId: string | null,
+    entityLabel: string,
+  ): void {
+    const exempt = actor.isSuperAdmin === true || actor.customRole?.name === 'SUPER_ADMIN';
+    if (!exempt && makerId && makerId === actor.id) {
+      throw new BadRequestException(`Maker–checker: the admin who created this ${entityLabel} cannot delete it — another admin must delete it.`);
+    }
+  }
+
   async log(params: {
     actorId?: string;
     action: string;

@@ -78,10 +78,21 @@ export class ServiceProxyMiddleware implements NestMiddleware {
       },
     );
 
+    // Bound how long a request can hang on an unresponsive upstream. Without
+    // this a stuck service holds the socket (and the client) open indefinitely.
+    const timeoutMs = Number(process.env.PROXY_TIMEOUT_MS ?? 30000);
+    proxyReq.setTimeout(timeoutMs, () => {
+      proxyReq.destroy(new Error('Proxy timeout'));
+    });
+
     proxyReq.on('error', (err) => {
       this.logger.error(`Proxy to ${route.base} failed: ${err.message}`);
       if (!res.headersSent) {
-        res.status(502).json({ statusCode: 502, message: 'Service unavailable' });
+        if (err.message === 'Proxy timeout') {
+          res.status(504).json({ statusCode: 504, message: 'Gateway timeout' });
+        } else {
+          res.status(502).json({ statusCode: 502, message: 'Service unavailable' });
+        }
       } else {
         res.destroy();
       }

@@ -10,7 +10,7 @@ import { PrismaService } from './common/prisma/prisma.service';
 import { createLogger, withRequestId, assertProdEnv } from '@isp/logger';
 import { makeMetricsMiddleware, recordHttpRequest } from '@isp/metrics';
 import { HealthService, makeLivenessHandler, makeReadinessHandler } from '@isp/health';
-import { SlidingWindowRateLimiter, MemoryRateLimitStore, DEFAULT_TIERS, RateLimitRule } from '@isp/rate-limit';
+import { SlidingWindowRateLimiter, MemoryRateLimitStore, RateLimitRule, envLimit } from '@isp/rate-limit';
 import { CacheService, NoopCacheClient, RedisCacheClient } from '@isp/cache';
 import Redis from 'ioredis';
 
@@ -52,11 +52,15 @@ async function bootstrap() {
   const limiter = new SlidingWindowRateLimiter(new MemoryRateLimitStore());
   const tierFor = (req: Request): RateLimitRule => {
     const path = req.path;
-    if (path === '/api/v1/auth/login' || path === '/api/v1/auth/2fa/verify') return DEFAULT_TIERS.auth;
-    if (path.includes('/auth/register') || path.includes('/auth/forgot-password') || path.includes('/auth/reset-password')) {
-      return DEFAULT_TIERS.authDaily;
+    if (path === '/api/v1/auth/login' || path === '/api/v1/auth/2fa/verify' || path === '/api/v1/auth/2fa/resend') {
+      // 10/min default: still thwarts brute force, but no longer trips when
+      // several staff behind one NAT log in back-to-back.
+      return { limit: envLimit('AUTH_LOGIN_RATE_LIMIT_PER_MIN', 10), windowMs: 60_000 };
     }
-    return DEFAULT_TIERS.globalPerIp;
+    if (path.includes('/auth/register') || path.includes('/auth/forgot-password') || path.includes('/auth/reset-password')) {
+      return { limit: envLimit('AUTH_ACCOUNT_RATE_LIMIT_PER_HOUR', 30), windowMs: 3_600_000 };
+    }
+    return { limit: envLimit('AUTH_GLOBAL_RATE_LIMIT_PER_MIN', 600), windowMs: 60_000 };
   };
 
   app.use(helmet());
@@ -76,7 +80,13 @@ async function bootstrap() {
   app.use('/healthz', makeLivenessHandler(health) as any);
   app.use('/readyz', makeReadinessHandler(health) as any);
   app.use(async (req: Request, res: Response, next: NextFunction) => {
-    const ip = ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown').split(',')[0].trim();
+    // Only honor X-Forwarded-For when explicitly behind a trusted proxy,
+    // otherwise clients can spoof it to bypass IP rate limiting.
+    const trustProxy = process.env.TRUST_PROXY === 'true';
+    const ip = (trustProxy
+      ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
+      : (req.ip ?? 'unknown')
+    ).split(',')[0].trim();
     const result = await limiter.consume(`ip:${ip}`, tierFor(req));
     if (!result.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)));

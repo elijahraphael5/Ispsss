@@ -7,10 +7,13 @@ import { useAuthStore, api } from '@isp/shared';
 function TwoFactorForm() {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const router = useRouter();
   const params = useSearchParams();
   const userId = params.get('userId') ?? '';
+  const email = params.get('email') ?? '';
   const { setAccessToken, setUser } = useAuthStore();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -32,6 +35,20 @@ function TwoFactorForm() {
     }
   }
 
+  async function resend() {
+    setResending(true);
+    setError('');
+    setNotice('');
+    try {
+      await api('/auth/2fa/resend', { method: 'POST', body: JSON.stringify({ userId }), skipAuth: true });
+      setNotice('A new code has been emailed to you.');
+    } catch (err: any) {
+      setError(err.message || 'Could not resend the code');
+    } finally {
+      setResending(false);
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#121316', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ backgroundColor: '#18191c', borderRadius: 20, padding: '48px 40px', width: 400, border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -40,20 +57,30 @@ function TwoFactorForm() {
             <img src="/logo.png" alt="Hikonnect" style={{ height: 30, width: 'auto' }} />
           </div>
           <h1 style={{ color: '#f8f9fa', fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>Two-Factor Auth</h1>
-          <p style={{ color: '#9ea3a8', fontSize: '0.9rem', marginTop: 6 }}>Enter the code from your authenticator app</p>
+          <p style={{ color: '#9ea3a8', fontSize: '0.9rem', marginTop: 6 }}>
+            {email ? <>We emailed a 6-digit code to <strong style={{ color: '#f8f9fa' }}>{email}</strong></> : 'Enter the 6-digit code we emailed you'}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', color: '#9ea3a8', fontSize: '0.85rem', fontWeight: 600, marginBottom: 6 }}>Authentication Code</label>
+            <label style={{ display: 'block', color: '#9ea3a8', fontSize: '0.85rem', fontWeight: 600, marginBottom: 6 }}>Email Code</label>
             <input
               placeholder="000000"
               value={token}
-              onChange={e => setToken(e.target.value)}
+              onChange={e => setToken(e.target.value.replace(/\D/g, '').slice(0, 6))}
               style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: '#202226', color: '#f8f9fa', fontSize: '0.9rem', outline: 'none', textAlign: 'center', letterSpacing: 8, boxSizing: 'border-box' }}
               maxLength={6}
+              inputMode="numeric"
+              autoFocus
             />
           </div>
+
+          {notice && (
+            <div style={{ backgroundColor: '#132a1c', border: '1px solid #16A34A', borderRadius: 12, padding: '12px 16px', marginBottom: 18, color: '#4ade80', fontSize: '0.85rem' }}>
+              {notice}
+            </div>
+          )}
 
           {error && (
             <div style={{ backgroundColor: '#2d1b1b', border: '1px solid #e53e3e', borderRadius: 12, padding: '12px 16px', marginBottom: 18, color: '#fc8181', fontSize: '0.85rem' }}>
@@ -63,11 +90,17 @@ function TwoFactorForm() {
 
           <button
             type="submit"
-            disabled={loading}
-            style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', backgroundColor: loading ? '#d94a1b' : '#F15925', color: '#fff', fontWeight: 700, fontSize: '0.95rem', cursor: loading ? 'not-allowed' : 'pointer' }}
+            disabled={loading || token.length < 6}
+            style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', backgroundColor: loading ? '#d94a1b' : '#F15925', color: '#fff', fontWeight: 700, fontSize: '0.95rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading || token.length < 6 ? 0.7 : 1 }}
           >
             {loading ? 'Verifying...' : 'Verify'}
           </button>
+
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <button type="button" onClick={resend} disabled={resending} style={{ background: 'none', border: 'none', color: '#9ea3a8', fontSize: '0.85rem', cursor: resending ? 'not-allowed' : 'pointer', textDecoration: 'underline' }}>
+              {resending ? 'Sending...' : 'Resend code'}
+            </button>
+          </div>
         </form>
       </div>
     </div>

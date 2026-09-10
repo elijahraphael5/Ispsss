@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, NotFoundException, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SubscriptionsService } from './subscriptions.service';
 import { MailService, WelcomeData } from '../mail/mail.service';
 
@@ -32,6 +34,13 @@ export class SubscriptionsController {
     return this.service.createPlan(body);
   }
 
+  @Post('plans/import')
+  @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  importPlans(@UploadedFile() file: Express.Multer.File) {
+    return this.service.importPlans(file);
+  }
+
   @Patch('plans/:id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
   updatePlan(@Param('id') id: string, @Body() body: any) {
@@ -46,8 +55,8 @@ export class SubscriptionsController {
 
   @Post()
   @Roles('SUPER_ADMIN', 'SALES_AGENT')
-  create(@Body() body: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string }) {
-    return this.service.create(body);
+  create(@Body() body: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string }, @CurrentUser('id') actorId: string) {
+    return this.service.create(body, actorId);
   }
 
   @Patch(':id')
@@ -70,8 +79,8 @@ export class SubscriptionsController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null }) {
+    return this.service.remove(id, actor);
   }
 
   @Post(':id/subscriptions')
@@ -111,8 +120,8 @@ export class SubscriptionsController {
 
   @Delete('subscriptions/:id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  removeSubscription(@Param('id') id: string) {
-    return this.service.removeSubscription(id);
+  removeSubscription(@Param('id') id: string, @CurrentUser() actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null }) {
+    return this.service.removeSubscription(id, actor);
   }
 
   // ── CPE / IP Addresses ──────────────────────────────────

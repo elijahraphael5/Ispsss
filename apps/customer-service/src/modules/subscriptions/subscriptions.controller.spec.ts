@@ -61,7 +61,7 @@ describe('SubscriptionsController', () => {
 
   it('create delegates', async () => {
     service.create.mockResolvedValue({ id: 's1' });
-    expect(await controller.create({ userId: 'u1', type: 'RESIDENTIAL' })).toEqual({ id: 's1' });
+    expect(await controller.create({ userId: 'u1', type: 'RESIDENTIAL' }, 'maker-1')).toEqual({ id: 's1' });
   });
 
   it('update delegates', async () => {
@@ -79,7 +79,8 @@ describe('SubscriptionsController', () => {
 
   it('remove delegates', async () => {
     service.remove.mockResolvedValue({ id: 's1' });
-    expect(await controller.remove('s1')).toEqual({ id: 's1' });
+    const actor = { id: 'admin-1', customRole: { name: 'SUPER_ADMIN' } };
+    expect(await controller.remove('s1', actor)).toEqual({ id: 's1' });
   });
 
   it('createSubscription delegates', async () => {
@@ -114,6 +115,7 @@ describe('SubscriptionsController', () => {
 
   it('removeSubscription delegates', async () => {
     service.removeSubscription.mockResolvedValue({ id: 'sub1' });
-    expect(await controller.removeSubscription('sub1')).toEqual({ id: 'sub1' });
+    const actor = { id: 'admin-1', customRole: { name: 'SUPER_ADMIN' } };
+    expect(await controller.removeSubscription('sub1', actor)).toEqual({ id: 'sub1' });
   });
 });

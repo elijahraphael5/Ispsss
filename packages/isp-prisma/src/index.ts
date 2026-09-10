@@ -1,0 +1,335 @@
+import { Prisma, PrismaClient } from '@prisma/client';
+
+// Every model in schema.prisma now carries a `deletedAt DateTime?` column, so
+// soft-delete filtering is applied DB-wide. `EntityHistory` is the one
+// exception: it is the append-only store of record for deleted/edited data and
+// deliberately has no `deletedAt` column.
+export const SOFT_DELETE_MODELS = [
+  'tenant',
+  'customRole',
+  'permission',
+  'user',
+  'subscriber',
+  'plan',
+  'subscription',
+  'invoice',
+  'invoiceLine',
+  'payment',
+  'receipt',
+  'creditNote',
+  'refund',
+  'wallet',
+  'walletTransaction',
+  'quotation',
+  'quotationItem',
+  'virtualAccount',
+  'paymentAttempt',
+  'paymentReconciliation',
+  'ticket',
+  'ticketComment',
+  'chatSession',
+  'chatMessage',
+  'fileUpload',
+  'agentPresence',
+  'cannedResponse',
+  'cpe',
+  'networkDevice',
+  'routerHealth',
+  'contract',
+  'refreshToken',
+  'auditLog',
+  'notification',
+  'passwordResetToken',
+  'actionQueue',
+  'routerSnapshot',
+  'routerMetric',
+  'routerUsageDay',
+  'pppoeSession',
+] as const;
+
+// Models whose UPDATE/DELETE writes are mirrored into `EntityHistory`.
+// High-churn telemetry/auth tables are excluded so the history table does not
+// balloon (these are written on every poll/heartbeat/request):
+// routerMetric, routerUsageDay, pppoeSession, routerSnapshot, routerHealth,
+// paymentAttempt, agentPresence, refreshToken, passwordResetToken,
+// actionQueue, notification, auditLog.
+export const HISTORY_MODELS = [
+  'tenant',
+  'customRole',
+  'permission',
+  'user',
+  'subscriber',
+  'plan',
+  'subscription',
+  'invoice',
+  'invoiceLine',
+  'payment',
+  'receipt',
+  'creditNote',
+  'refund',
+  'wallet',
+  'walletTransaction',
+  'quotation',
+  'quotationItem',
+  'virtualAccount',
+  'paymentReconciliation',
+  'ticket',
+  'ticketComment',
+  'chatSession',
+  'chatMessage',
+  'fileUpload',
+  'cannedResponse',
+  'cpe',
+  'networkDevice',
+  'contract',
+] as const;
+
+const READ_OPS = [
+  'findMany',
+  'findFirst',
+  'findFirstOrThrow',
+  'findUnique',
+  'findUniqueOrThrow',
+  'count',
+  'aggregate',
+  'groupBy',
+] as const;
+
+/**
+ * Injects `deletedAt: null` into a query's `where`, hiding soft-deleted rows
+ * from read operations. Idempotent — a caller-supplied `deletedAt: null` is
+ * simply re-applied.
+ */
+export function filterDeletedAt(args: any): any {
+  const a = args ?? {};
+  return { ...a, where: { ...(a.where ?? {}), deletedAt: null } };
+}
+
+function buildQueryConfig(): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {};
+  for (const model of SOFT_DELETE_MODELS) {
+    const ops: Record<string, unknown> = {};
+    for (const op of READ_OPS) {
+      ops[op] = async ({ args, query }: { args: any; query: (a: any) => any }) =>
+        query(filterDeletedAt(args));
+    }
+    cfg[model] = ops;
+  }
+  return cfg;
+}
+
+/** Exposed separately so the filtering behaviour is unit-testable. */
+export const softDeleteQueryConfig = buildQueryConfig();
+
+/**
+ * Prisma client extension that hides soft-deleted rows (deletedAt != null) from
+ * read operations, now on EVERY model. It deliberately does NOT override
+ * `delete`/`deleteMany`: hard deletes (import wipes, token cleanup, time-series
+ * pruning) must keep working — the history extension records those deletes so
+ * nothing is lost either way. Use `softDelete()`/`restore()` below for the
+ * soft lifecycle.
+ */
+export const softDeleteExtension = Prisma.defineExtension({
+  name: 'soft-delete',
+  query: softDeleteQueryConfig as any,
+});
+
+// Fields that must never be persisted in EntityHistory snapshots.
+const SENSITIVE_KEYS = new Set([
+  'passwordHash',
+  'twoFaSecret',
+  'twoFaOtpHash',
+  'tokenHash',
+  'routerosPassword',
+  'secret',
+]);
+
+/** Serializes a snapshot for JSONB storage, redacting sensitive fields. */
+export function sanitizeForHistory(value: any): any {
+  if (value === null || value === undefined) return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) return value.map(sanitizeForHistory);
+  if (typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SENSITIVE_KEYS.has(k) ? '[REDACTED]' : sanitizeForHistory(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Distinguishes the soft-delete lifecycle from plain edits. */
+export function actionForData(data: any): string {
+  if (data?.deletedAt) return 'SOFT_DELETED';
+  if (data?.deletedAt === null) return 'RESTORED';
+  return 'UPDATED';
+}
+
+interface HistoryEntry {
+  tenantId: string | null;
+  model: string;
+  recordId: string | null;
+  action: string;
+  before?: any;
+  after?: any;
+}
+
+/**
+ * Prisma client extension factory that mirrors UPDATE/DELETE operations on
+ * `HISTORY_MODELS` into the `EntityHistory` table (before/after JSON
+ * snapshots). History writes use the BASE client passed in, so they can never
+ * recurse, and are fail-safe: a history insert failure never breaks the
+ * primary write.
+ *
+ * Note: history writes issued while inside an interactive transaction are
+ * committed independently of that transaction (Prisma query extensions cannot
+ * reach the transaction's client for other models). If the surrounding
+ * transaction rolls back, its history rows survive.
+ */
+export function createHistoryExtension(prisma: any) {
+  const client = prisma as any;
+
+  const record = async (entry: HistoryEntry) => {
+    try {
+      await client.entityHistory.create({
+        data: {
+          tenantId: entry.tenantId,
+          model: entry.model,
+          recordId: entry.recordId,
+          action: entry.action,
+          before: entry.before === undefined ? undefined : sanitizeForHistory(entry.before),
+          after: entry.after === undefined ? undefined : sanitizeForHistory(entry.after),
+        },
+      });
+    } catch {
+      // History must never break the primary write (e.g. pre-migration DB).
+    }
+  };
+
+  const extract = (
+    where: any,
+    before: any,
+    after: any,
+  ): { tenantId: string | null; recordId: string | null } => ({
+    tenantId:
+      ((after?.tenantId ?? before?.tenantId ?? where?.tenantId) as string | null | undefined) ?? null,
+    recordId: ((after?.id ?? before?.id ?? where?.id) as string | null | undefined) ?? null,
+  });
+
+  const fetchBefore = async (model: string, where: any) => {
+    try {
+      return await client[model].findFirst({ where });
+    } catch {
+      return null;
+    }
+  };
+
+  const cfg: Record<string, unknown> = {};
+  for (const model of HISTORY_MODELS) {
+    cfg[model] = {
+      update: async ({ args, query }: { args: any; query: (a: any) => any }) => {
+        const before = await fetchBefore(model, args.where);
+        const result = await query(args);
+        await record({
+          ...extract(args.where, before, result),
+          model,
+          action: actionForData(args.data),
+          before,
+          after: result,
+        });
+        return result;
+      },
+      updateMany: async ({ args, query }: { args: any; query: (a: any) => any }) => {
+        const result = await query(args);
+        await record({
+          ...extract(args.where, null, null),
+          model,
+          action: `${actionForData(args.data)}_MANY`,
+          after: { where: args.where, data: args.data },
+        });
+        return result;
+      },
+      delete: async ({ args, query }: { args: any; query: (a: any) => any }) => {
+        const before = await fetchBefore(model, args.where);
+        const result = await query(args);
+        await record({
+          ...extract(args.where, before, result),
+          model,
+          action: 'DELETED',
+          before: before ?? result,
+          after: result,
+        });
+        return result;
+      },
+      deleteMany: async ({ args, query }: { args: any; query: (a: any) => any }) => {
+        const result = await query(args);
+        await record({
+          ...extract(args.where, null, null),
+          model,
+          action: 'DELETED_MANY',
+          after: { where: args.where },
+        });
+        return result;
+      },
+      upsert: async ({ args, query }: { args: any; query: (a: any) => any }) => {
+        const before = await fetchBefore(model, args.where);
+        const result = await query(args);
+        await record({
+          ...extract(args.where, before, result),
+          model,
+          action: 'UPSERTED',
+          before,
+          after: result,
+        });
+        return result;
+      },
+    };
+  }
+  return Prisma.defineExtension({
+    name: 'entity-history',
+    query: cfg as any,
+  });
+}
+
+/**
+ * Applies both extensions (whole-DB soft-delete filtering + EntityHistory
+ * change capture) to a freshly constructed PrismaClient.
+ *
+ *   private client = applyPrismaExtensions(new PrismaClient(...));
+ */
+export function applyPrismaExtensions<T extends PrismaClient>(client: T): T {
+  return client
+    .$extends(softDeleteExtension)
+    .$extends(createHistoryExtension(client)) as unknown as T;
+}
+
+/**
+ * Soft-delete a single row by setting `deletedAt` (works on both a regular
+ * delegate and an interactive-transaction `tx` delegate).
+ *
+ *   await softDelete(this.prisma.user, { where: { id }, select: { id: true } });
+ */
+export async function softDelete(delegate: any, args: any): Promise<any> {
+  return delegate.update({
+    ...args,
+    data: { ...(args?.data ?? {}), deletedAt: new Date() },
+  });
+}
+
+/** Bulk soft-delete by setting `deletedAt` (mirrors `updateMany`). */
+export async function softDeleteMany(delegate: any, args: any): Promise<any> {
+  return delegate.updateMany({
+    ...args,
+    data: { ...(args?.data ?? {}), deletedAt: new Date() },
+  });
+}
+
+/** Restore a soft-deleted row by clearing `deletedAt`. */
+export async function restore(delegate: any, args: any): Promise<any> {
+  return delegate.update({
+    ...args,
+    data: { ...(args?.data ?? {}), deletedAt: null },
+  });
+}

@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { applyPrismaExtensions } from '@isp/prisma';
 import { TenantContext } from '../tenant/tenant-context';
 
 const TENANT_MODELS = new Set([
@@ -52,11 +53,13 @@ function wrapDelegate<T>(modelName: string, delegate: T): T {
 
 @Injectable()
 export class PrismaService implements OnModuleInit, OnModuleDestroy {
-  private client = new PrismaClient(
-    process.env.DATABASE_REPLICA_URL
-      ? { datasources: { db: { url: process.env.DATABASE_REPLICA_URL } } }
-      : undefined,
-  );
+  private client: PrismaClient = applyPrismaExtensions(
+    new PrismaClient(
+      process.env.DATABASE_REPLICA_URL
+        ? { datasources: { db: { url: process.env.DATABASE_REPLICA_URL } } }
+        : undefined,
+    ),
+  ) as unknown as PrismaClient;
 
   async onModuleInit() {
     await this.client.$connect();

@@ -1,20 +1,21 @@
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { RadiusService } from './radius.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 describe('RadiusService', () => {
   let service: RadiusService;
-  const prisma = { subscriber: { findUnique: jest.fn() } };
+  const prisma = { subscriber: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() } };
   const db = { query: jest.fn(), execute: jest.fn() };
   const coa = { disconnectSession: jest.fn(), sendCoa: jest.fn() };
   const cache = { get: jest.fn(), set: jest.fn() };
+  const profiles = { findOne: jest.fn() };
 
   const subscriber = { pppoeUsername: 'ppp_user1' };
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.RADIUS_DEFAULT_PASSWORD = 'DevPass1!';
-    service = new RadiusService(prisma as any, db as any, coa as any, cache as any);
+    service = new RadiusService(prisma as any, db as any, coa as any, profiles as any, cache as any);
     prisma.subscriber.findUnique.mockResolvedValue(subscriber);
     db.query.mockResolvedValue([]);
   });
@@ -99,5 +100,110 @@ describe('RadiusService', () => {
   it('throws NotFoundException for unknown subscribers', async () => {
     prisma.subscriber.findUnique.mockResolvedValue(null);
     await expect(service.deactivate('ghost')).rejects.toThrow(NotFoundException);
+  });
+
+  describe('assignProfile (RADIUS groups + static IP)', () => {
+    const staticProfile = { name: 'FIBER_STATIC', staticIpMode: true, rateLimit: '20M/20M' };
+
+    beforeEach(() => {
+      prisma.subscriber.findFirst.mockResolvedValue(null);
+      prisma.subscriber.update.mockResolvedValue({});
+    });
+
+    it('rejects a static IP outside the 192.x range', async () => {
+      profiles.findOne.mockResolvedValue(staticProfile);
+      await expect(
+        service.assignProfile('cust-1', { profile: 'FIBER_STATIC', staticIpAddress: '10.0.0.5' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('requires a static IP when the profile has static_ip_mode', async () => {
+      profiles.findOne.mockResolvedValue(staticProfile);
+      await expect(service.assignProfile('cust-1', { profile: 'FIBER_STATIC' })).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a static IP already assigned to another subscriber (app-level check)', async () => {
+      profiles.findOne.mockResolvedValue(staticProfile);
+      prisma.subscriber.findFirst.mockResolvedValue({ id: 'other', pppoeUsername: 'ppp_other' });
+      await expect(
+        service.assignProfile('cust-1', { profile: 'FIBER_STATIC', staticIpAddress: '192.168.10.5' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.subscriber.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a static IP already present in radreply for another username', async () => {
+      profiles.findOne.mockResolvedValue(staticProfile);
+      db.query.mockImplementation((sql: string) =>
+        sql.includes('username <>') ? Promise.resolve([{ username: 'ppp_other' }]) : Promise.resolve([]),
+      );
+      await expect(
+        service.assignProfile('cust-1', { profile: 'FIBER_STATIC', staticIpAddress: '192.168.10.5' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('writes Framed-IP-Address/Netmask and persists the subscriber static IP', async () => {
+      profiles.findOne.mockResolvedValue(staticProfile);
+      db.query.mockImplementation((sql: string) => {
+        if (sql.includes('username <>')) return Promise.resolve([]);
+        if (sql.includes('FROM radusergroup')) return Promise.resolve([{ groupname: 'FIBER_STATIC' }]);
+        if (sql.includes('SELECT id FROM radreply')) return Promise.resolve([]);
+        if (sql.includes('FROM radreply')) {
+          return Promise.resolve([
+            { attribute: 'Framed-IP-Address', value: '192.168.10.5' },
+            { attribute: 'Framed-IP-Netmask', value: '255.255.255.0' },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.subscriber.findUnique.mockResolvedValue({
+        pppoeUsername: 'ppp_user1',
+        staticIpAddress: '192.168.10.5',
+        staticIpNetmask: '255.255.255.0',
+      });
+
+      const result = await service.assignProfile('cust-1', {
+        profile: 'FIBER_STATIC',
+        staticIpAddress: '192.168.10.5',
+        staticIpNetmask: '255.255.255.0',
+      });
+
+      expect(prisma.subscriber.update).toHaveBeenCalledWith({
+        where: { id: 'cust-1' },
+        data: { staticIpAddress: '192.168.10.5', staticIpNetmask: '255.255.255.0' },
+      });
+      expect(db.execute).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO radreply'),
+        ['ppp_user1', 'Framed-IP-Address', '192.168.10.5'],
+      );
+      expect(coa.sendCoa).toHaveBeenCalledWith('ppp_user1', { 'Mikrotik-Rate-Limit': '20M/20M' });
+      expect(result).toMatchObject({
+        profile: 'FIBER_STATIC',
+        staticIpMode: true,
+        staticIpActive: true,
+        staticIpUnused: false,
+      });
+    });
+
+    it('dynamic profile removes applied Framed-IP rows and flags the stored IP unused', async () => {
+      profiles.findOne.mockResolvedValue({ name: 'HOME_DYNAMIC', staticIpMode: false, rateLimit: null });
+      db.query.mockImplementation((sql: string) => {
+        if (sql.includes('FROM radusergroup')) return Promise.resolve([{ groupname: 'HOME_DYNAMIC' }]);
+        return Promise.resolve([]);
+      });
+      prisma.subscriber.findUnique.mockResolvedValue({
+        pppoeUsername: 'ppp_user1',
+        staticIpAddress: '192.168.10.5',
+        staticIpNetmask: '255.255.255.0',
+      });
+
+      const result = await service.assignProfile('cust-1', { profile: 'HOME_DYNAMIC' });
+
+      expect(db.execute).toHaveBeenCalledWith(
+        expect.stringContaining("attribute IN ('Framed-IP-Address','Framed-IP-Netmask')"),
+        ['ppp_user1'],
+      );
+      expect(result.staticIpUnused).toBe(true);
+      expect(result.staticIpActive).toBe(false);
+    });
   });
 });

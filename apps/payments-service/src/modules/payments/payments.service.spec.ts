@@ -142,28 +142,23 @@ describe('PaymentsService', () => {
       expect(updated.balanceKobo).toBe(600);
     });
 
-    it('rejects debit when balance is insufficient', async () => {
-      prisma.wallet.findUnique.mockResolvedValue({ id: 'w1', subscriberId: 's1', balanceKobo: 100 });
+    it('rejects debit when balance is insufficient (atomic conditional decrement)', async () => {
+      prisma.$transaction.mockImplementation(async (cb: any) => {
+        const tx = {
+          wallet: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+          walletTransaction: { create: jest.fn().mockResolvedValue({}) },
+          wallet_findFirstOrThrow: undefined,
+        };
+        return cb(tx);
+      });
       await expect(service.debitWallet('s1', 500, 'REF-D')).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('virtual accounts', () => {
-    it('returns the existing active account without creating a new one', async () => {
-      prisma.virtualAccount.findFirst.mockResolvedValue({ id: 'va1' });
-      const va = await service.assignVirtualAccount('s1');
-      expect(va).toEqual({ id: 'va1' });
+    it('refuses to fabricate virtual account numbers (no bank provider integrated)', async () => {
+      await expect(service.assignVirtualAccount('s1')).rejects.toThrow(BadRequestException);
       expect(prisma.virtualAccount.create).not.toHaveBeenCalled();
-    });
-
-    it('rotates banks by count modulo 3', async () => {
-      prisma.virtualAccount.findFirst.mockResolvedValue(null);
-      prisma.virtualAccount.count.mockResolvedValue(3);
-      prisma.subscriber.findUnique.mockResolvedValue({ user: { email: 'jane@x.co' } });
-      prisma.virtualAccount.create.mockImplementation(({ data }: any) => Promise.resolve(data));
-      const va = await service.assignVirtualAccount('s1');
-      expect(va.bankName).toBe('Wema Bank');
-      expect(va.accountName).toBe('Hikonnect - jane');
     });
   });
 
@@ -209,11 +204,25 @@ describe('PaymentsService', () => {
 
   describe('webhooks', () => {
     const body = { event: 'charge.success', data: { reference: 'PAY-1', id: '12345' } };
-    const signature = crypto.createHmac('sha512', 'test-secret').update(JSON.stringify(body)).digest('hex');
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const signature = crypto.createHmac('sha512', 'test-secret').update(rawBody).digest('hex');
 
     it('ignores a webhook with an invalid signature', async () => {
-      await service.handlePaystackWebhook(body, 'bogus-signature');
+      await service.handlePaystackWebhook(rawBody, 'bogus-signature');
       expect(prisma.paymentAttempt.create).not.toHaveBeenCalled();
+      expect(billing.markPaid).not.toHaveBeenCalled();
+    });
+
+    it('verifies the HMAC over the exact raw bytes (not re-serialized JSON)', async () => {
+      prisma.payment.findUnique.mockResolvedValue({ id: 'p1', invoiceId: 'inv1', amountKobo: 1000 });
+      prisma.paymentAttempt.create.mockResolvedValue({});
+      prisma.paymentAttempt.findFirst.mockResolvedValue(null);
+      prisma.payment.update.mockResolvedValue({});
+      billing.markPaid.mockResolvedValue({});
+      // Same JSON semantics but different bytes (whitespace) → must be rejected.
+      const mutated = Buffer.from(JSON.stringify(body, null, 2));
+      const sigForCompact = signature;
+      await service.handlePaystackWebhook(mutated, sigForCompact);
       expect(billing.markPaid).not.toHaveBeenCalled();
     });
 
@@ -223,7 +232,7 @@ describe('PaymentsService', () => {
       prisma.paymentAttempt.findFirst.mockResolvedValue(null);
       prisma.payment.update.mockResolvedValue({});
       billing.markPaid.mockResolvedValue({});
-      await service.handlePaystackWebhook(body, signature);
+      await service.handlePaystackWebhook(rawBody, signature);
       expect(prisma.paymentAttempt.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ status: 'SUCCESSFUL', reference: 'PAY-1' }),
       });
@@ -249,7 +258,7 @@ describe('PaymentsService', () => {
       prisma.subscription.update.mockResolvedValue({});
       billing.markPaid.mockResolvedValue({});
       jest.spyOn(service as any, 'notifyRadiusActivation').mockResolvedValue(undefined);
-      await service.handlePaystackWebhook(body, signature);
+      await service.handlePaystackWebhook(rawBody, signature);
       expect(prisma.subscription.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ suspendedAt: null }) }),
       );
@@ -259,7 +268,8 @@ describe('PaymentsService', () => {
 
     it('marks the payment FAILED on charge.failed', async () => {
       const failedBody = { event: 'charge.failed', data: { reference: 'PAY-9' } };
-      const failedSig = crypto.createHmac('sha512', 'test-secret').update(JSON.stringify(failedBody)).digest('hex');
+      const failedRaw = Buffer.from(JSON.stringify(failedBody));
+      const failedSig = crypto.createHmac('sha512', 'test-secret').update(failedRaw).digest('hex');
       prisma.payment.findUnique
         .mockResolvedValueOnce({ id: 'p9', invoiceId: 'inv9', amountKobo: 1000 })
         .mockResolvedValue({
@@ -268,7 +278,7 @@ describe('PaymentsService', () => {
         });
       prisma.paymentAttempt.create.mockResolvedValue({});
       prisma.payment.update.mockResolvedValue({});
-      await service.handlePaystackWebhook(failedBody, failedSig);
+      await service.handlePaystackWebhook(failedRaw, failedSig);
       expect(prisma.payment.update).toHaveBeenCalledWith(
         { where: { id: 'p9' }, data: expect.objectContaining({ status: 'FAILED' }) },
       );
@@ -277,7 +287,7 @@ describe('PaymentsService', () => {
 
     it('ignores charge.success for an unknown reference', async () => {
       prisma.payment.findUnique.mockResolvedValue(null);
-      await service.handlePaystackWebhook(body, signature);
+      await service.handlePaystackWebhook(rawBody, signature);
       expect(billing.markPaid).not.toHaveBeenCalled();
     });
 
@@ -299,6 +309,55 @@ describe('PaymentsService', () => {
       await service.handleGenericWebhook({ reference: 'PAY-1', status: 'FAILED', provider: 'PAYSTACK' });
       expect(prisma.payment.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { status: 'FAILED' } });
       expect(billing.markPaid).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('customer self-service checkout', () => {
+    it('rejects an unsupported pay-ahead duration', async () => {
+      prisma.subscriber.findFirst.mockResolvedValue({ id: 'sub1', user: { email: 'a@b.co' } });
+      prisma.subscription.findFirst.mockResolvedValue({ plan: { id: 'p1', name: 'Plan', priceKobo: 1000 } });
+      await expect(service.initializeCustomerPayment('u1', { action: 'renew', months: 7 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('charges plan price × months and stores the duration in the attempt meta', async () => {
+      prisma.subscriber.findFirst.mockResolvedValue({ id: 'sub1', user: { email: 'a@b.co' } });
+      prisma.subscription.findFirst.mockResolvedValue({ plan: { id: 'p1', name: 'Home Gold', priceKobo: 1000 } });
+      jest.spyOn(service as any, 'createInvoiceWithUniqueNumber').mockResolvedValue({ id: 'inv1', invoiceNumber: 'INV-1' });
+      prisma.payment.create.mockResolvedValue({ id: 'pay1' });
+      paystack.initializeTransaction.mockResolvedValue({ authorizationUrl: 'https://paystack.test/checkout' });
+      prisma.paymentAttempt.create.mockResolvedValue({});
+
+      const res: any = await service.initializeCustomerPayment('u1', { action: 'renew', months: 12 });
+
+      expect(res.amountKobo).toBe(12000);
+      expect(res.months).toBe(12);
+      expect(prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amountKobo: 12000, status: 'PENDING' }),
+      });
+      expect(paystack.initializeTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ amountKobo: 12000, metadata: expect.objectContaining({ months: 12 }) }),
+      );
+      expect(prisma.paymentAttempt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ response: expect.objectContaining({ meta: expect.objectContaining({ action: 'renew', months: 12 }) }) }),
+      });
+    });
+
+    it('extends the subscription expiry by the paid months', async () => {
+      const now = new Date();
+      prisma.payment.findUniqueOrThrow.mockResolvedValue({ id: 'pay1', invoiceId: 'inv1', amountKobo: 1000, invoice: { subscriberId: 'sub1' } });
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.subscription.findFirst.mockResolvedValue({ id: 's1', expiresAt: new Date('2026-01-01'), plan: null });
+      prisma.subscription.update.mockResolvedValue({});
+      billing.markPaid.mockResolvedValue({});
+      jest.spyOn(service as any, 'notifyRadiusActivation').mockResolvedValue(undefined);
+
+      await service.completeCustomerPayment('pay1', { action: 'renew', reference: 'PAY-1', months: 6 });
+
+      const data = prisma.subscription.update.mock.calls[0][0].data;
+      expect(data.suspendedAt).toBeNull();
+      const expires: Date = data.expiresAt;
+      const diffMonths = (expires.getFullYear() - now.getFullYear()) * 12 + (expires.getMonth() - now.getMonth());
+      expect(diffMonths).toBe(6);
     });
   });
 

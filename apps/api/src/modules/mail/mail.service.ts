@@ -99,7 +99,7 @@ export class MailService {
   }
 
   private getAppName(): string { return this.config.get<string>('APP_NAME', 'Hikonnect'); }
-  private getAppUrl(): string { return this.config.get<string>('APP_URL', 'http://localhost:3000'); }
+  private getAppUrl(): string { return this.config.get<string>('APP_URL') || this.config.get<string>('CUSTOMER_URL') || 'http://localhost:3001'; }
   private getFrom(): string { return this.config.get<string>('MAIL_FROM', 'noreply@hikonnectng.com'); }
 
   private fmtKobo(kobo: number): string {
@@ -186,16 +186,24 @@ export class MailService {
       </table>`;
   }
 
-  async send(options: MailOptions): Promise<void> {
+  /**
+   * Returns true when the mail was actually handed to the SMTP server.
+   * Callers that gate critical side effects on delivery (e.g. rotating a
+   * password before emailing it) MUST check the result — errors are logged,
+   * not thrown, for backward compatibility with fire-and-forget callers.
+   */
+  async send(options: MailOptions): Promise<boolean> {
     if (!this.transporter) {
       this.logger.warn('Mail skipped — SMTP client missing');
-      return;
+      return false;
     }
     try {
       await this.transporter.sendMail({ from: this.getFrom(), ...options });
       this.logger.log(`Mail sent to ${options.to}: "${options.subject}"`);
+      return true;
     } catch (err) {
       this.logger.error(`Failed to send mail to ${options.to}: ${(err as Error).message}`);
+      return false;
     }
   }
 
@@ -234,7 +242,7 @@ export class MailService {
     await this.send({ to: data.email, subject: `Welcome to ${name} — Account Activated`, html: body });
   }
 
-  async sendLoginDetails(data: LoginDetailsData): Promise<void> {
+  async sendLoginDetails(data: LoginDetailsData): Promise<boolean> {
     const portalUrl = data.portalUrl || this.getAppUrl();
     const appName = this.getAppName();
 
@@ -258,7 +266,7 @@ export class MailService {
       `Login details for ${data.email}`
     );
 
-    await this.send({ to: data.email, subject: `${appName} — Your Portal Login Details`, html: body });
+    return this.send({ to: data.email, subject: `${appName} — Your Portal Login Details`, html: body });
   }
 
   async sendPasswordReset(email: string, newPassword: string): Promise<void> {
