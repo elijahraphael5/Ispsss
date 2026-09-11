@@ -41,8 +41,19 @@ interface DashboardData {
 const TABS = ['Invoices', 'Payments', 'Receipts'] as const;
 type Tab = (typeof TABS)[number];
 
+function loadPaystackInline(): Promise<void> {
+  if ((window as any).PaystackPop) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://js.paystack.co/v1/inline.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Paystack'));
+    document.body.appendChild(s);
+  });
+}
+
 export default function BillingPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, user } = useAuthStore();
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -52,6 +63,42 @@ export default function BillingPage() {
   const [showDetail, setShowDetail] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<Tab>('Invoices');
+  const [paying, setPaying] = useState(false);
+  const [paystackKey, setPaystackKey] = useState(process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ?? '');
+
+  useEffect(() => {
+    if (!accessToken) return;
+    api<{ paystackPublicKey: string | null }>('/tenant/public-config')
+      .then((c) => { if (c?.paystackPublicKey) setPaystackKey(c.paystackPublicKey); })
+      .catch(() => {});
+  }, [accessToken]);
+
+  async function payInvoice(inv: Invoice) {
+    setPaying(true);
+    try {
+      const res = await api<{ authorizationUrl: string; reference: string; amountKobo: number }>('/payments/customer/initialize', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'pay_invoice', invoiceId: inv.id }),
+      });
+      if (!res?.reference) throw new Error('Payment initialization failed');
+
+      await loadPaystackInline();
+      const handler = (window as any).PaystackPop.setup({
+        key: paystackKey,
+        email: user?.email ?? '',
+        amount: res.amountKobo,
+        currency: 'NGN',
+        ref: res.reference,
+        metadata: { action: 'pay_invoice', invoiceId: inv.id },
+        callback: () => router.push('/payment/callback?reference=' + encodeURIComponent(res.reference)),
+        onClose: () => setPaying(false),
+      });
+      handler.openIframe();
+    } catch (err: any) {
+      alert(err?.message ?? 'Could not start payment. Please try again.');
+      setPaying(false);
+    }
+  }
 
   const fetchData = async () => {
     const [d, inv, p, r] = await Promise.all([
@@ -178,7 +225,13 @@ export default function BillingPage() {
                       <td>{badge(inv.status, STATUS_COLORS[inv.status] ?? '#6B7280')}</td>
                       <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{fmtD(inv.dueAt)}</td>
                       <td>
-                        <button className="btn-sm" onClick={(e) => { e.stopPropagation(); }}>Pay Now</button>
+                        {inv.status === 'ISSUED' || inv.status === 'OVERDUE' ? (
+                          <button className="btn-sm" disabled={paying} onClick={(e) => { e.stopPropagation(); void payInvoice(inv); }}>
+                            {paying ? 'Starting…' : 'Pay Now'}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -295,7 +348,9 @@ export default function BillingPage() {
                 Total: <span style={{ color: 'var(--primary)' }}>{fmtK(inv.amountKobo)}</span>
               </div>
               {inv.status === 'ISSUED' || inv.status === 'OVERDUE' ? (
-                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Pay Now</button>
+                <button className="btn-primary" disabled={paying} onClick={() => void payInvoice(inv)} style={{ width: '100%', justifyContent: 'center' }}>
+                  {paying ? 'Starting…' : 'Pay Now'}
+                </button>
               ) : null}
             </div>
           </div>

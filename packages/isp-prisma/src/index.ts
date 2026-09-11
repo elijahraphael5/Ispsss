@@ -1,4 +1,81 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+
+const CREDENTIALS_DEV_FALLBACK = 'isp-dev-credentials-key';
+
+function credentialsKey(): Buffer {
+  const secret = process.env.CREDENTIALS_ENCRYPTION_KEY || CREDENTIALS_DEV_FALLBACK;
+  return createHash('sha256').update(secret).digest();
+}
+
+/** AES-256-GCM. Output: v1:<iv>:<tag>:<ciphertext> (base64). */
+export function encryptSecret(plain: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', credentialsKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString('base64')}:${tag.toString('base64')}:${enc.toString('base64')}`;
+}
+
+export function decryptSecret(payload: string | null | undefined): string | null {
+  if (!payload) return null;
+  const parts = payload.split(':');
+  if (parts.length !== 4 || parts[0] !== 'v1') return null;
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', credentialsKey(), Buffer.from(parts[1], 'base64'));
+    decipher.setAuthTag(Buffer.from(parts[2], 'base64'));
+    return Buffer.concat([decipher.update(Buffer.from(parts[3], 'base64')), decipher.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Safe preview for the UI — never returns the full secret. */
+export function maskSecret(secret: string | null | undefined): string | null {
+  if (!secret) return null;
+  if (secret.length <= 8) return '••••';
+  return secret.slice(0, 7) + '…' + secret.slice(-4);
+}
+
+export interface TenantSmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  fromEmail?: string;
+  fromName?: string;
+}
+
+/**
+ * Resolves the tenant's UI-configured SMTP (Brevo) settings. Returns null when
+ * the tenant has not enabled DB SMTP, so callers fall back to env config.
+ */
+export async function resolveTenantSmtp(prisma: any, tenantId: string | null | undefined): Promise<TenantSmtpConfig | null> {
+  if (!tenantId) return null;
+  const row = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: {
+      smtpEnabled: true,
+      smtpHost: true,
+      smtpPort: true,
+      smtpUser: true,
+      smtpPassEnc: true,
+      smtpFromEmail: true,
+      smtpFromName: true,
+    },
+  });
+  if (!row?.smtpEnabled || !row.smtpHost || !row.smtpUser || !row.smtpPassEnc) return null;
+  const pass = decryptSecret(row.smtpPassEnc);
+  if (!pass) return null;
+  return {
+    host: row.smtpHost,
+    port: row.smtpPort ?? 587,
+    user: row.smtpUser,
+    pass,
+    fromEmail: row.smtpFromEmail ?? undefined,
+    fromName: row.smtpFromName ?? undefined,
+  };
+}
 
 // Every model in schema.prisma now carries a `deletedAt DateTime?` column, so
 // soft-delete filtering is applied DB-wide. `EntityHistory` is the one
@@ -45,6 +122,7 @@ export const SOFT_DELETE_MODELS = [
   'routerMetric',
   'routerUsageDay',
   'pppoeSession',
+  'coverageArea',
 ] as const;
 
 // Models whose UPDATE/DELETE writes are mirrored into `EntityHistory`.
@@ -82,6 +160,7 @@ export const HISTORY_MODELS = [
   'cpe',
   'networkDevice',
   'contract',
+  'coverageArea',
 ] as const;
 
 const READ_OPS = [

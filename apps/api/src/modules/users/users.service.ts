@@ -333,15 +333,16 @@ export class UsersService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const portalUrl = this.config.get<string>('CUSTOMER_URL', 'http://localhost:3001');
+    const rawPortalUrl = this.config.get<string>('CUSTOMER_URL', 'http://localhost:3001');
+    const portalUrl = /localhost|127\.0\.0\.1/.test(rawPortalUrl) ? 'https://my.hikonnectng.com' : rawPortalUrl;
 
-    const buildData = (u: any): LoginDetailsData => {
+    const buildData = (u: any, password: string): LoginDetailsData => {
       const sub = u.subscriber;
       const plan = sub?.subscriptions?.[0]?.plan;
       return {
         email: u.email,
         username: sub?.pppoeUsername ?? null,
-        password: this.genPassword(),
+        password,
         customerId: sub?.id.slice(0, 8).toUpperCase() ?? u.id.slice(0, 8).toUpperCase(),
         planName: plan?.name ?? undefined,
         portalUrl,
@@ -349,11 +350,50 @@ export class UsersService {
     };
 
     if (body.testEmail) {
+      const password = this.genPassword();
+      const testUser = await this.prisma.user.findFirst({
+        where: { email: body.testEmail, deletedAt: null },
+        include: {
+          subscriber: {
+            include: {
+              subscriptions: { include: { plan: { select: planSelect } }, orderBy: { startedAt: 'desc' }, take: 1 },
+            },
+          },
+        },
+      });
+
+      if (testUser) {
+        const data = buildData(testUser, password);
+        const sent = await this.mail.sendLoginDetails({ ...data, email: body.testEmail });
+        if (!sent) {
+          return {
+            mode: 'test',
+            sentTo: body.testEmail,
+            sample: { email: testUser.email, username: data.username, customerId: data.customerId, planName: data.planName },
+            note: 'Email could not be delivered (SMTP) — password was NOT changed.',
+          };
+        }
+        const bcrypt = await import('bcryptjs');
+        const passwordHash = await bcrypt.hash(password, 12);
+        await this.prisma.user.update({ where: { id: testUser.id }, data: { passwordHash } });
+        return {
+          mode: 'test',
+          sentTo: body.testEmail,
+          sample: { email: testUser.email, username: data.username, customerId: data.customerId, planName: data.planName },
+          note: 'Password updated for this account — the login in this email works.',
+        };
+      }
+
       const sample = users[0];
       if (!sample) throw new NotFoundException('No customers found');
-      const data = buildData(sample);
+      const data = buildData(sample, password);
       await this.mail.sendLoginDetails({ ...data, email: body.testEmail });
-      return { mode: 'test', sentTo: body.testEmail, sample: { email: sample.email, username: data.username, customerId: data.customerId, planName: data.planName }, note: 'No passwords were changed (dry run)' };
+      return {
+        mode: 'test',
+        sentTo: body.testEmail,
+        sample: { email: sample.email, username: data.username, customerId: data.customerId, planName: data.planName },
+        note: `No account exists for ${body.testEmail} — preview only; the password shown is a sample and will not work.`,
+      };
     }
 
     const jobId = crypto.randomUUID();
@@ -378,6 +418,8 @@ export class UsersService {
   private async runLaunchJob(users: any[], job: LaunchJob, actorId: string) {
     const skipped: { email: string; reason: string }[] = [];
     const failed: { email: string; error: string }[] = [];
+    const rawPortal = this.config.get<string>('CUSTOMER_URL', 'http://localhost:3001');
+    const portalUrl = /localhost|127\.0\.0\.1/.test(rawPortal) ? 'https://my.hikonnectng.com' : rawPortal;
 
     const batches: any[][] = [];
     for (let i = 0; i < users.length; i += 10) batches.push(users.slice(i, i + 10));
@@ -395,7 +437,7 @@ export class UsersService {
             password: this.genPassword(),
             customerId: u.subscriber?.id.slice(0, 8).toUpperCase() ?? u.id.slice(0, 8).toUpperCase(),
             planName: u.subscriber?.subscriptions?.[0]?.plan?.name ?? undefined,
-            portalUrl: this.config.get<string>('CUSTOMER_URL', 'http://localhost:3001'),
+            portalUrl,
           };
           // Send FIRST, and only rotate the stored password when the mail was
           // actually accepted by SMTP. Rotating before a confirmed send would

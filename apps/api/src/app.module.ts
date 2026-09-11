@@ -12,6 +12,8 @@ import { RouterOsModule } from './modules/routeros/routeros.module';
 import { NocModule } from './modules/noc/noc.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CustomRolesModule } from './modules/custom-roles/custom-roles.module';
+import { CoverageAreasModule } from './modules/coverage-areas/coverage-areas.module';
+import { TenantSettingsModule } from './modules/tenant-settings/tenant-settings.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OwnerModule } from './owner/owner.module';
@@ -40,6 +42,8 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
     AuditLogsModule,
     ReportsModule,
     CustomRolesModule,
+    CoverageAreasModule,
+    TenantSettingsModule,
     NotificationsModule,
     OwnerModule,
     AdminModule,

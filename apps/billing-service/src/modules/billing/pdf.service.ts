@@ -67,7 +67,7 @@ function fmtLines(lines: PdfLine[]): Array<{ description: string; qty: string; a
 @Injectable()
 export class PdfService {
   async invoicePdf(data: PdfInvoiceData): Promise<{ invoiceNumber: string; buffer: Buffer }> {
-    const doc = new PDFDocument({ size: 'A4', margin: 48 });
+    const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
     const done = new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
@@ -108,7 +108,7 @@ export class PdfService {
   }
 
   async quotationPdf(data: PdfQuotationData): Promise<{ quotationNumber: string; buffer: Buffer }> {
-    const doc = new PDFDocument({ size: 'A4', margin: 48 });
+    const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
     const done = new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
@@ -145,43 +145,43 @@ export class PdfService {
   }
 
   private header(doc: PDFKit.PDFDocument, title: string, number: string, status: string): void {
-    doc.rect(0, 0, doc.page.width, 72).fill(ORANGE);
+    doc.rect(0, 0, doc.page.width, 64).fill(ORANGE);
     doc
       .fillColor('#FFFFFF')
       .font('Helvetica-Bold')
       .fontSize(22)
-      .text('Hikonnect', 48, 20)
+      .text('Hikonnect', 48, 14)
       .fontSize(10)
       .font('Helvetica')
-      .text('High-Speed Internet', 48, 46);
+      .text('High-Speed Internet', 48, 40);
 
-    doc.font('Helvetica-Bold').fontSize(18).fillColor(DARK).text(title, 340, 20, { width: 220, align: 'right' });
+    doc.font('Helvetica-Bold').fontSize(18).fillColor(DARK).text(title, 340, 14, { width: 220, align: 'right' });
     doc
       .font('Helvetica')
       .fontSize(9)
       .fillColor(GREY)
-      .text(number, 340, 44, { width: 220, align: 'right' });
+      .text(number, 340, 38, { width: 220, align: 'right' });
 
     const statusText = String(status ?? '');
     doc
       .font('Helvetica-Bold')
       .fontSize(9)
       .fillColor(statusText === 'PAID' ? '#16A34A' : ORANGE)
-      .text(statusText, 340, 58, { width: 220, align: 'right' });
+      .text(statusText, 340, 52, { width: 220, align: 'right' });
 
     doc.moveDown(1.5);
   }
 
   private metaTable(doc: PDFKit.PDFDocument, rows: Array<[string, string]>): void {
     let y = doc.y;
-    doc.roundedRect(48, y, doc.page.width - 96, rows.length * 18 + 16, 6).fillAndStroke(LIGHT, BORDER);
+    doc.roundedRect(48, y, doc.page.width - 96, rows.length * 16 + 14, 6).fillAndStroke(LIGHT, BORDER);
     doc.fillColor(DARK).font('Helvetica-Bold').fontSize(9);
     rows.forEach(([label, value], i) => {
-      const rowY = y + 10 + i * 18;
+      const rowY = y + 8 + i * 16;
       doc.fillColor(GREY).text(label.toUpperCase(), 60, rowY, { width: 130 });
       doc.fillColor(DARK).text(value, 200, rowY, { width: doc.page.width - 260, align: 'right' });
     });
-    doc.y = y + rows.length * 18 + 24;
+    doc.y = y + rows.length * 16 + 20;
     doc.moveDown(0.5);
   }
 
@@ -209,11 +209,11 @@ export class PdfService {
     for (let i = 0; i < widths.length - 1; i++) {
       colXs.push(colXs[i] + widths[i]);
     }
-    const cellH = 26;
+    const cellH = 22;
 
     doc.fillColor(DARK).rect(48, startY, doc.page.width - 96, cellH).fill();
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#FFFFFF');
-    rows[0].forEach((h, i) => doc.text(h.toUpperCase(), colXs[i] + 6, startY + 8, { width: widths[i] - 6 }));
+    rows[0].forEach((h, i) => doc.text(h.toUpperCase(), colXs[i] + 6, startY + 6, { width: widths[i] - 6 }));
     doc.y = startY + cellH;
 
     rows.slice(1).forEach((row, ri) => {
@@ -223,7 +223,7 @@ export class PdfService {
       }
       doc.font('Helvetica').fontSize(9);
       row.forEach((cell, i) => {
-        doc.fillColor(DARK).text(cell, colXs[i] + 6, y + 8, { width: widths[i] - 6 });
+        doc.fillColor(DARK).text(cell, colXs[i] + 6, y + 6, { width: widths[i] - 6 });
       });
       doc.y = y + cellH;
     });
@@ -235,9 +235,9 @@ export class PdfService {
     const boxW = 220;
     const x = doc.page.width - 48 - boxW;
     let y = doc.y;
-    doc.roundedRect(x, y, boxW, rows.length * 20 + 16, 6).fillAndStroke(LIGHT, BORDER);
+    doc.roundedRect(x, y, boxW, rows.length * 18 + 14, 6).fillAndStroke(LIGHT, BORDER);
     rows.forEach(([label, value], i) => {
-      const rowY = y + 10 + i * 20;
+      const rowY = y + 8 + i * 18;
       const isTotal = i === rows.length - 1;
       doc
         .font(isTotal ? 'Helvetica-Bold' : 'Helvetica')
@@ -250,7 +250,7 @@ export class PdfService {
         .fillColor(isTotal ? ORANGE : DARK)
         .text(value, x + 12 + 90, rowY, { width: boxW - 102, align: 'right' });
     });
-    doc.y = y + rows.length * 20 + 24;
+    doc.y = y + rows.length * 18 + 20;
     doc.moveDown(0.5);
   }
 
@@ -262,24 +262,24 @@ export class PdfService {
       ['FIRST BANK', '2042504920'],
       ['ACCOUNTS NAME', 'Hi-Konnect Network Limited'],
     ];
-    const boxH = rows.length * 18 + 44;
+    const boxH = rows.length * 16 + 38;
     doc.roundedRect(48, y, doc.page.width - 96, boxH, 6).fillAndStroke(LIGHT, BORDER);
     doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text('PAYMENT DETAILS', 60, y + 10, { width: 200 });
     rows.forEach(([label, value], i) => {
-      const rowY = y + 30 + i * 18;
+      const rowY = y + 26 + i * 16;
       doc.fillColor(GREY).font('Helvetica-Bold').fontSize(9).text(label, 60, rowY, { width: 130 });
       doc.fillColor(DARK).font('Helvetica').fontSize(9).text(value, 200, rowY, { width: doc.page.width - 260, align: 'right' });
     });
-    doc.y = y + boxH + 10;
+    doc.y = y + boxH + 8;
   }
 
   private noteBox(doc: PDFKit.PDFDocument, label: string, note: string): void {
     doc.moveDown(0.5);
     const y = doc.y;
-    doc.roundedRect(48, y, doc.page.width - 96, 56, 6).fillAndStroke(LIGHT, BORDER);
+    doc.roundedRect(48, y, doc.page.width - 96, 48, 6).fillAndStroke(LIGHT, BORDER);
     doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text(label.toUpperCase(), 60, y + 10, { width: 100 });
-    doc.font('Helvetica').fontSize(9).fillColor(GREY).text(note, 60, y + 26, { width: doc.page.width - 132 });
-    doc.y = y + 64;
+    doc.font('Helvetica').fontSize(9).fillColor(GREY).text(note, 60, y + 24, { width: doc.page.width - 132 });
+    doc.y = y + 56;
   }
 
   private footer(doc: PDFKit.PDFDocument): void {
@@ -287,6 +287,8 @@ export class PdfService {
     for (let i = pages.start; i < pages.start + pages.count; i++) {
       doc.switchToPage(i);
       const h = doc.page.height;
+      const savedBottom = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
       doc
         .font('Helvetica')
         .fontSize(8)
@@ -294,10 +296,11 @@ export class PdfService {
         .text(
           'Generated by Hikonnect — thank you for choosing us. Payments can be made via the customer portal.',
           48,
-          h - 40,
-          { width: doc.page.width - 96, align: 'center' },
+          h - 42,
+          { width: doc.page.width - 96, align: 'center', lineBreak: false },
         );
-      doc.text(`Page ${i + 1} of ${pages.count}`, 48, h - 24, { width: doc.page.width - 96, align: 'center' });
+      doc.text(`Page ${i + 1} of ${pages.count}`, 48, h - 26, { width: doc.page.width - 96, align: 'center', lineBreak: false });
+      doc.page.margins.bottom = savedBottom;
     }
   }
 }

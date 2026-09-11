@@ -6,11 +6,12 @@ import { PaymentsController } from './payments.controller';
 import { WebhookController } from './webhook.controller';
 import { PaymentsService } from './payments.service';
 import { PaystackProvider } from './providers/paystack.provider';
+import { GatewayConfigService } from './gateway-config.service';
 
 @Module({
   imports: [BillingModule, MailModule],
   controllers: [PaymentsController, WebhookController],
-  providers: [PaymentsService, PaystackProvider, RadiusClientService],
+  providers: [PaymentsService, PaystackProvider, GatewayConfigService, RadiusClientService],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}

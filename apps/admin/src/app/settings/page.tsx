@@ -33,7 +33,24 @@ interface Permission {
 const MODULES = ['Dashboard', 'User Control', 'Customer', 'Package', 'Billing', 'Payments', 'Support', 'NOC', 'Notifications', 'Audit Logs', 'Owner', 'Settings'];
 const PERM_LABELS: Record<string, string> = { canView: 'View', canCreate: 'Create', canEdit: 'Edit', canDelete: 'Delete' };
 
-const TABS = ['Admin Users', 'Roles', 'Security', 'Launch'];
+const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Billing Defaults', 'Payment Gateway', 'Email (Brevo)'];
+
+const fieldLabel: React.CSSProperties = { display: 'block', marginBottom: 5, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 };
+const fieldInput: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
+const pendingNote: React.CSSProperties = { marginTop: 16, fontSize: '0.78rem', color: '#B45309', background: '#FEF3C7', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 };
+const pendingTag: React.CSSProperties = { marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: '#B45309', background: '#FEF3C7', padding: '1px 7px', borderRadius: 8, textTransform: 'none', letterSpacing: 0 };
+
+interface TenantSettings {
+  name: string;
+  slug: string;
+  isActive: boolean;
+  profile: { logoUrl: string | null; email: string | null; phone: string | null; address: string | null };
+  billing: { vatRate: number; invoicePrefix: string };
+  paystack: { enabled: boolean; publicKey: string | null; secretMasked: string | null; hasSecret: boolean };
+  email: { enabled: boolean; host: string | null; port: number | null; user: string | null; passMasked: string | null; hasPass: boolean; fromEmail: string | null; fromName: string | null };
+  persistedFields: string[];
+  pendingFields: string[];
+}
 
 function ToggleBtn({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
@@ -68,6 +85,138 @@ export default function SettingsPage() {
   const [editRoleId, setEditRoleId] = useState<string | null>(null);
   const [roleForm, setRoleForm] = useState<{ name: string; permissions: Permission[] }>({ name: '', permissions: [] });
   const [roleSaving, setRoleSaving] = useState(false);
+  const [tenant, setTenant] = useState<TenantSettings | null>(null);
+  const [companyForm, setCompanyForm] = useState({ name: '', logoUrl: '', email: '', phone: '', address: '' });
+  const [billingForm, setBillingForm] = useState({ vatRate: '7.5', invoicePrefix: 'INV' });
+  const [paystackForm, setPaystackForm] = useState({ enabled: false, publicKey: '', secretKey: '' });
+  const [paystackSecretMasked, setPaystackSecretMasked] = useState<string | null>(null);
+  const [emailForm, setEmailForm] = useState({ enabled: false, host: '', port: '587', user: '', pass: '', fromEmail: '', fromName: '' });
+  const [emailPassMasked, setEmailPassMasked] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    api<TenantSettings>('/tenant/settings').then(t => {
+      setTenant(t);
+      setCompanyForm({
+        name: t.name ?? '',
+        logoUrl: t.profile.logoUrl ?? '',
+        email: t.profile.email ?? '',
+        phone: t.profile.phone ?? '',
+        address: t.profile.address ?? '',
+      });
+      setBillingForm({ vatRate: String(t.billing.vatRate), invoicePrefix: t.billing.invoicePrefix });
+      setPaystackForm({ enabled: t.paystack?.enabled ?? false, publicKey: t.paystack?.publicKey ?? '', secretKey: '' });
+      setPaystackSecretMasked(t.paystack?.secretMasked ?? null);
+      setEmailForm({
+        enabled: t.email?.enabled ?? false,
+        host: t.email?.host ?? '',
+        port: t.email?.port != null ? String(t.email.port) : '587',
+        user: t.email?.user ?? '',
+        pass: '',
+        fromEmail: t.email?.fromEmail ?? '',
+        fromName: t.email?.fromName ?? '',
+      });
+      setEmailPassMasked(t.email?.passMasked ?? null);
+    }).catch(() => {});
+  }, [accessToken]);
+
+  async function saveCompany() {
+    setSavingSettings(true);
+    try {
+      const res = await api<{ persisted: string[]; pending: string[]; message?: string }>('/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: companyForm.name.trim() || undefined,
+          logoUrl: companyForm.logoUrl.trim() || undefined,
+          email: companyForm.email.trim() || undefined,
+          phone: companyForm.phone.trim() || undefined,
+          address: companyForm.address.trim() || undefined,
+        }),
+      });
+      toast(res.pending?.length ? (res.message ?? 'Saved — some fields are not persisted yet') : 'Company settings saved', 'success', toasts, setToasts);
+    } catch (e: any) {
+      toast(e?.message ?? 'Failed to save company settings', 'error', toasts, setToasts);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function saveBilling() {
+    setSavingSettings(true);
+    try {
+      const res = await api<{ persisted: string[]; pending: string[]; message?: string }>('/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          vatRate: billingForm.vatRate === '' ? undefined : Number(billingForm.vatRate),
+          invoicePrefix: billingForm.invoicePrefix.trim() || undefined,
+        }),
+      });
+      toast(res.pending?.length ? (res.message ?? 'Saved — some fields are not persisted yet') : 'Billing defaults saved', 'success', toasts, setToasts);
+    } catch (e: any) {
+      toast(e?.message ?? 'Failed to save billing defaults', 'error', toasts, setToasts);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function saveEmail() {
+    setSavingSettings(true);
+    try {
+      await api('/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          smtpEnabled: emailForm.enabled,
+          smtpHost: emailForm.host.trim() || undefined,
+          smtpPort: emailForm.port === '' ? undefined : Number(emailForm.port),
+          smtpUser: emailForm.user.trim() || undefined,
+          smtpPass: emailForm.pass.trim() || undefined,
+          smtpFromEmail: emailForm.fromEmail.trim() || undefined,
+          smtpFromName: emailForm.fromName.trim() || undefined,
+        }),
+      });
+      const t = await api<TenantSettings>('/tenant/settings');
+      setTenant(t);
+      setEmailForm({
+        enabled: t.email.enabled,
+        host: t.email.host ?? '',
+        port: t.email.port != null ? String(t.email.port) : '587',
+        user: t.email.user ?? '',
+        pass: '',
+        fromEmail: t.email.fromEmail ?? '',
+        fromName: t.email.fromName ?? '',
+      });
+      setEmailPassMasked(t.email.passMasked);
+      toast('Email settings saved', 'success', toasts, setToasts);
+    } catch (e: any) {
+      toast(e?.message ?? 'Failed to save email settings', 'error', toasts, setToasts);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function savePaystack() {
+    setSavingSettings(true);
+    try {
+      await api('/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          paystackEnabled: paystackForm.enabled,
+          paystackPublicKey: paystackForm.publicKey.trim() || undefined,
+          paystackSecretKey: paystackForm.secretKey.trim() || undefined,
+        }),
+      });
+      const t = await api<TenantSettings>('/tenant/settings');
+      setTenant(t);
+      setPaystackForm({ enabled: t.paystack.enabled, publicKey: t.paystack.publicKey ?? '', secretKey: '' });
+      setPaystackSecretMasked(t.paystack.secretMasked);
+      toast('Payment gateway settings saved', 'success', toasts, setToasts);
+    } catch (e: any) {
+      toast(e?.message ?? 'Failed to save payment gateway settings', 'error', toasts, setToasts);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   useEffect(() => {
     if (!accessToken) return;
@@ -233,10 +382,11 @@ export default function SettingsPage() {
         <h1 className="page-title">Settings</h1>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div className="badge-tabs" style={{ width: 'fit-content', maxWidth: '100%' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
-            style={{ padding: '8px 20px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', backgroundColor: tab === t ? 'var(--primary)' : '#fff', color: tab === t ? '#fff' : 'var(--text-color)' }}>
+            className={`tab-item${tab === t ? ' active' : ''}`}
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}>
             {t}
           </button>
         ))}
@@ -255,37 +405,37 @@ export default function SettingsPage() {
               style={{ flex: 1, maxWidth: 320, padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none' }} />
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{users.length} admin users</span>
           </div>
-          <div className="data-card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <div className="data-card users-table-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="table-scroll">
+              <table>
                 <thead>
-                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.75rem' }}>EMAIL</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.75rem' }}>ROLE</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.75rem' }}>SUPER ADMIN</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.75rem' }}>ACTIONS</th>
+                  <tr>
+                    <th>EMAIL</th>
+                    <th>ROLE</th>
+                    <th>SUPER ADMIN</th>
+                    <th>ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredUsers.length === 0 ? (
                     <tr><td colSpan={4} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>No admin users found</td></tr>
                   ) : filteredUsers.map(u => (
-                    <tr key={u.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                      <td style={{ padding: '10px 16px', fontWeight: 600 }}>
+                    <tr key={u.id}>
+                      <td style={{ fontWeight: 600 }}>
                         {u.email}
                         {u.id === currentUser?.id && <span style={{ marginLeft: 6, fontSize: '0.7rem', color: '#F15925' }}>(you)</span>}
                       </td>
-                      <td style={{ padding: '10px 16px' }}>
+                      <td>
                         <select value={u.customRoleId || ''} onChange={e => changeRole(u.id, e.target.value || null)}
                           style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.8rem', background: '#fff' }}>
                           <option value="">— No Role —</option>
                           {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
                       </td>
-                      <td style={{ padding: '10px 16px' }}>
+                      <td>
                         <ToggleBtn on={u.isSuperAdmin || false} onClick={() => toggleSuperAdmin(u.id, u.isSuperAdmin || false)} />
                       </td>
-                      <td style={{ padding: '10px 16px' }}>
+                      <td>
                         <button onClick={() => resetPassword(u.id, u.email)}
                           style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: '0.75rem' }}>
                           Reset Password
@@ -297,10 +447,36 @@ export default function SettingsPage() {
               </table>
             </div>
           </div>
+          <div className="users-mobile-list">
+            {filteredUsers.length === 0 ? (
+              <div className="data-card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No admin users found</div>
+            ) : filteredUsers.map(u => (
+              <div key={u.id} className="data-card" style={{ padding: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', wordBreak: 'break-all' }}>
+                  {u.email}
+                  {u.id === currentUser?.id && <span style={{ marginLeft: 6, fontSize: '0.7rem', color: '#F15925' }}>(you)</span>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                  <select value={u.customRoleId || ''} onChange={e => changeRole(u.id, e.target.value || null)}
+                    style={{ flex: '1 1 160px', padding: '7px 10px', borderRadius: 10, border: '1px solid var(--border-color)', fontSize: '0.8rem', background: '#fff' }}>
+                    <option value="">— No Role —</option>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    Super admin
+                    <ToggleBtn on={u.isSuperAdmin || false} onClick={() => toggleSuperAdmin(u.id, u.isSuperAdmin || false)} />
+                  </label>
+                </div>
+                <button onClick={() => resetPassword(u.id, u.email)} className="btn-sm-outline" style={{ marginTop: 12 }}>
+                  Reset Password
+                </button>
+              </div>
+            ))}
+          </div>
         </>
       ) : tab === 'Roles' ? (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>{roles.length} custom roles defined</p>
             <button className="btn-primary" onClick={openCreateRole}>
               Create Role <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -312,7 +488,7 @@ export default function SettingsPage() {
             const permMap = new Map(role.permissions.map(p => [p.module, p]));
             return (
               <div key={role.id} className="data-card" style={{ padding: 20, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                   <div>
                     <strong style={{ fontSize: '0.95rem' }}>{role.name}</strong>
                     {role._count && <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>{role._count.users} user{role._count.users === 1 ? '' : 's'}</span>}
@@ -346,8 +522,8 @@ export default function SettingsPage() {
           })}
         </>
       ) : tab === 'Security' ? (
-        <div className="data-card" style={{ padding: 24, maxWidth: 460 }}>
-          <h3 style={{ fontSize: '1rem', marginBottom: 4 }}>Change your password</h3>
+        <div className="data-card" style={{ padding: 20, maxWidth: 460 }}>
+          <h3 style={{ fontSize: '0.95rem', marginBottom: 4 }}>Change your password</h3>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 20 }}>{currentUser?.email}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
@@ -368,44 +544,186 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+      ) : tab === 'Company' ? (
+        <div className="data-card" style={{ padding: 20, maxWidth: 860 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Company Profile</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Tenant {tenant?.slug ?? '—'} · shown to customers and used on documents</div>
+            </div>
+            <button className="btn-primary" disabled={savingSettings} onClick={saveCompany}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+            <div>
+              <label style={fieldLabel}>Company name</label>
+              <input value={companyForm.name} onChange={e => setCompanyForm(f => ({ ...f, name: e.target.value }))} placeholder="Hi-Konnect Networks" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>Logo URL <span style={pendingTag}>not persisted yet</span></label>
+              <input value={companyForm.logoUrl} onChange={e => setCompanyForm(f => ({ ...f, logoUrl: e.target.value }))} placeholder="https://…/logo.png" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>Contact email <span style={pendingTag}>not persisted yet</span></label>
+              <input value={companyForm.email} onChange={e => setCompanyForm(f => ({ ...f, email: e.target.value }))} placeholder="support@example.com" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>Phone <span style={pendingTag}>not persisted yet</span></label>
+              <input value={companyForm.phone} onChange={e => setCompanyForm(f => ({ ...f, phone: e.target.value }))} placeholder="+234 …" style={fieldInput} />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={fieldLabel}>Address <span style={pendingTag}>not persisted yet</span></label>
+              <input value={companyForm.address} onChange={e => setCompanyForm(f => ({ ...f, address: e.target.value }))} placeholder="Street, city, state" style={fieldInput} />
+            </div>
+          </div>
+          <p style={pendingNote}>
+            <strong>Only Company name is stored today</strong> (the <code>Tenant.name</code> column). The logo, contact and address fields have no database column yet — saving them is logged server-side and reported back, pending the deferred schema work.
+          </p>
+        </div>
+      ) : tab === 'Billing Defaults' ? (
+        <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Billing Defaults</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Applied to new invoices once persistence lands</div>
+            </div>
+            <button className="btn-primary" disabled={savingSettings} onClick={saveBilling}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+            <div>
+              <label style={fieldLabel}>VAT rate (%) <span style={pendingTag}>not applied</span></label>
+              <input type="number" step="0.5" min="0" max="100" value={billingForm.vatRate} onChange={e => setBillingForm(f => ({ ...f, vatRate: e.target.value }))} style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>Invoice prefix <span style={pendingTag}>not applied</span></label>
+              <input value={billingForm.invoicePrefix} onChange={e => setBillingForm(f => ({ ...f, invoicePrefix: e.target.value }))} placeholder="INV" style={fieldInput} />
+            </div>
+          </div>
+          <p style={pendingNote}>
+            <strong>Not applied yet.</strong> VAT is currently hardcoded at 7.5% in the invoice generators (billing-service, payments-service, api jobs) and invoice numbering uses each service's own sequence. These fields have no <code>Tenant</code> columns yet — values are logged and reported back pending schema work.
+          </p>
+        </div>
+      ) : tab === 'Payment Gateway' ? (
+        <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Paystack</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Used by the payment service and the customer checkout</div>
+            </div>
+            <button className="btn-primary" disabled={savingSettings} onClick={savePaystack}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+            <input type="checkbox" checked={paystackForm.enabled} onChange={e => setPaystackForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
+            Enable Paystack payments
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={fieldLabel}>Public key</label>
+              <input value={paystackForm.publicKey} onChange={e => setPaystackForm(f => ({ ...f, publicKey: e.target.value }))} placeholder="pk_live_…" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>
+                Secret key
+                {paystackSecretMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {paystackSecretMasked}</span>}
+              </label>
+              <input type="password" value={paystackForm.secretKey} onChange={e => setPaystackForm(f => ({ ...f, secretKey: e.target.value }))}
+                placeholder={paystackSecretMasked ? 'Leave blank to keep current' : 'sk_live_…'} autoComplete="new-password" style={fieldInput} />
+              <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Write-only: stored encrypted and never shown again after saving.
+              </p>
+            </div>
+          </div>
+          <p style={{ marginTop: 16, fontSize: '0.78rem', color: '#1D4ED8', background: '#EFF6FF', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 }}>
+            When enabled, these keys replace the <code>PAYSTACK_*</code> environment variables at runtime for the payment service and customer checkout.
+            Production requires a <code>CREDENTIALS_ENCRYPTION_KEY</code> env var to encrypt/decrypt the secret.
+          </p>
+        </div>
+      ) : tab === 'Email (Brevo)' ? (
+        <div className="data-card" style={{ padding: 20, maxWidth: 720 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Brevo SMTP</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Outgoing mail for invoices, receipts and customer notifications</div>
+            </div>
+            <button className="btn-primary" disabled={savingSettings} onClick={saveEmail}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+            <input type="checkbox" checked={emailForm.enabled} onChange={e => setEmailForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
+            Use these SMTP settings
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+            <div>
+              <label style={fieldLabel}>SMTP host</label>
+              <input value={emailForm.host} onChange={e => setEmailForm(f => ({ ...f, host: e.target.value }))} placeholder="smtp-relay.brevo.com" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>Port</label>
+              <input type="number" min="1" max="65535" value={emailForm.port} onChange={e => setEmailForm(f => ({ ...f, port: e.target.value }))} placeholder="465" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>SMTP username</label>
+              <input value={emailForm.user} onChange={e => setEmailForm(f => ({ ...f, user: e.target.value }))} placeholder="you@smtp-brevo.com" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>
+                SMTP password
+                {emailPassMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {emailPassMasked}</span>}
+              </label>
+              <input type="password" value={emailForm.pass} onChange={e => setEmailForm(f => ({ ...f, pass: e.target.value }))}
+                placeholder={emailPassMasked ? 'Leave blank to keep current' : 'Brevo SMTP key'} autoComplete="new-password" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>From email</label>
+              <input value={emailForm.fromEmail} onChange={e => setEmailForm(f => ({ ...f, fromEmail: e.target.value }))} placeholder="noreply@example.com" style={fieldInput} />
+            </div>
+            <div>
+              <label style={fieldLabel}>From name</label>
+              <input value={emailForm.fromName} onChange={e => setEmailForm(f => ({ ...f, fromName: e.target.value }))} placeholder="Hi-Konnect Networks" style={fieldInput} />
+            </div>
+          </div>
+          <p style={{ marginTop: 16, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+            Password is write-only and stored encrypted. When enabled, these settings override the <code>SMTP_*</code> environment variables for all outgoing mail.
+            Use port <strong>465</strong> (TLS) — port 587 is blocked on the server.
+          </p>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>
-          <div className="data-card" style={{ padding: 24 }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: 6 }}>Launch Customer Logins</h3>
+          <div className="data-card" style={{ padding: 20 }}>
+            <h3 style={{ fontSize: '0.95rem', marginBottom: 6 }}>Launch Customer Logins</h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
               Generates a new password for <strong>every</strong> customer and emails them their login username, password, PPPoE/RADIUS username and the customer portal URL.
               <br />Use the test option below first to preview the email.
             </p>
 
-            <div style={{ marginTop: 20, padding: 16, background: '#F8FAFC', borderRadius: 12, border: '1px solid var(--border-color)' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 6 }}>Send test email (no passwords changed)</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ marginTop: 16, padding: 16, background: '#F8FAFC', borderRadius: 12, border: '1px solid var(--border-color)' }}>
+              <label style={fieldLabel}>Send test email <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>(updates that account&apos;s password so the login works)</span></label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com"
-                  style={{ flex: 1, padding: '9px 14px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none' }} />
-                <button onClick={launchTest} disabled={launching}
-                  style={{ padding: '9px 22px', borderRadius: 20, border: '1px solid var(--primary)', background: 'transparent', color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem', cursor: launching ? 'not-allowed' : 'pointer' }}>
-                  {launching ? 'Sending...' : 'Send Test'}
+                  style={{ ...fieldInput, flex: '1 1 220px', width: 'auto' }} />
+                <button onClick={launchTest} disabled={launching} className="btn-outline"
+                  style={{ padding: '10px 20px', borderColor: 'var(--primary)', color: 'var(--primary)', opacity: launching ? 0.6 : 1, flexShrink: 0 }}>
+                  {launching ? 'Sending…' : 'Send Test'}
                 </button>
               </div>
+              <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Sends a real launch email to the address you enter. If that account exists its password is updated so the login link works; otherwise it&apos;s a preview with sample credentials.
+              </p>
             </div>
 
             <div style={{ marginTop: 16, padding: 16, background: '#FEF5E7', borderRadius: 12, border: '1px solid #FDE68A' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 6, color: '#92400E' }}>Launch for all customers</label>
+              <label style={{ ...fieldLabel, color: '#92400E' }}>Launch for all customers</label>
               {!launchConfirm ? (
-                <button onClick={() => setLaunchConfirm(true)}
-                  style={{ padding: '10px 28px', borderRadius: 20, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+                <button onClick={() => setLaunchConfirm(true)} className="btn-primary">
                   Launch All
                 </button>
               ) : (
                 <div style={{ fontSize: '0.85rem', color: '#92400E' }}>
-                  <p style={{ margin: '0 0 10px 0' }}><strong>Warning:</strong> this resets every customer's password and emails them. Continue?</p>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={launchAll} disabled={launching}
-                      style={{ padding: '9px 22px', borderRadius: 20, border: 'none', background: '#DC2626', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: launching ? 'not-allowed' : 'pointer' }}>
-                      {launching ? 'Launching...' : 'Yes, Launch All'}
+                  <p style={{ margin: '0 0 10px 0' }}><strong>Warning:</strong> this resets every customer&apos;s password and emails them. Continue?</p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={launchAll} disabled={launching} className="btn-primary"
+                      style={{ background: '#DC2626', opacity: launching ? 0.6 : 1 }}>
+                      {launching ? 'Launching…' : 'Yes, Launch All'}
                     </button>
-                    <button onClick={() => setLaunchConfirm(false)}
-                      style={{ padding: '9px 22px', borderRadius: 20, border: '1px solid var(--border-color)', background: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <button onClick={() => setLaunchConfirm(false)} className="btn-outline">
                       Cancel
                     </button>
                   </div>

@@ -4,6 +4,7 @@ import { BillingService } from '../billing/billing.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { MailService } from '../mail/mail.service';
 import { PaystackProvider } from './providers/paystack.provider';
+import { GatewayConfigService } from './gateway-config.service';
 import { RadiusClientService } from '../radius/radius-client.service';
 import * as crypto from 'crypto';
 
@@ -18,6 +19,7 @@ export class PaymentsService {
     private readonly paystack: PaystackProvider,
     private readonly radius: RadiusClientService,
     private readonly mail: MailService,
+    private readonly gatewayKeys: GatewayConfigService,
   ) {}
 
   private async notifyRadiusActivation(invoiceId: string): Promise<void> {
@@ -165,7 +167,7 @@ export class PaymentsService {
     return d;
   }
 
-  async initializeCustomerPayment(userId: string, body: { action: 'renew' | 'change_plan' | 'add_plan'; planId?: string; email?: string; months?: number }) {
+  async initializeCustomerPayment(userId: string, body: { action: 'renew' | 'change_plan' | 'add_plan' | 'pay_invoice'; planId?: string; invoiceId?: string; email?: string; months?: number }) {
     const subscriber = await this.prisma.subscriber.findFirst({
       where: { userId, deletedAt: null },
       include: { user: { select: { email: true } } },
@@ -176,6 +178,48 @@ export class PaymentsService {
     const months = Number(body.months ?? 1);
     if (!PaymentsService.PAY_AHEAD_MONTHS.includes(months)) {
       throw new BadRequestException('months must be one of 1, 2, 3, 4, 5, 6, 9 or 12');
+    }
+
+    const callbackUrl = (process.env.CUSTOMER_URL ?? 'http://localhost:3001') + '/payment/callback';
+
+    // Pay an existing ISSUED/OVERDUE invoice — no subscription change.
+    if (action === 'pay_invoice') {
+      if (!body.invoiceId) throw new BadRequestException('invoiceId required');
+      const invoice = await this.prisma.invoice.findFirst({
+        where: { id: body.invoiceId, subscriberId: subscriber.id, deletedAt: null },
+      });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      if (!['ISSUED', 'OVERDUE'].includes(invoice.status)) {
+        throw new BadRequestException('This invoice is not payable');
+      }
+
+      const reference = 'PAY-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
+      const payment = await this.prisma.payment.create({
+        data: { invoiceId: invoice.id, provider: 'PAYSTACK', amountKobo: invoice.amountKobo, reference, status: 'PENDING' },
+      });
+
+      try {
+        const result = await this.paystack.initializeTransaction({
+          email: body.email ?? subscriber.user?.email ?? '',
+          amountKobo: invoice.amountKobo,
+          reference,
+          callbackUrl,
+          metadata: { action, invoiceId: invoice.id, paymentId: payment.id },
+        });
+        await this.prisma.paymentAttempt.create({
+          data: {
+            paymentId: payment.id,
+            provider: 'PAYSTACK',
+            reference,
+            status: 'PENDING',
+            response: { action: 'initialize', meta: { action, invoiceId: invoice.id } },
+          },
+        });
+        return { authorizationUrl: result.authorizationUrl, reference, amountKobo: invoice.amountKobo, months: 1, paymentId: payment.id, invoiceId: invoice.id };
+      } catch (err: any) {
+        await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        throw new BadRequestException(`Payment initialization failed: ${err.message}`);
+      }
     }
 
     let plan: any = null;
@@ -217,7 +261,6 @@ export class PaymentsService {
     const payment = await this.prisma.payment.create({
       data: { invoiceId: invoice.id, provider: 'PAYSTACK', amountKobo: priceKobo, reference, status: 'PENDING' },
     });
-    const callbackUrl = (process.env.CUSTOMER_URL ?? 'http://localhost:3001') + '/payment/callback';
 
     try {
       const result = await this.paystack.initializeTransaction({
@@ -675,9 +718,21 @@ export class PaymentsService {
   // ── Webhook ────────────────────────────────────────────────
 
   async handlePaystackWebhook(rawBody: Buffer, signature: string) {
-    const secret = process.env.PAYSTACK_SECRET_KEY ?? '';
+    let body: any;
+    try {
+      body = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      this.logger.warn('Paystack webhook payload is not valid JSON');
+      return;
+    }
+
+    // Resolve the tenant's key from the payment reference; fall back to env.
+    const reference = body?.data?.reference;
+    const secret = reference
+      ? await this.gatewayKeys.getPaystackSecretForReference(reference)
+      : (process.env.PAYSTACK_SECRET_KEY ?? '');
     if (!secret) {
-      this.logger.error('Paystack webhook rejected — PAYSTACK_SECRET_KEY not configured');
+      this.logger.error('Paystack webhook rejected — no Paystack secret key configured');
       return;
     }
     const hash = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
@@ -685,14 +740,6 @@ export class PaymentsService {
     const received = Buffer.from(String(signature ?? ''), 'utf8');
     if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
       this.logger.warn('Paystack webhook signature mismatch');
-      return;
-    }
-
-    let body: any;
-    try {
-      body = JSON.parse(rawBody.toString('utf8'));
-    } catch {
-      this.logger.warn('Paystack webhook payload is not valid JSON');
       return;
     }
 

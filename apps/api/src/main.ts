@@ -68,7 +68,8 @@ function setupSocketProxy(server: http.Server) {
 async function bootstrap() {
   assertProdEnv([
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
-    { name: 'DATABASE_URL', forbidden: 'change_me' }
+    { name: 'DATABASE_URL', forbidden: 'change_me' },
+    { name: 'CREDENTIALS_ENCRYPTION_KEY' }
   ]);
   if (process.env.SENTRY_DSN) {
     Sentry.init({

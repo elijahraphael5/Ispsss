@@ -2,10 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from './components/Skeleton';
 import InternetView from './components/InternetView';
 import AnalyticsView from './components/AnalyticsView';
+import { CoverageArea, ZONE_LABELS, STATUS_COLORS, STATUS_LABELS } from './components/coverage-data';
+
+const CoverageMap = dynamic(() => import('./components/CoverageMap'), {
+  ssr: false,
+  loading: () => <div style={{ height: 320, borderRadius: 16, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading map…</div>,
+});
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
   ACTIVE: { bg: '#e6f9ed', fg: '#1db954' },
@@ -35,6 +42,7 @@ export default function CustomerDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'overview' | 'internet' | 'analytics'>('overview');
+  const [coverage, setCoverage] = useState<CoverageArea[]>([]);
 
   useEffect(() => {
     if (!accessToken && typeof window !== 'undefined' && !localStorage.getItem('accessToken')) {
@@ -45,6 +53,7 @@ export default function CustomerDashboard() {
   useEffect(() => {
     if (!accessToken) return;
     api<DashboardData>('/customer/dashboard').then(setData).catch(() => {}).finally(() => setLoading(false));
+    api<CoverageArea[]>('/coverage-areas').then(setCoverage).catch(() => {});
   }, [accessToken]);
 
   if (!user) return null;
@@ -151,6 +160,38 @@ export default function CustomerDashboard() {
           </div>
         </div>
       </div>
+
+      {coverage.length > 0 && (
+        <div className="data-card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Fiber Coverage</div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              {coverage.filter(c => c.status === 'COVERED').length} areas covered · {coverage.length} total
+            </span>
+          </div>
+          <div className="coverage-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16 }}>
+            <CoverageMap areas={coverage} height={320} />
+            <div style={{ maxHeight: 320, overflowY: 'auto', borderLeft: '1px solid var(--border-color)', paddingLeft: 16 }}>
+              {['IKORODU', 'LAGOS_MAINLAND', 'LAGOS_ISLAND', 'OTHER'].map(zone => {
+                const items = coverage.filter(c => c.zone === zone);
+                if (items.length === 0) return null;
+                return (
+                  <div key={zone} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>{ZONE_LABELS[zone]}</div>
+                    {items.map(c => (
+                      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: '0.82rem' }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[c.status] ?? '#94A3B8', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                        {c.status !== 'COVERED' && <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: 'var(--text-muted)', flexShrink: 0 }}>{STATUS_LABELS[c.status]}</span>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid-2" style={{ gap: 20 }}>
         <div className="data-card" style={{ padding: 20 }}>

@@ -17,7 +17,7 @@ async function bootstrap() {
   assertProdEnv([
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
     { name: 'DATABASE_URL', forbidden: 'change_me' },
-    { name: 'PAYSTACK_SECRET_KEY' }
+    { name: 'CREDENTIALS_ENCRYPTION_KEY' }
   ]);
   const app = await NestFactory.create(AppModule, {
     cors: {

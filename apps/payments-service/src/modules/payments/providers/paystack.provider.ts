@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { GatewayConfigService } from '../gateway-config.service';
 
 interface PaystackInitResponse {
   status: boolean;
@@ -14,17 +15,16 @@ interface PaystackVerifyResponse {
 export class PaystackProvider {
   private readonly logger = new Logger(PaystackProvider.name);
   private readonly baseUrl = 'https://api.paystack.co';
-  private readonly secretKey: string;
 
-  constructor() {
-    this.secretKey = process.env.PAYSTACK_SECRET_KEY ?? '';
-    if (!this.secretKey) {
-      this.logger.warn('PAYSTACK_SECRET_KEY not set — Paystack provider will fail');
-    }
-  }
+  constructor(private readonly gatewayKeys: GatewayConfigService) {}
 
-  private getKey(): string {
-    return process.env.PAYSTACK_SECRET_KEY ?? this.secretKey;
+  private async headers() {
+    const key = await this.gatewayKeys.getPaystackSecret();
+    if (!key) this.logger.warn('Paystack secret key not configured (UI or PAYSTACK_SECRET_KEY) — provider will fail');
+    return {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    };
   }
 
   async initializeTransaction(params: {
@@ -36,7 +36,7 @@ export class PaystackProvider {
   }): Promise<{ authorizationUrl: string; reference: string }> {
     const res = await fetch(`${this.baseUrl}/transaction/initialize`, {
       method: 'POST',
-      headers: this.headers(),
+      headers: await this.headers(),
       body: JSON.stringify({
         email: params.email,
         amount: params.amountKobo,
@@ -52,17 +52,10 @@ export class PaystackProvider {
 
   async verifyTransaction(reference: string): Promise<{ status: string; amountKobo: number; paidAt: string }> {
     const res = await fetch(`${this.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
-      headers: this.headers(),
+      headers: await this.headers(),
     });
     const body: PaystackVerifyResponse = await res.json();
     if (!body.status) throw new Error(`Paystack verify failed: ${JSON.stringify(body)}`);
     return { status: body.data.status, amountKobo: body.data.amount, paidAt: body.data.paid_at };
-  }
-
-  private headers() {
-    return {
-      Authorization: `Bearer ${this.getKey()}`,
-      'Content-Type': 'application/json',
-    };
   }
 }

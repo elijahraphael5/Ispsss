@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CustomerService } from './customer.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TenantService } from '../../common/tenant/tenant.service';
 
 const subscriber = { id: 'sub1', userId: 'u1', status: 'ACTIVE', type: 'RESIDENTIAL', address: '1 Test St', createdAt: new Date('2026-01-01') };
 const plan = { id: 'p1', name: 'Starter', speedMbps: 10, priceKobo: 100000, dataCapGb: 100, technology: 'FIBER' };
@@ -25,7 +26,11 @@ describe('CustomerService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
-      providers: [CustomerService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        CustomerService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TenantService, useValue: { resolveTenant: jest.fn().mockResolvedValue('tenant-1') } },
+      ],
     }).compile();
     service = moduleRef.get(CustomerService);
   });

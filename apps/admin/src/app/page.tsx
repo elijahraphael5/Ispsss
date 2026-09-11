@@ -248,42 +248,35 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid-5" style={{ gap: 20 }}>
+      <div className="grid-5">
         {[
-          { label: 'Total Connections', value: totalConnections || '—', change: '', positive: true, stale: !!staleDevice, icon: '<path d="M4 20h16M4 4h16v12H4z"/>' },
-          { label: 'Active Connections', value: activeConnections || '—', change: '', positive: true, stale: !!staleDevice, icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
-          { label: 'Due Amount', value: stats ? formatNaira(stats.revenueThisMonth) : '—', change: '', positive: true, stale: false, icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
-          { label: 'PPPoE', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', change: '', positive: true, stale: !!staleDevice, icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
-          { label: 'Static IP', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', change: '', positive: true, stale: false, icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>' },
+          { label: 'Total Connections', value: totalConnections || '—', color: '#2563EB', stale: !!staleDevice, icon: '<path d="M4 20h16M4 4h16v12H4z"/>' },
+          { label: 'Active Connections', value: activeConnections || '—', color: '#16A34A', stale: !!staleDevice, icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
+          { label: 'Due Amount', value: stats ? formatNaira(stats.revenueThisMonth) : '—', color: '#DC2626', stale: false, icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
+          { label: 'PPPoE', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', color: '#F15925', stale: !!staleDevice, icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
+          { label: 'Static IP', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', color: '#8B5CF6', stale: false, icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>' },
         ].map((card) => (
-          <div key={card.label} style={{ backgroundColor: 'var(--bg-card)', padding: '20px 24px', borderRadius: 'var(--border-radius-lg)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-dark)', fontWeight: 500, fontSize: '0.9rem' }}>
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: card.icon }} />
-              {card.label}
+          <div key={card.label} className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: `${card.color}14`, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: card.icon }} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <div style={{ fontSize: '1.6rem', fontWeight: 700 }}>{card.value}</div>
-                {card.stale && staleDevice && (
-                  <span title={`Last seen ${formatTime(staleDevice.lastSeenAt)}`} style={{ fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 10, backgroundColor: '#F1592518', color: '#B33A1D', whiteSpace: 'nowrap' }}>
-                    stale · {timeAgo(staleDevice.lastSeenAt)}
-                  </span>
-                )}
-              </div>
-              {card.change && (
-                <div style={{ fontSize: '0.8rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6, color: card.positive ? 'var(--badge-green-text)' : 'var(--badge-red-text)' }}>
-                  ↑ {card.change}
-                </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{card.label}</div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: card.color, whiteSpace: 'nowrap' }}>{card.value}</div>
+              {card.stale && staleDevice && (
+                <span title={`Last seen ${formatTime(staleDevice.lastSeenAt)}`} style={{ display: 'inline-block', marginTop: 2, fontSize: '0.66rem', fontWeight: 600, padding: '1px 8px', borderRadius: 10, backgroundColor: '#F1592518', color: '#B33A1D', whiteSpace: 'nowrap' }}>
+                  stale · {timeAgo(staleDevice.lastSeenAt)}
+                </span>
               )}
             </div>
           </div>
         ))}
       </div>
 
-      <div className="grid-split" style={{ gap: 20 }}>
-        <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+      <div className="grid-split">
+        <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Revenue Overview</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Revenue Overview</div>
             <div style={{ display: 'flex', gap: 16, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--accent-orange)' }}></span> Revenue</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#3b82f6' }}></span> Collected</span>
@@ -310,9 +303,9 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
 
-        <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+        <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Connections Distribution</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Connections Distribution</div>
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
@@ -339,9 +332,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+      <div className="data-card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Network Overview</div>
+          <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Network Overview</div>
           {rosDevice && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{rosDevice.name} ({rosDevice.ipAddress})</span>}
         </div>
         <div className="grid-4">
@@ -364,9 +357,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+      <div className="data-card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Traffic & Connections</div>
+          <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Traffic & Connections</div>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             <span>↓ {formatRate(rosBandwidth?.totalRateDown ?? 0)}</span>
             <span>↑ {formatRate(rosBandwidth?.totalRateUp ?? 0)}</span>
@@ -423,9 +416,9 @@ export default function Dashboard() {
       </div>
 
       <div className="grid-2" style={{ gap: 20 }}>
-        <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+        <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Recent Notifications</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Recent Notifications</div>
             <button onClick={() => router.push('/notifications')} style={{
               padding: '6px 16px', borderRadius: 20, border: '1px solid var(--primary)', background: 'transparent',
               color: 'var(--primary)', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
@@ -459,9 +452,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+        <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Recent Transactions</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Recent Transactions</div>
           </div>
           <div className="table-scroll">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>

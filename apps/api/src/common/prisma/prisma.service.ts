@@ -19,6 +19,7 @@ const TENANT_MODELS = new Set([
   'RouterSnapshot',
   'RouterMetric',
   'RouterUsageDay',
+  'CoverageArea',
 ]);
 
 const WHERE_OPS = new Set([
@@ -112,6 +113,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get routerMetric() { return this.client.routerMetric; }
   get routerUsageDay() { return this.client.routerUsageDay; }
   get actionQueue() { return wrapDelegate('ActionQueue', this.client.actionQueue) as typeof this.client.actionQueue; }
+  get coverageArea() { return wrapDelegate('CoverageArea', this.client.coverageArea) as typeof this.client.coverageArea; }
   get passwordResetToken() { return this.client.passwordResetToken; }
 
   get $transaction() { return this.client.$transaction.bind(this.client); }

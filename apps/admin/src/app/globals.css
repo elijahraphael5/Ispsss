@@ -535,6 +535,15 @@ tr:hover {
   display: none;
 }
 
+@media (max-width: 1024px) {
+  .coverage-split { grid-template-columns: 1fr !important; }
+  .coverage-split > div:last-child {
+    border-left: none !important;
+    border-top: 1px solid var(--border-color);
+    max-height: 360px !important;
+  }
+}
+
 .hub-tab-btn {
   display: inline-flex;
   align-items: center;

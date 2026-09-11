@@ -18,7 +18,7 @@ async function bootstrap() {
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
     { name: 'DATABASE_URL', forbidden: 'change_me' },
     { name: 'WEBHOOK_SERVICE_TOKEN' },
-    { name: 'PAYSTACK_SECRET_KEY' }
+    { name: 'CREDENTIALS_ENCRYPTION_KEY' }
   ]);
   const app = await NestFactory.create(AppModule, {
     // Keep the exact bytes Paystack signed so webhook HMAC verification works.

@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { TenantService } from '../../common/tenant/tenant.service';
+import { resolveTenantSmtp } from '@isp/prisma';
 import * as nodemailer from 'nodemailer';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -47,9 +50,13 @@ export interface UpgradeData {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private transporter: nodemailer.Transporter | null = null;
-  private logoBase64 = '';
+  private logoBuffer: Buffer | null = null;
+  private logoMime = 'image/png';
+  private tenantTransporter: nodemailer.Transporter | null = null;
+  private tenantTransportSig = '';
+  private tenantFrom: string | null = null;
 
-  constructor(private config: ConfigService) {
+  constructor(private config: ConfigService, private prisma: PrismaService, private tenant: TenantService) {
     const host = this.config.get<string>('SMTP_HOST');
     const port = this.config.get<number>('SMTP_PORT', 587);
     const user = this.config.get<string>('SMTP_USER');
@@ -70,19 +77,49 @@ export class MailService {
     this.loadLogo();
   }
 
+  private async resolveTransport(): Promise<nodemailer.Transporter | null> {
+    try {
+      const smtp = await resolveTenantSmtp(this.prisma, await this.tenant.resolveTenant());
+      if (smtp) {
+        const sig = smtp.host + ':' + smtp.port + ':' + smtp.user + ':' + smtp.pass.slice(-4);
+        if (!this.tenantTransporter || this.tenantTransportSig !== sig) {
+          this.tenantTransporter = nodemailer.createTransport({
+            host: smtp.host,
+            port: smtp.port,
+            secure: Number(smtp.port) === 465,
+            auth: { user: smtp.user, pass: smtp.pass },
+          });
+          this.tenantTransportSig = sig;
+          this.tenantFrom = smtp.fromEmail ? (smtp.fromName ? smtp.fromName + ' <' + smtp.fromEmail + '>' : smtp.fromEmail) : null;
+          this.logger.log('SMTP resolved from settings: ' + smtp.host + ':' + smtp.port);
+        }
+        return this.tenantTransporter;
+      }
+    } catch {
+      // fall back to env
+    }
+    return this.transporter;
+  }
+
   private loadLogo(): void {
     try {
       const configuredPath = this.config.get<string>('LOGO_PATH');
-      const logoPath = configuredPath
-        ? path.resolve(configuredPath)
-        : path.join(process.cwd(), 'apps', 'admin', 'public', 'logo.png');
+      const candidates = [
+        configuredPath ? path.resolve(configuredPath) : null,
+        path.join(process.cwd(), 'apps', 'admin', 'public', 'logo.png'),
+        path.join(process.cwd(), '..', 'admin', 'public', 'logo.png'),
+        path.join(__dirname, '..', '..', '..', '..', '..', 'apps', 'admin', 'public', 'logo.png'),
+        path.join(__dirname, '..', '..', '..', '..', 'apps', 'admin', 'public', 'logo.png'),
+      ].filter(Boolean) as string[];
 
-      if (fs.existsSync(logoPath)) {
-        const ext = path.extname(logoPath).slice(1);
-        this.logoBase64 = `data:image/${ext};base64,${fs.readFileSync(logoPath, 'base64')}`;
-        this.logger.log('Logo loaded successfully');
+      const logoPath = candidates.find((p) => fs.existsSync(p));
+      if (logoPath) {
+        const ext = path.extname(logoPath).slice(1).toLowerCase();
+        this.logoBuffer = fs.readFileSync(logoPath);
+        this.logoMime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'svg' ? 'image/svg+xml' : 'image/png';
+        this.logger.log(`Logo loaded from ${logoPath}`);
       } else {
-        this.logger.warn(`Logo missing at path: ${logoPath}`);
+        this.logger.warn(`Logo missing — tried: ${candidates.join(', ')}`);
       }
     } catch (err) {
       this.logger.warn(`Failed to load logo: ${(err as Error).message}`);
@@ -90,8 +127,14 @@ export class MailService {
   }
 
   private getAppName(): string { return this.config.get<string>('APP_NAME', 'Hikonnect'); }
-  private getAppUrl(): string { return this.config.get<string>('APP_URL') || this.config.get<string>('CUSTOMER_URL') || 'http://localhost:3001'; }
-  private getFrom(): string { return this.config.get<string>('MAIL_FROM', 'noreply@hikonnectng.com'); }
+  private getAppUrl(): string {
+    const url = this.config.get<string>('APP_URL') || this.config.get<string>('CUSTOMER_URL') || 'https://my.hikonnectng.com';
+    return /localhost|127\.0\.0\.1/.test(url) ? 'https://my.hikonnectng.com' : url;
+  }
+  private getFrom(): string {
+    if (this.tenantFrom) return this.tenantFrom;
+    return this.config.get<string>('MAIL_FROM', 'noreply@hikonnectng.com');
+  }
 
   private fmtKobo(kobo: number): string {
     return '₦' + (kobo / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -102,8 +145,8 @@ export class MailService {
    */
   private h(contentHtml: string, previewText = ''): string {
     const appName = this.getAppName();
-    const logoHtml = this.logoBase64
-      ? `<img src="${this.logoBase64}" alt="${appName}" width="160" style="max-width:160px;height:auto;border:0;display:block;margin:0 auto;" />`
+    const logoHtml = this.logoBuffer
+      ? `<img src="cid:hikonnect-logo" alt="${appName}" width="160" style="max-width:160px;height:auto;border:0;display:block;margin:0 auto;" />`
       : `<h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">${appName}</h1>`;
 
     return `<!DOCTYPE html>
@@ -182,12 +225,17 @@ export class MailService {
    * Errors are logged, not thrown, so fire-and-forget callers keep working.
    */
   async send(options: MailOptions): Promise<boolean> {
-    if (!this.transporter) {
+    const transporter = await this.resolveTransport();
+    if (!transporter) {
       this.logger.warn('Mail skipped — SMTP client missing');
       return false;
     }
     try {
-      await this.transporter.sendMail({ from: this.getFrom(), ...options });
+      await transporter.sendMail({
+        from: this.getFrom(),
+        ...options,
+        ...(this.logoBuffer ? { attachments: [{ filename: 'logo.png', content: this.logoBuffer, cid: 'hikonnect-logo' }] } : {}),
+      });
       this.logger.log(`Mail sent to ${options.to}: "${options.subject}"`);
       return true;
     } catch (err) {

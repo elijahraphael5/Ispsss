@@ -41,6 +41,14 @@ export default function SubscriptionPage() {
   const [drawer, setDrawer] = useState<'change' | null>(null);
   const [paying, setPaying] = useState(false);
   const [months, setMonths] = useState(1);
+  const [paystackKey, setPaystackKey] = useState(process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ?? '');
+
+  useEffect(() => {
+    if (!accessToken) return;
+    api<{ paystackPublicKey: string | null }>('/tenant/public-config')
+      .then((c) => { if (c?.paystackPublicKey) setPaystackKey(c.paystackPublicKey); })
+      .catch(() => {});
+  }, [accessToken]);
 
   const fetchAll = useCallback(async () => {
     const [d, p] = await Promise.all([
@@ -62,7 +70,6 @@ export default function SubscriptionPage() {
   const sub = data?.subscription;
   const plan = data?.plan;
   const email = user?.email ?? '';
-  const paystackKey = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ?? '';
 
   const isDue = sub?.expiresAt ? new Date(sub.expiresAt).getTime() - Date.now() < 7 * 86400000 : false;
   const isExpired = sub?.expiresAt ? new Date(sub.expiresAt).getTime() < Date.now() : false;
