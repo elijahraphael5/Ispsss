@@ -34,6 +34,17 @@ services:
       timeout: 3s
       retries: 10
 
+  init:
+    build: *app_build
+    command: sh -c "cd apps/api && npx prisma migrate deploy"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://isp_user:change_me@postgres:5432/isp_platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build: *app_build
     command: ["node", "apps/api/dist/main.js"]
@@ -45,6 +56,7 @@ services:
       REDIS_URL: none
       JWT_ACCESS_SECRET: change-me
       JWT_REFRESH_SECRET: change-me
+      CREDENTIALS_ENCRYPTION_KEY: dev-credentials-key
       AUTH_SERVICE_URL: http://auth-service:4101
       PAYMENTS_SERVICE_URL: http://payments-service:4102
       BILLING_SERVICE_URL: http://billing-service:4103
@@ -59,6 +71,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      init:
+        condition: service_completed_successfully
       auth-service:
         condition: service_started
       payments-service:
