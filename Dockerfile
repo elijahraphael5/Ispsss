@@ -1,4 +1,8 @@
-FROM node:24-bullseye-slim AS base
+FROM node:24-bookworm-slim AS base
+# openssl CLI so Prisma detects debian-openssl-3.0.x (bookworm ships libssl3;
+# without the CLI Prisma defaults to openssl-1.1.x and the engine fails to load)
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 WORKDIR /repo
 
