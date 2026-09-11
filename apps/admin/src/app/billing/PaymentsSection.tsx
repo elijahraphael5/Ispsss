@@ -155,7 +155,7 @@ export default function PaymentsSection({ tab }: { tab: string }) {
     <>
       {/* Dashboard Metrics */}
       {tab === 'Payments' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div className="grid-4" style={{ marginBottom: 24 }}>
           <div className="data-card" style={{ padding: '18px 20px' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Today</div>
             <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--primary)' }}>{dash ? fmtK(dash.revenueToday) : '—'}</div>
@@ -177,7 +177,7 @@ export default function PaymentsSection({ tab }: { tab: string }) {
 
       {/* Status Summary */}
       {tab === 'Payments' && dash && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+        <div className="grid-4" style={{ gap: 12, marginBottom: 24 }}>
           {[
             { label: 'Successful', value: dash.payments.successful, color: '#16A34A' },
             { label: 'Failed', value: dash.payments.failed, color: '#DC2626' },
@@ -203,14 +203,14 @@ export default function PaymentsSection({ tab }: { tab: string }) {
         <>
           <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search ref or invoice..." style={{ ...inp, maxWidth: 240 }} />
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {['ALL', 'SUCCESSFUL', 'PENDING', 'FAILED', 'REFUNDED'].map(s => (
                 <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: '5px 12px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: statusFilter === s ? 600 : 400, fontSize: '0.75rem', background: statusFilter === s ? 'var(--primary)' : '#fff', color: statusFilter === s ? '#fff' : 'var(--text-color)' }}>
                   {s.charAt(0) + s.slice(1).toLowerCase()}
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>From</label>
               <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ ...inp, width: 150 }} />
               <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>To</label>
@@ -337,7 +337,7 @@ export default function PaymentsSection({ tab }: { tab: string }) {
                 </span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+              <div className="grid-2" style={{ marginBottom: 20 }}>
                 <div style={{ padding: '14px', background: '#F8FAFC', borderRadius: 12 }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Reference</div>
                   <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace', wordBreak: 'break-all' }}>{p.reference}</div>
@@ -407,7 +407,7 @@ export default function PaymentsSection({ tab }: { tab: string }) {
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Invoice ID</label>
                 <input value={recordForm.invoiceId} onChange={e => setRecordForm(f => ({ ...f, invoiceId: e.target.value }))} style={inp} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount (₦)</label>
                   <input type="text" inputMode="decimal" value={recordForm.amountNaira} onChange={e => setRecordForm(f => ({ ...f, amountNaira: e.target.value }))} placeholder="e.g. 25000" style={inp} />

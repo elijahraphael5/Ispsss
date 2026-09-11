@@ -212,8 +212,8 @@ export default function CustomerDetailPage() {
 
   if (loading) {
     return (
-      <main style={{ padding: 24 }}>
-        <div className="data-card" style={{ padding: 24, marginTop: 20 }}>
+      <main style={{ padding: 0 }}>
+        <div className="data-card" style={{ padding: 24 }}>
           <SkeletonTable rows={8} cols={4} />
         </div>
       </main>
@@ -222,7 +222,7 @@ export default function CustomerDetailPage() {
 
   if (error || !customer) {
     return (
-      <main style={{ padding: 24 }}>
+      <main style={{ padding: 0 }}>
         <div style={{ padding: '12px 16px', background: '#FEE2E2', color: '#DC2626', borderRadius: 12, fontSize: '0.85rem' }}>{error || 'Not found'}</div>
       </main>
     );
@@ -230,57 +230,73 @@ export default function CustomerDetailPage() {
 
   const cpe = customer.cpes[0];
 
+  const sectionLabel: React.CSSProperties = { fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 };
+
   return (
-    <main style={{ padding: 24 }}>
+    <main style={{ padding: 0 }}>
       <button onClick={() => router.push('/users/manage')} style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', padding: 0, marginBottom: 12 }}>
         ← Back to customers
       </button>
 
-      <div className="page-title-row" style={{ marginBottom: 20 }}>
+      <div className="page-title-row" style={{ marginBottom: 16 }}>
         <div>
-          <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             {customer.name || 'Customer'}
             {badge(customer.status, customer.status === 'ACTIVE' ? '#16A34A' : customer.status === 'SUSPENDED' ? '#DC2626' : '#94A3B8')}
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
-            {customer.type} &middot; joined {new Date(customer.createdAt).toLocaleDateString()}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: 3, lineHeight: 1.7 }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{customer.type}</span>
+            {' '}&middot; joined {new Date(customer.createdAt).toLocaleDateString()}
             {customer.dueAt && (
-              <span style={{ marginLeft: 8 }}>
+              <span style={{ marginLeft: 6 }}>
                 &middot; due {new Date(customer.dueAt).toLocaleDateString()}
                 {customer.dueAmountKobo ? ` · ${naira(customer.dueAmountKobo)}` : ''}
-                {' '}{customer.dueStatus ? badge(customer.dueStatus, customer.dueStatus === 'OVERDUE' ? '#DC2626' : customer.dueStatus === 'PAID' ? '#16A34A' : '#F59E0B') : null}
+                {customer.dueStatus && (
+                  <span style={{
+                    display: 'inline-block', marginLeft: 6, padding: '1px 8px', borderRadius: 10, fontSize: '0.62rem',
+                    fontWeight: 700, verticalAlign: 'middle',
+                    backgroundColor: customer.dueStatus === 'OVERDUE' ? '#DC262618' : customer.dueStatus === 'PAID' ? '#16A34A18' : '#F59E0B18',
+                    color: customer.dueStatus === 'OVERDUE' ? '#DC2626' : customer.dueStatus === 'PAID' ? '#16A34A' : '#B45309',
+                  }}>{customer.dueStatus}</span>
+                )}
               </span>
             )}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            type="text"
-            placeholder="New login password (blank = auto)"
-            value={newPw}
-            onChange={e => setNewPw(e.target.value)}
-            style={{
-              padding: '8px 16px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.85rem',
-              fontFamily: 'monospace', width: 200, outline: 'none', background: 'transparent', color: 'var(--text-dark)',
-            }}
-          />
-          <button onClick={resetPassword} disabled={busy} style={{
-            padding: '8px 20px', borderRadius: 20, border: '1px solid var(--primary)', background: 'transparent',
-            color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', opacity: busy ? 0.6 : 1,
+      </div>
+
+      <div className="data-card" style={{ padding: 16, marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+            <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+              New login password (blank = auto)
+            </label>
+            <input
+              type="text"
+              placeholder="Leave blank to auto-generate"
+              value={newPw}
+              onChange={e => setNewPw(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem',
+                fontFamily: 'monospace', outline: 'none', background: '#fff', color: 'var(--text-dark)',
+              }}
+            />
+          </div>
+          <button onClick={resetPassword} disabled={busy} className="btn-outline" style={{
+            padding: '10px 18px', borderColor: 'var(--primary)', color: 'var(--primary)', opacity: busy ? 0.6 : 1,
           }}>
-            {busy ? 'Working...' : 'Reset Password'}
+            {busy ? 'Working…' : 'Reset Password'}
           </button>
-          <button onClick={toggleConnection} disabled={busy} style={{
-            padding: '8px 20px', borderRadius: 20, border: 'none', background: 'var(--primary)', color: '#fff',
-            fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', opacity: busy ? 0.6 : 1,
+          <button onClick={toggleConnection} disabled={busy} className="btn-primary" style={{
+            padding: '10px 18px', background: customer.status === 'SUSPENDED' ? '#16A34A' : '#DC2626', opacity: busy ? 0.6 : 1,
           }}>
-            {busy ? 'Working...' : 'Connect / Disconnect'}
+            {busy ? 'Working…' : customer.status === 'SUSPENDED' ? 'Reconnect' : 'Disconnect'}
           </button>
         </div>
         {pwResult && (
-          <div style={{ marginTop: 12, padding: '12px 16px', background: '#DCFCE7', borderRadius: 12, fontSize: '0.85rem', color: '#166534' }}>
+          <div style={{ marginTop: 14, padding: '12px 16px', background: '#DCFCE7', borderRadius: 12, fontSize: '0.85rem', color: '#166534' }}>
             <div style={{ fontWeight: 700, marginBottom: 4 }}>Give this to the customer for their dashboard login:</div>
-            <div style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700 }}>{pwResult.newPassword}</div>
+            <div style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, wordBreak: 'break-all' }}>{pwResult.newPassword}</div>
             <button onClick={() => { navigator.clipboard?.writeText(pwResult.newPassword); setCopied(true); }} style={{
               marginTop: 8, padding: '5px 14px', borderRadius: 20, border: '1px solid #16A34A', background: '#fff',
               color: '#16A34A', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer',
@@ -318,29 +334,52 @@ export default function CustomerDetailPage() {
         </div>
 
         {tab === 'details' ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
-              <Field label="Name" value={customer.name} />
-              <Field label="Email" value={customer.email} />
-              <Field label="Phone" value={customer.phone} />
-              <Field label="Address" value={customer.address} />
-              <Field label="Network" value={customer.networkType} />
-              <Field label="Plan" value={customer.plan} />
-              <Field label="Installer" value={customer.cpes[0]?.installerName} />
-              <Field label="Due Date" value={customer.dueAt ? new Date(customer.dueAt).toLocaleDateString() : null} />
-              <Field label="Status" value={customer.status} />
-              <Field label="Unique ID" value={customer.id} mono />
-            </div>
-            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
-                <Field label="Started" value={customer.startedAt ? new Date(customer.startedAt).toLocaleDateString() : null} />
-                <Field label="Expires" value={customer.expiresAt ? new Date(customer.expiresAt).toLocaleDateString() : null} />
-                <Field label="Monthly Price" value={priceDisplay(customer.priceKobo)} />
-                <Field label="Speed" value={customer.speedLabel || (customer.speedMbps ? `${customer.speedMbps} Mbps` : null)} />
-                <Field label="Due Amount" value={customer.dueAmountKobo ? naira(customer.dueAmountKobo) : null} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div>
+              <div style={sectionLabel}>Contact</div>
+              <div className="detail-grid">
+                <Field label="Name" value={customer.name} />
+                <Field label="Phone" value={customer.phone} />
+                <div style={{ gridColumn: '1 / -1' }}><Field label="Email" value={customer.email} /></div>
+                <div style={{ gridColumn: '1 / -1' }}><Field label="Address" value={customer.address} /></div>
               </div>
             </div>
-          </>
+
+            <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
+              <div style={sectionLabel}>Connection</div>
+              <div className="detail-grid">
+                <Field label="Network" value={customer.networkType} />
+                <Field label="Plan" value={customer.plan} />
+                <Field label="Speed" value={customer.speedLabel || (customer.speedMbps ? `${customer.speedMbps} Mbps` : null)} />
+                <Field label="Installer" value={customer.cpes[0]?.installerName} />
+              </div>
+            </div>
+
+            <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
+              <div style={sectionLabel}>Billing</div>
+              <div className="detail-grid">
+                <Field label="Monthly Price" value={priceDisplay(customer.priceKobo)} />
+                <Field label="Due Amount" value={customer.dueAmountKobo ? naira(customer.dueAmountKobo) : null} />
+                <Field label="Due Date" value={customer.dueAt ? new Date(customer.dueAt).toLocaleDateString() : null} />
+                <Field label="Status" value={badge(customer.status, customer.status === 'ACTIVE' ? '#16A34A' : customer.status === 'SUSPENDED' ? '#DC2626' : '#94A3B8')} />
+              </div>
+            </div>
+
+            <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
+              <div style={sectionLabel}>Subscription</div>
+              <div className="detail-grid">
+                <Field label="Started" value={customer.startedAt ? new Date(customer.startedAt).toLocaleDateString() : null} />
+                <Field label="Expires" value={customer.expiresAt ? new Date(customer.expiresAt).toLocaleDateString() : null} />
+              </div>
+            </div>
+
+            <div style={{ paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
+              <div style={sectionLabel}>Identifiers</div>
+              <div className="detail-grid">
+                <div style={{ gridColumn: '1 / -1' }}><Field label="Unique ID" value={customer.id} mono /></div>
+              </div>
+            </div>
+          </div>
         ) : (
           <>
             <EditableCustomerFields customer={customer} onSaved={u => { setCustomer(u); notifyCustomersChanged(); }} />

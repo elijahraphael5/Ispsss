@@ -250,6 +250,14 @@ export default function UsersPage() {
         </button>
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
+        <div className="search-box">
+          <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email or phone..." />
+        </div>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>{filtered.length} user{filtered.length === 1 ? '' : 's'}</span>
+      </div>
+
       {showForm && (
         <div style={{
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100,
@@ -357,7 +365,7 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="data-card">
+      <div className="data-card users-table-card">
         <div className="table-container">
           <div className="table-scroll" style={{ overflowY: 'auto', maxHeight: 460 }}>
             <table>
@@ -490,6 +498,74 @@ export default function UsersPage() {
             </a>
           </div>
         )}
+      </div>
+
+      <div className="users-mobile-list">
+        {filtered.length === 0 ? (
+          <div className="data-card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No users found</div>
+        ) : filtered.map((u) => {
+          const name = u.email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          const role = u.isSuperAdmin ? 'Super Admin' : u.customRole?.name ? u.customRole.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'No role';
+          const isOpen = selectedId === u.id;
+          return (
+            <div key={u.id} className="data-card" style={{ padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{name}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{u.email}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{u.phone ?? 'No phone'}</div>
+                  <div style={{ marginTop: 8 }}>
+                    <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, background: u.isSuperAdmin ? '#FEF3C7' : '#F1F5F9', color: u.isSuperAdmin ? '#B45309' : '#475569' }}>{role}</span>
+                  </div>
+                </div>
+                <button className="btn-sm-outline" onClick={() => setSelectedId(isOpen ? null : u.id)}>{isOpen ? 'Hide' : 'View'}</button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+                <button className="btn-sm-outline" onClick={() => { setEditUser(u); setEditEmail(u.email); setEditPhone(u.phone ?? ''); setEditCustomRoleId(u.customRoleId ?? ''); setEditPassword(''); }}>Edit</button>
+                <button className="btn-sm-outline" onClick={async () => {
+                  try {
+                    await api(`/users/${u.id}/reset-password`, { method: 'POST' });
+                    toast('Password reset. New password emailed to user.', 'success', toasts, setToasts);
+                  } catch {
+                    toast('Failed to reset password.', 'error', toasts, setToasts);
+                  }
+                }}>Reset Password</button>
+                <button className="btn-sm-outline" style={{ color: '#DC2626', borderColor: '#DC2626' }} onClick={() => {
+                  setConfirmDialog({
+                    message: `Delete user ${u.email}?`,
+                    onConfirm: async () => {
+                      setConfirmDialog(null);
+                      try { await api(`/users/${u.id}`, { method: 'DELETE' }); await fetchUsers(); }
+                      catch { toast('Failed to delete user.', 'error', toasts, setToasts); }
+                    },
+                  });
+                }}>Delete</button>
+              </div>
+
+              {isOpen && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div className="info-group">
+                    <label>Phone</label>
+                    <p>{u.phone ?? '—'}</p>
+                  </div>
+                  <div className="info-group">
+                    <label>Permissions</label>
+                    <p>{role}</p>
+                  </div>
+                  <div className="info-group">
+                    <label>Created</label>
+                    <p>{new Date(u.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  </div>
+                  <div className="info-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>ID</label>
+                    <p style={{ fontSize: '0.72rem', wordBreak: 'break-all' }}>{u.id}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="data-card" style={{ marginTop: 24 }}>

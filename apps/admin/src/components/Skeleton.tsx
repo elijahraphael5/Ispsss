@@ -36,7 +36,7 @@ export function PageSkeleton() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SkeletonBlock width={200} height={28} />
       <SkeletonBlock width={320} height={14} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div className="grid-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <SkeletonCard key={i} height={90} />
         ))}

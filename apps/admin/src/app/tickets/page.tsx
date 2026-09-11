@@ -221,6 +221,26 @@ const inputStyle: React.CSSProperties = {
   fontSize: '0.85rem', outline: 'none', background: '#fff', boxSizing: 'border-box',
 };
 const labelStyle: React.CSSProperties = { display: 'block', marginBottom: 5, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' };
+const pillSelect: React.CSSProperties = { padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.8rem', background: '#fff', cursor: 'pointer', color: 'var(--text-dark)', outline: 'none' };
+
+const avatarPalette = ['#F15925', '#2563EB', '#16A34A', '#8B5CF6', '#F59E0B', '#0EA5E9', '#EC4899', '#14B8A6'];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return avatarPalette[h % avatarPalette.length];
+}
+function initialsOf(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2)).toUpperCase();
+}
+function Avatar({ name, size = 36 }: { name: string; size?: number }) {
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', background: avatarColor(name), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.36, fontWeight: 700, flexShrink: 0 }}>
+      {initialsOf(name)}
+    </div>
+  );
+}
 
 // ─────────────────────────── page ───────────────────────────
 
@@ -232,25 +252,63 @@ export default function SupportHub() {
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
 
   const [tab, setTab] = useState<HubTab>('chat');
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const tabMenuRef = useRef<HTMLDivElement>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [agentsOnline, setAgentsOnline] = useState(0);
   const [agents, setAgents] = useState<Agent[]>([]);
 
+  useEffect(() => {
+    if (!tabMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (tabMenuRef.current && !tabMenuRef.current.contains(e.target as Node)) setTabMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [tabMenuOpen]);
+
+  const HUB_TABS: { key: HubTab; label: string; desc: string; icon: React.ReactNode }[] = [
+    { key: 'chat', label: 'Live Chat', desc: 'Real-time customer conversations', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+    { key: 'tickets', label: 'Tickets', desc: 'Track and resolve support tickets', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> },
+    { key: 'canned', label: 'Canned Replies', desc: 'Saved response templates', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> },
+    { key: 'analytics', label: 'Performance', desc: 'Agent and SLA statistics', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+  ];
+  const activeTab = HUB_TABS.find(t => t.key === tab) ?? HUB_TABS[0];
+
   return (
     <>
       <ToastContainer toasts={toasts} />
-      <div className="page-title-row" style={{ marginBottom: 20 }}>
+      <div className="page-title-row">
         <h1 className="page-title">Support</h1>
       </div>
 
-      <div className="badge-tabs" style={{ marginBottom: 20, width: 'fit-content' }}>
-        {(['chat', 'tickets', 'canned', 'analytics'] as HubTab[]).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`tab-item ${tab === t ? 'active' : ''}`}
-            style={{ border: 'none', background: 'transparent', fontWeight: 600, textTransform: 'capitalize', fontSize: '0.82rem' }}>
-            {t === 'chat' ? 'Live Chat' : t === 'canned' ? 'Canned Replies' : t === 'analytics' ? 'Performance' : 'Tickets'}
-          </button>
-        ))}
+      <div ref={tabMenuRef} style={{ position: 'relative', width: 'fit-content' }}>
+        <button className="hub-tab-btn" onClick={() => setTabMenuOpen(o => !o)} aria-expanded={tabMenuOpen}>
+          <span style={{ color: 'var(--primary)', display: 'flex' }}>{activeTab.icon}</span>
+          {activeTab.label}
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+            style={{ transition: 'transform 0.2s', transform: tabMenuOpen ? 'rotate(180deg)' : 'none', color: 'var(--text-muted)' }}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+
+        {tabMenuOpen && (
+          <div className="hub-tab-menu">
+            {HUB_TABS.map(t => (
+              <button key={t.key} onClick={() => { setTab(t.key); setTabMenuOpen(false); }}
+                className={`hub-tab-menu-item${tab === t.key ? ' active' : ''}`}>
+                <span style={{ color: tab === t.key ? 'var(--primary)' : 'var(--text-muted)', display: 'flex', flexShrink: 0 }}>{t.icon}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-dark)' }}>{t.label}</span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 1 }}>{t.desc}</span>
+                </span>
+                {tab === t.key && (
+                  <svg width="15" height="15" fill="none" stroke="var(--primary)" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginLeft: 'auto', flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
 {tab === 'chat' && <ChatTab user={user} accessToken={accessToken} agents={agents} setAgents={setAgents} agentsOnline={agentsOnline} setAgentsOnline={setAgentsOnline} socket={socket} setSocket={setSocket} toast={toast} toasts={toasts} setToasts={setToasts} />}
@@ -290,6 +348,14 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
   const [typing, setTyping] = useState<{ sessionId: string; userId: string } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+
+  function showPane(index: number) {
+    const board = boardRef.current;
+    if (!board || !window.matchMedia('(max-width: 900px)').matches) return;
+    const pane = board.children[index] as HTMLElement | undefined;
+    pane?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+  }
 
   const refreshRows = useCallback(async (sc: string = scope) => {
     try {
@@ -362,6 +428,7 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
       setSession(full);
       socket?.emit('chat:read', row.id);
       refreshRowsRef.current();
+      requestAnimationFrame(() => showPane(1));
     } catch {
       toast('Failed to open session', 'error', toasts, setToasts);
     }
@@ -428,57 +495,87 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
   const mineCount = rows.filter(r => r.agentId === user?.id).length;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 300px', gap: 16, height: 'calc(100vh - 190px)', minHeight: 480 }}>
+    <div className="tickets-board" ref={boardRef}>
       {/* session list */}
       <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 6, alignItems: 'center' }}>
-          {(['queue', 'assigned', 'closed'] as const).map(s => (
-            <button key={s} onClick={() => setScope(s)}
-              style={{ padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', background: scope === s ? 'var(--primary)' : 'var(--primary-light)', color: scope === s ? '#fff' : 'var(--primary)' }}>
-              {s === 'queue' ? `Queue (${waitingCount})` : s === 'assigned' ? `Mine (${mineCount})` : 'Closed'}
-            </button>
-          ))}
-          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{agentsOnline} online</span>
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="badge-tabs" style={{ flex: '1 1 auto', minWidth: 0, padding: 3, gap: 2 }}>
+            {(['queue', 'assigned', 'closed'] as const).map(s => (
+              <button key={s} onClick={() => setScope(s)}
+                className={`tab-item${scope === s ? ' active' : ''}`}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600, whiteSpace: 'nowrap', padding: '4px 10px', fontSize: '0.72rem' }}>
+                {s === 'queue' ? `Queue (${waitingCount})` : s === 'assigned' ? `Mine (${mineCount})` : 'Closed'}
+              </button>
+            ))}
+          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: agentsOnline > 0 ? '#16A34A' : '#94A3B8' }} />
+            {agentsOnline} online
+          </span>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {loading ? <p style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading…</p>
-            : rows.length === 0 ? <p style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No {scope} sessions</p>
-            : rows.map(r => (
+          {loading ? (
+            <p style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading…</p>
+          ) : rows.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 32, color: 'var(--text-muted)' }}>
+              <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span style={{ fontSize: '0.82rem' }}>No {scope} sessions</span>
+            </div>
+          ) : rows.map(r => {
+            const displayName = r.customerName || r.customerEmail.split('@')[0];
+            const active = session?.id === r.id;
+            return (
               <div key={r.id} onClick={() => openSession(r)}
-                style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', background: session?.id === r.id ? 'var(--primary-light)' : 'transparent' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.customerName || r.customerEmail.split('@')[0]}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {r.unreadCount > 0 && <span style={{ background: '#DC2626', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: '0.68rem', fontWeight: 700 }}>{r.unreadCount}</span>}
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: chatStatusColors[r.status] ?? '#94A3B8' }} />
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {r.lastMessage ? `${r.lastMessage.senderType === 'AGENT' ? 'You:' : ''} ${r.lastMessage.body}` : '(no messages)'}
-                </div>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {timeAgo(r.updatedAt)}{r.agentId && r.agentId !== user?.id ? ' · ' + (agents.find(a => a.id === r.agentId)?.name ?? 'other') : ''}
+                style={{ display: 'flex', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', background: active ? 'var(--primary-light)' : 'transparent', alignItems: 'center' }}>
+                <Avatar name={displayName} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', flexShrink: 0 }}>{timeAgo(r.updatedAt)}</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.lastMessage ? `${r.lastMessage.senderType === 'AGENT' ? 'You: ' : ''}${r.lastMessage.body}` : '(no messages)'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: chatStatusColors[r.status] ?? '#94A3B8', flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>{r.status}</span>
+                    {r.agentId && r.agentId !== user?.id && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {agents.find(a => a.id === r.agentId)?.name ?? 'other'}</span>
+                    )}
+                    {r.unreadCount > 0 && (
+                      <span style={{ marginLeft: 'auto', background: '#DC2626', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: '0.66rem', fontWeight: 700 }}>{r.unreadCount}</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
         </div>
       </div>
 
       {/* thread */}
       <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {!session ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Select a session from the left
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--text-muted)', padding: 24 }}>
+            <svg width="34" height="34" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Select a session</span>
+            <span style={{ fontSize: '0.78rem' }}>Pick a conversation from the list to start replying</span>
           </div>
         ) : (
           <>
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                  {session.customerName || session.customerEmail.split('@')[0] || 'Customer'}
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: chatStatusColors[session.status], display: 'inline-block', marginLeft: 8, verticalAlign: 'middle' }} />
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <button className="chat-back-btn" onClick={() => showPane(0)} title="Back to sessions" aria-label="Back to sessions">
+                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <Avatar name={session.customerName || session.customerEmail.split('@')[0] || 'Customer'} size={34} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {session.customerName || session.customerEmail.split('@')[0] || 'Customer'}
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: chatStatusColors[session.status], flexShrink: 0 }} />
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.customerEmail} · started {timeAgo(session.createdAt)}</div>
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{session.customerEmail} · started {timeAgo(session.createdAt)}</div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <select value={session.agentId ?? ''} onChange={e => e.target.value && transferTo(e.target.value)} style={{ ...inputStyle, width: 130, padding: '6px 10px', fontSize: '0.75rem' }}>
@@ -527,24 +624,22 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
               )}
             </div>
 
-            <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <textarea
-                  value={composer}
-                  onChange={e => {
-                    setComposer(e.target.value);
-                    if (socket?.connected) socket.emit('chat:typing', { sessionId: session.id, isTyping: e.target.value.length > 0 });
-                  }}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  placeholder="Type a message…"
-                  rows={2}
-                  style={{ ...inputStyle, resize: 'none', flex: 1, maxHeight: 90 }}
-                />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <button onClick={() => setCannedOpen(o => !o)} className="btn-sm-outline">Canned</button>
-                  <button onClick={() => fileInputRef.current?.click()} className="btn-sm-outline" title="Attach a file">Attach</button>
-                  <button onClick={sendMessage} disabled={!composer.trim() && pendingFiles.length === 0} className="btn-sm" style={{ minWidth: 60 }}>Send</button>
-                </div>
+            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)' }}>
+              <textarea
+                value={composer}
+                onChange={e => {
+                  setComposer(e.target.value);
+                  if (socket?.connected) socket.emit('chat:typing', { sessionId: session.id, isTyping: e.target.value.length > 0 });
+                }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                placeholder="Type a message…"
+                rows={2}
+                style={{ ...inputStyle, resize: 'none', maxHeight: 90 }}
+              />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                <button onClick={() => setCannedOpen(o => !o)} className="btn-sm-outline">Canned</button>
+                <button onClick={() => fileInputRef.current?.click()} className="btn-sm-outline" title="Attach a file">Attach</button>
+                <button onClick={sendMessage} disabled={!composer.trim() && pendingFiles.length === 0} className="btn-sm" style={{ marginLeft: 'auto', minWidth: 72 }}>Send</button>
               </div>
               {pendingFiles.length > 0 && (
                 <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -655,7 +750,7 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
       {/* convert-to-ticket modal */}
       {convertOpen && session && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => setConvertOpen(false)}>
-          <div className="data-card" style={{ width: 440, padding: 24 }} onClick={e => e.stopPropagation()}>
+          <div className="data-card" style={{ width: 440, maxWidth: '94vw', padding: 24 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem' }}>Convert chat to ticket</h3>
             <label style={labelStyle}>Subject</label>
             <input value={convertSubject} onChange={e => setConvertSubject(e.target.value)} placeholder={`Chat: ${session.customerName || 'Support request'}`} style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
@@ -762,21 +857,25 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
 
   return (
     <>
-      <div className="filter-bar" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={status} onChange={e => { setStatus(e.target.value); setTimeout(load, 0); }} style={inputStyle} className="sel">
+      <div className="data-card" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '12px 16px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="search-box" style={{ flex: '1 1 220px', width: 'auto' }}>
+            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && load()} placeholder="Search subject or email…" />
+          </div>
+          <select value={status} onChange={e => { setStatus(e.target.value); setTimeout(load, 0); }} style={pillSelect}>
             <option value="">All statuses</option>
             {Object.keys(statusColors).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
-          <select value={priority} onChange={e => { setPriority(e.target.value); setTimeout(load, 0); }} style={{ ...inputStyle, width: 140 }}>
+          <select value={priority} onChange={e => { setPriority(e.target.value); setTimeout(load, 0); }} style={pillSelect}>
             <option value="">All priorities</option>
             {Object.keys(priorityColors).map(p => <option key={p} value={p}>{p}</option>)}
           </select>
-          <div className="search-box" style={{ width: 220 }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && load()} placeholder="Search subject / email" />
-          </div>
+          <button onClick={() => setCreateOpen(true)} className="btn-primary" style={{ marginLeft: 'auto' }}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Ticket
+          </button>
         </div>
-        <button onClick={() => setCreateOpen(true)} className="btn-primary">+ New Ticket</button>
       </div>
 
       <div className="data-card">
@@ -804,7 +903,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
 
       {detailId && detail && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'flex-end', zIndex: 900 }} onClick={() => setDetailId(null)}>
-          <div className="data-card" style={{ width: 560, height: '100%', display: 'flex', flexDirection: 'column', borderRadius: '24px 0 0 24px' }} onClick={e => e.stopPropagation()}>
+          <div className="data-card" style={{ width: 560, maxWidth: '94vw', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: '24px 0 0 24px' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-color)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                 <div>
@@ -888,7 +987,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
 
       {createOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 900 }} onClick={() => setCreateOpen(false)}>
-          <div className="data-card" style={{ width: 500, padding: 24, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div className="data-card" style={{ width: 500, maxWidth: '94vw', padding: 24, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem' }}>New Ticket</h3>
             <label style={labelStyle}>Customer</label>
             <div className="search-box" style={{ width: '100%', marginBottom: 8 }}>
@@ -906,7 +1005,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
             )}
             <label style={labelStyle}>Subject</label>
             <input value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Ticket subject" style={{ ...inputStyle, marginBottom: 12 }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className="grid-2" style={{ gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={labelStyle}>Category</label>
                 <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={inputStyle}>
@@ -940,6 +1039,7 @@ function CannedTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; se
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null | 'new'>(null);
   const [form, setForm] = useState({ title: '', body: '', category: '' });
+  const [search, setSearch] = useState('');
 
   useEffect(() => { load(); }, []);
 
@@ -973,37 +1073,70 @@ function CannedTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; se
     } catch { toast('Delete failed', 'error', toasts, setToasts); }
   }
 
+  const filtered = items.filter(c =>
+    c.title.toLowerCase().includes(search.toLowerCase()) ||
+    (c.category ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    c.body.toLowerCase().includes(search.toLowerCase())
+  );
+
+  function openEditor(c: Canned) {
+    setEditId(c.id);
+    setForm({ title: c.title, body: c.body, category: c.category ?? '' });
+  }
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16, alignItems: 'start' }}>
-      <div className="data-card">
-        {loading ? <p style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</p>
-          : items.length === 0 ? <p style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>No canned responses yet</p>
-          : <div className="table-scroll">
-              <table>
-                <thead><tr><th>Title</th><th>Category</th><th>Body</th><th>Used</th><th>Updated</th><th></th></tr></thead>
-                <tbody>
-                  {items.map(c => (
-                    <tr key={c.id}>
-                      <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{c.title}</td>
-                      <td>{c.category}</td>
-                      <td style={{ maxWidth: 380, fontSize: '0.8rem' }}>{c.body.length > 90 ? c.body.slice(0, 90) + '…' : c.body}</td>
-                      <td>{c.usageCount}</td>
-                      <td>{timeAgo(c.updatedAt)}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => { setEditId(c.id); setForm({ title: c.title, body: c.body, category: c.category ?? '' }); }} className="btn-sm-outline">Edit</button>
-                          <button onClick={() => remove(c.id)} className="btn-sm-outline" style={{ color: '#DC2626' }}>Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>}
+    <div className="grid-sidebar">
+      <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="search-box" style={{ flex: '1 1 200px', width: 'auto' }}>
+            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search templates…" />
+          </div>
+          <button onClick={() => { resetForm(); setEditId('new'); }} className="btn-primary" style={{ marginLeft: 'auto' }}>
+            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? (
+            <p style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</p>
+          ) : filtered.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 40, color: 'var(--text-muted)' }}>
+              <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span style={{ fontSize: '0.85rem' }}>{search ? 'No templates match your search' : 'No canned responses yet'}</span>
+            </div>
+          ) : filtered.map(c => {
+            const active = editId === c.id;
+            return (
+              <div key={c.id} onClick={() => openEditor(c)}
+                style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', background: active ? 'var(--primary-light)' : 'transparent' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                  {c.category && (
+                    <span style={{ flexShrink: 0, padding: '2px 9px', borderRadius: 10, background: '#EFF6FF', color: '#2563EB', fontSize: '0.68rem', fontWeight: 600 }}>{c.category}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{c.body}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Used {c.usageCount}</span>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>· Updated {timeAgo(c.updatedAt)}</span>
+                  <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                    <button onClick={e => { e.stopPropagation(); openEditor(c); }} className="btn-sm-outline" style={{ padding: '3px 10px' }}>Edit</button>
+                    <button onClick={e => { e.stopPropagation(); remove(c.id); }} className="btn-sm-outline" style={{ padding: '3px 10px', color: '#DC2626', borderColor: '#FECACA' }}>Delete</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="data-card" style={{ padding: 20 }}>
-        <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 14 }}>{editId === 'new' ? 'New canned response' : editId ? 'Edit canned response' : 'Canned response'}</div>
+      <div className="data-card" style={{ padding: 20, alignSelf: 'start' }}>
+        <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>{editId === 'new' ? 'New template' : editId ? 'Edit template' : 'Template editor'}</div>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+          {editId ? 'Reusable reply agents can drop into live chats.' : 'Select a template to edit, or create a new one.'}
+        </p>
         {editId !== null ? (
           <>
             <label style={labelStyle}>Title</label>
@@ -1012,18 +1145,13 @@ function CannedTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; se
             <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Billing / Technical / Sales" style={{ ...inputStyle, marginBottom: 12 }} />
             <label style={labelStyle}>Body</label>
             <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={7} placeholder="Response template…" style={{ ...inputStyle, resize: 'vertical', marginBottom: 12 }} />
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button onClick={resetForm} className="btn-outline">Cancel</button>
-              <button onClick={save} className="btn-primary">Save</button>
+              <button onClick={save} className="btn-primary" style={{ marginLeft: 'auto' }} disabled={!form.title.trim() || !form.body.trim()}>Save</button>
             </div>
           </>
         ) : (
-          <>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 14 }}>
-              Reusable reply templates agents can drop into live chat conversations.
-            </p>
-            <button onClick={() => setEditId('new')} className="btn-primary">+ Add response</button>
-          </>
+          <button onClick={() => setEditId('new')} className="btn-primary">+ New template</button>
         )}
       </div>
     </div>
@@ -1049,45 +1177,61 @@ function AnalyticsTab() {
   if (!data) return <p style={{ color: 'var(--text-muted)' }}>No performance data</p>;
 
   const cards = [
-    { label: 'Chats Handled', value: data.totals.chatsHandled, color: 'var(--primary)' },
-    { label: 'Closed Chats', value: data.totals.closedChats, color: '#16A34A' },
-    { label: 'Tickets Resolved', value: data.totals.ticketsResolved, color: '#3B82F6' },
-    { label: 'Avg CSAT', value: data.totals.avgCsat || '—', color: '#F59E0B' },
+    { label: 'Chats Handled', value: data.totals.chatsHandled, color: '#F15925', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+    { label: 'Closed Chats', value: data.totals.closedChats, color: '#16A34A', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+    { label: 'Tickets Resolved', value: data.totals.ticketsResolved, color: '#2563EB', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> },
+    { label: 'Avg CSAT', value: data.totals.avgCsat ? `${data.totals.avgCsat} ★` : '—', color: '#F59E0B', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> },
   ];
 
   const maxHandled = Math.max(...data.agents.map(a => a.chatsHandled), 1);
+  const presenceColor = (p: string) => (p === 'ONLINE' ? '#16A34A' : p === 'AWAY' ? '#CA8A04' : '#94A3B8');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div className="badge-tabs">
           {(['today', 'week', 'month'] as const).map(r => (
-            <button key={r} onClick={() => setRange(r)} className={`tab-item ${range === r ? 'active' : ''}`} style={{ border: 'none', background: 'transparent', textTransform: 'capitalize', fontWeight: 600 }}>{r}</button>
+            <button key={r} onClick={() => setRange(r)} className={`tab-item ${range === r ? 'active' : ''}`} style={{ border: 'none', background: 'transparent', textTransform: 'capitalize', fontWeight: 600, cursor: 'pointer', font: 'inherit' }}>{r}</button>
           ))}
         </div>
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>since {new Date(data.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', background: '#fff', border: '1px solid var(--border-color)', padding: '5px 12px', borderRadius: 20 }}>
+          Since {new Date(data.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div className="grid-4">
         {cards.map(c => (
-          <div key={c.label} className="data-card" style={{ padding: '18px 20px' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>{c.label}</div>
-            <div style={{ fontSize: '1.7rem', fontWeight: 700, color: c.color, marginTop: 6 }}>{c.value}</div>
+          <div key={c.label} className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: `${c.color}14`, color: c.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {c.icon}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{c.label}</div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: c.color, whiteSpace: 'nowrap' }}>{c.value}</div>
+            </div>
           </div>
         ))}
       </div>
 
       <div className="data-card" style={{ padding: 20 }}>
-        <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 16 }}>Chats handled by agent</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Chats handled by agent</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{data.agents.length} agent{data.agents.length === 1 ? '' : 's'}</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {data.agents.map(a => (
-            <div key={a.agentId}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 4 }}>
-                <span style={{ fontWeight: 600 }}>{a.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({a.email.split('@')[0]}·{a.role})</span></span>
-                <span>{a.chatsHandled} chats</span>
-              </div>
-              <div style={{ height: 8, background: '#F1F5F9', borderRadius: 6 }}>
-                <div style={{ height: 8, width: `${Math.max((a.chatsHandled / maxHandled) * 100, 2)}%`, background: 'var(--primary)', borderRadius: 6 }} />
+            <div key={a.agentId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Avatar name={a.name || a.email} size={32} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {a.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {a.role.replace(/_/g, ' ')}</span>
+                  </span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: a.chatsHandled > 0 ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0 }}>{a.chatsHandled}</span>
+                </div>
+                <div style={{ height: 7, background: '#F1F5F9', borderRadius: 6 }}>
+                  <div style={{ height: 7, width: `${Math.max((a.chatsHandled / maxHandled) * 100, 2)}%`, background: 'var(--primary)', borderRadius: 6 }} />
+                </div>
               </div>
             </div>
           ))}
@@ -1095,6 +1239,7 @@ function AnalyticsTab() {
       </div>
 
       <div className="data-card">
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: '0.95rem' }}>Agent performance</div>
         <div className="table-scroll">
           <table>
             <thead>
@@ -1106,14 +1251,27 @@ function AnalyticsTab() {
             <tbody>
               {data.agents.map(a => (
                 <tr key={a.agentId}>
-                  <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{a.name}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>{a.email}</div></td>
-                  <td><span style={{ color: a.presence === 'ONLINE' ? '#16A34A' : a.presence === 'AWAY' ? '#CA8A04' : '#94A3B8', fontWeight: 600 }}>{a.presence}</span></td>
-                  <td>{a.chatsHandled}</td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Avatar name={a.name || a.email} size={30} />
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{a.name}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>{a.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: presenceColor(a.presence), whiteSpace: 'nowrap' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: presenceColor(a.presence) }} />
+                      {a.presence}
+                    </span>
+                  </td>
+                  <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{a.chatsHandled}</td>
                   <td>{a.closedChats}</td>
                   <td>{a.resolutionRate}%</td>
                   <td>{fmtDur(a.avgFirstResponseSec)}</td>
                   <td>{fmtDur(a.avgDurationSec)}</td>
-                  <td>{a.avgCsat > 0 ? a.avgCsat + ' ★' : '—'}</td>
+                  <td>{a.avgCsat > 0 ? `${a.avgCsat} ★` : '—'}</td>
                   <td>{a.ticketsResolved}</td>
                 </tr>
               ))}

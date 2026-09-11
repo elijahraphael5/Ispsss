@@ -18,15 +18,20 @@ export default function NocPage() {
   return (
     <>
       <div className="page-title-row">
-        <h1 className="page-title">NOC — RADIUS Configuration</h1>
+        <div>
+          <h1 className="page-title">NOC — RADIUS Configuration</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
+            FreeRADIUS clients and PPPoE profiles stored in SQL
+          </p>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div className="badge-tabs" style={{ width: 'fit-content' }}>
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: '8px 20px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
-            backgroundColor: tab === t ? 'var(--primary)' : '#fff', color: tab === t ? '#fff' : 'var(--text-color)',
-          }}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} className={`tab-item${tab === t ? ' active' : ''}`}
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}>
+            {t}
+          </button>
         ))}
       </div>
 

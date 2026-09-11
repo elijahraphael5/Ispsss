@@ -51,7 +51,7 @@ function TwoFactorForm() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#121316', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      <div style={{ backgroundColor: '#18191c', borderRadius: 20, padding: '48px 40px', width: 400, border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ backgroundColor: '#18191c', borderRadius: 20, padding: '48px 40px', width: 400, maxWidth: '92vw', border: '1px solid rgba(255,255,255,0.06)' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{ backgroundColor: '#202226', padding: '8px 18px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', marginBottom: 24 }}>
             <img src="/logo.png" alt="Hikonnect" style={{ height: 30, width: 'auto' }} />

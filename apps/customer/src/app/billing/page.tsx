@@ -92,7 +92,7 @@ export default function BillingPage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <SkeletonBlock width={200} height={28} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        <div className="grid-4">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="data-card" style={{ padding: 24, height: 90 }} />)}
         </div>
         <div className="data-card" style={{ padding: 24 }}>
@@ -112,7 +112,7 @@ export default function BillingPage() {
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Invoices, payments and receipts in one place</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div className="grid-4">
         <div className="data-card" style={{ padding: '18px 20px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Outstanding Balance</div>
           <div style={{ fontSize: '1.3rem', fontWeight: 700, color: (d?.outstandingKobo ?? 0) > 0 ? '#DC2626' : '#16A34A' }}>{d ? fmtK(d.outstandingKobo) : '—'}</div>
@@ -132,14 +132,16 @@ export default function BillingPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer',
-            fontWeight: 600, fontSize: '0.8rem', background: tab === t ? 'var(--primary)' : '#fff',
-            color: tab === t ? '#fff' : 'var(--text-color)',
-          }}>{t}</button>
-        ))}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="tabs-scroll">
+          {TABS.map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer',
+              fontWeight: 600, fontSize: '0.8rem', background: tab === t ? 'var(--primary)' : '#fff',
+              color: tab === t ? '#fff' : 'var(--text-color)',
+            }}>{t}</button>
+          ))}
+        </div>
         <button onClick={async () => { setRefreshing(true); await fetchData(); setRefreshing(false); }}
           style={{ marginLeft: 'auto', padding: '8px 16px', borderRadius: 20, border: '1px solid var(--border-color)',
             cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', background: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>

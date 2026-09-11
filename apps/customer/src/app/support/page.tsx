@@ -292,7 +292,7 @@ export default function SupportPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div className="grid-4">
         <div className="data-card" style={{ padding: '18px 20px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Open Tickets</div>
           <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#2563EB' }}>{openCount}</div>

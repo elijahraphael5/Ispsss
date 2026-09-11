@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@isp/shared';
-import { SkeletonBlock, SkeletonTable } from '../../components/Skeleton';
+import { SkeletonTable } from '../../components/Skeleton';
 
 interface AuditLog {
   id: string;
@@ -34,8 +34,9 @@ const actionColors: Record<string, { bg: string; fg: string }> = {
   USER_DELETED: { bg: '#fecaca', fg: '#991b1b' },
 };
 
-const btnStyle: React.CSSProperties = {
-  padding: '9px 20px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+const pillSelect: React.CSSProperties = {
+  padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.8rem',
+  background: '#fff', cursor: 'pointer', color: 'var(--text-dark)', outline: 'none',
 };
 
 function formatJson(val: unknown): string {
@@ -115,116 +116,129 @@ export default function AuditLogsPage() {
   const totalPages = result ? Math.ceil(result.total / result.limit) : 0;
 
   return (
-    <main style={{ padding: 24 }}>
+    <>
+      <div className="page-title-row">
+        <div>
+          <h1 className="page-title">Audit Logs</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
+            {result ? `${result.total} entries` : 'Change history with rollback'}
+          </p>
+        </div>
+        <button onClick={fetchLogs} className="btn-primary">
+          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+      </div>
+
       {error && (
-        <div style={{ background: '#fee2e2', border: '1px solid #f87171', borderRadius: 12, padding: '12px 16px', marginBottom: 16, color: '#991b1b', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '12px 16px', background: '#FEE2E2', color: '#DC2626', borderRadius: 12, fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <span>{error}</span>
-          <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+          <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontWeight: 700, fontSize: '1rem' }}>×</button>
         </div>
       )}
 
-      <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700 }}>Audit Logs</h1>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <select value={entityTypeFilter} onChange={(e) => { setEntityTypeFilter(e.target.value); setPage(1); }}
-              style={{ padding: '9px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.85rem', background: 'white', outline: 'none' }}>
-              <option value="">All Entity Types</option>
-              <option value="Invoice">Invoice</option>
-              <option value="User">User</option>
-              <option value="Ticket">Ticket</option>
-              <option value="Subscriber">Subscriber</option>
-              <option value="Plan">Plan</option>
-              <option value="CustomRole">Custom Role</option>
-              <option value="Cpe">CPE</option>
-              <option value="Contract">Contract</option>
-              <option value="Payment">Payment</option>
-              <option value="NetworkDevice">Network Device</option>
-            </select>
-            <select value={actionFilter} onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
-              style={{ padding: '9px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.85rem', background: 'white', outline: 'none' }}>
-              <option value="">All Actions</option>
-              <option value="INVOICE_CREATED">INVOICE_CREATED</option>
-              <option value="INVOICE_ISSUED">INVOICE_ISSUED</option>
-              <option value="INVOICE_PAID">INVOICE_PAID</option>
-              <option value="INVOICE_VOIDED">INVOICE_VOIDED</option>
-              <option value="INVOICE_OVERDUE">INVOICE_OVERDUE</option>
-              <option value="USER_CREATED">USER_CREATED</option>
-              <option value="USER_UPDATED">USER_UPDATED</option>
-              <option value="USER_DELETED">USER_DELETED</option>
-              <option value="SUBSCRIBER_CREATED">SUBSCRIBER_CREATED</option>
-              <option value="SUBSCRIBER_UPDATED">SUBSCRIBER_UPDATED</option>
-              <option value="SUBSCRIBER_DELETED">SUBSCRIBER_DELETED</option>
-              <option value="PLAN_CREATED">PLAN_CREATED</option>
-              <option value="PLAN_UPDATED">PLAN_UPDATED</option>
-              <option value="SUBSCRIPTION_CREATED">SUBSCRIPTION_CREATED</option>
-              <option value="TICKET_CREATED">TICKET_CREATED</option>
-              <option value="TICKET_UPDATED">TICKET_UPDATED</option>
-            </select>
-            <button onClick={fetchLogs} style={{ ...btnStyle, background: 'var(--primary)', color: '#fff' }}>Refresh</button>
-          </div>
+      <div className="data-card">
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={entityTypeFilter} onChange={(e) => { setEntityTypeFilter(e.target.value); setPage(1); }} style={pillSelect}>
+            <option value="">All Entity Types</option>
+            <option value="Invoice">Invoice</option>
+            <option value="User">User</option>
+            <option value="Ticket">Ticket</option>
+            <option value="Subscriber">Subscriber</option>
+            <option value="Plan">Plan</option>
+            <option value="CustomRole">Custom Role</option>
+            <option value="Cpe">CPE</option>
+            <option value="Contract">Contract</option>
+            <option value="Payment">Payment</option>
+            <option value="NetworkDevice">Network Device</option>
+          </select>
+          <select value={actionFilter} onChange={(e) => { setActionFilter(e.target.value); setPage(1); }} style={pillSelect}>
+            <option value="">All Actions</option>
+            <option value="INVOICE_CREATED">INVOICE_CREATED</option>
+            <option value="INVOICE_ISSUED">INVOICE_ISSUED</option>
+            <option value="INVOICE_PAID">INVOICE_PAID</option>
+            <option value="INVOICE_VOIDED">INVOICE_VOIDED</option>
+            <option value="INVOICE_OVERDUE">INVOICE_OVERDUE</option>
+            <option value="USER_CREATED">USER_CREATED</option>
+            <option value="USER_UPDATED">USER_UPDATED</option>
+            <option value="USER_DELETED">USER_DELETED</option>
+            <option value="SUBSCRIBER_CREATED">SUBSCRIBER_CREATED</option>
+            <option value="SUBSCRIBER_UPDATED">SUBSCRIBER_UPDATED</option>
+            <option value="SUBSCRIBER_DELETED">SUBSCRIBER_DELETED</option>
+            <option value="PLAN_CREATED">PLAN_CREATED</option>
+            <option value="PLAN_UPDATED">PLAN_UPDATED</option>
+            <option value="SUBSCRIPTION_CREATED">SUBSCRIPTION_CREATED</option>
+            <option value="TICKET_CREATED">TICKET_CREATED</option>
+            <option value="TICKET_UPDATED">TICKET_UPDATED</option>
+          </select>
+          {(entityTypeFilter || actionFilter) && (
+            <button className="btn-sm-outline" onClick={() => { setEntityTypeFilter(''); setActionFilter(''); setPage(1); }}>Clear filters</button>
+          )}
         </div>
 
         {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <SkeletonBlock width={120} height={34} borderRadius={20} />
-              <SkeletonBlock width={140} height={34} borderRadius={20} />
-            </div>
+          <div style={{ padding: 20 }}>
             <SkeletonTable rows={10} cols={6} />
           </div>
         ) : result && result.data.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)', border: '1px dashed var(--border-color)', borderRadius: 16 }}>
-            No audit logs found.
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+              <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+              <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>No audit logs found</span>
+              <span style={{ fontSize: '0.78rem' }}>Try clearing the filters.</span>
+            </div>
           </div>
         ) : result ? (
           <>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <div className="table-scroll">
+              <table>
                 <thead>
-                  <tr style={{ borderBottom: '2px solid #eee' }}>
-                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Timestamp</th>
-                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Actor</th>
-                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Action</th>
-                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Entity / ID</th>
-                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Changes</th>
-                    <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Rollback</th>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Entity / ID</th>
+                    <th>Changes</th>
+                    <th>Rollback</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.data.map((log) => {
-                    const ac = actionColors[log.action] ?? { bg: '#e5e7eb', fg: '#4b5563' };
+                    const ac = actionColors[log.action] ?? { bg: '#F1F5F9', fg: '#475569' };
                     const expanded = expandedId === log.id;
                     const canRb = canRollback(log.action, log.beforeData, log.afterData);
                     return (
-                      <tr key={log.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{new Date(log.createdAt).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>{log.actor?.email ?? 'deleted user'}</td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{ display: 'inline-block', padding: '3px 12px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, background: ac.bg, color: ac.fg, whiteSpace: 'nowrap' }}>
+                      <tr key={log.id}>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                          {new Date(log.createdAt).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ fontWeight: 600, color: 'var(--text-dark)', whiteSpace: 'nowrap' }}>{log.actor?.email ?? 'deleted user'}</td>
+                        <td>
+                          <span style={{ display: 'inline-block', padding: '3px 12px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: ac.bg, color: ac.fg, whiteSpace: 'nowrap' }}>
                             {log.action}
                           </span>
                         </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.entityType}</div>
-                          <code style={{ fontSize: '0.7rem', background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>{log.entityId.slice(0, 8)}…</code>
+                        <td>
+                          <div style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: '0.82rem' }}>{log.entityType}</div>
+                          <code style={{ fontSize: '0.7rem', background: '#F1F5F9', padding: '2px 6px', borderRadius: 6, color: 'var(--text-muted)' }}>{log.entityId.slice(0, 8)}…</code>
                         </td>
-                        <td style={{ padding: '10px 12px', maxWidth: 300 }}>
+                        <td style={{ maxWidth: 300 }}>
                           {log.beforeData || log.afterData ? (
                             <>
                               <button onClick={() => setExpandedId(expanded ? null : log.id)}
-                                style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, padding: 0 }}>
+                                className="btn-sm-outline" style={{ padding: '4px 12px' }}>
                                 {expanded ? 'Hide diff' : 'View diff'}
                               </button>
                               {expanded && <DiffView before={log.beforeData} after={log.afterData} />}
                             </>
                           ) : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>}
                         </td>
-                        <td style={{ padding: '10px 12px' }}>
+                        <td>
                           {canRb ? (
                             <button onClick={() => handleRollback(log.id, log.action)}
                               disabled={rollingBack === log.id}
-                              style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid #DC2626', background: rollingBack === log.id ? '#FEE2E2' : '#fff', color: '#DC2626', cursor: rollingBack === log.id ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                              className="btn-sm-outline"
+                              style={{ padding: '5px 12px', color: '#DC2626', borderColor: '#FECACA', opacity: rollingBack === log.id ? 0.6 : 1, cursor: rollingBack === log.id ? 'not-allowed' : 'pointer' }}>
                               {rollingBack === log.id ? '…' : 'Rollback'}
                             </button>
                           ) : (
@@ -237,17 +251,17 @@ export default function AuditLogsPage() {
                 </tbody>
               </table>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Page {result.page} of {totalPages} ({result.total} total)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderTop: '1px solid var(--border-color)', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Page {result.page} of {totalPages} · {result.total} entries
               </span>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
-                  style={{ ...btnStyle, padding: '8px 20px', background: page <= 1 ? '#e5e7eb' : 'var(--primary)', color: page <= 1 ? '#9ca3af' : '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>
+                  className="btn-sm-outline" style={{ padding: '6px 16px', opacity: page <= 1 ? 0.5 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>
                   Previous
                 </button>
                 <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                  style={{ ...btnStyle, padding: '8px 20px', background: page >= totalPages ? '#e5e7eb' : 'var(--primary)', color: page >= totalPages ? '#9ca3af' : '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>
+                  className="btn-sm-outline" style={{ padding: '6px 16px', opacity: page >= totalPages ? 0.5 : 1, cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}>
                   Next
                 </button>
               </div>
@@ -255,6 +269,6 @@ export default function AuditLogsPage() {
           </>
         ) : null}
       </div>
-    </main>
+    </>
   );
 }

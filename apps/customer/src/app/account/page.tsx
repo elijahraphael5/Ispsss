@@ -79,7 +79,7 @@ export default function AccountPage() {
 
       <div className="data-card" style={{ padding: 24 }}>
         <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: 16 }}>Profile</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 18 }}>
+        <div className="grid-2" style={{ gap: 18 }}>
           {[
             { label: 'Name', value: user?.email?.split('@')[0] ?? '—' },
             { label: 'Email', value: user?.email ?? '—' },

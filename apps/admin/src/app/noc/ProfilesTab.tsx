@@ -111,11 +111,16 @@ export default function ProfilesTab({ toast }: { toast: (msg: string) => void })
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
-          PPPoE profiles stored as RADIUS groups (<code>radgroupreply</code>). Assign them per customer from the PPPoE user page.
-        </p>
-        <button className="btn-primary" onClick={openCreate}>Add Profile</button>
+      <div className="data-card" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+            PPPoE profiles stored as RADIUS groups (<code>radgroupreply</code>). Assign them per user from the PPPoE Users tab.
+          </span>
+          <button className="btn-primary" onClick={openCreate} style={{ flexShrink: 0 }}>
+            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Profile
+          </button>
+        </div>
       </div>
 
       <div className="data-card" style={{ padding: 0 }}>
@@ -138,7 +143,13 @@ export default function ProfilesTab({ toast }: { toast: (msg: string) => void })
                 {loading ? (
                   <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</td></tr>
                 ) : rows.length === 0 ? (
-                  <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No profiles yet.</td></tr>
+                  <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+                      <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                      <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>No profiles yet</span>
+                      <span style={{ fontSize: '0.78rem' }}>Create a PPPoE profile to assign to your customers.</span>
+                    </div>
+                  </td></tr>
                 ) : rows.map((p) => (
                   <tr key={p.name}>
                     <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</td>
@@ -186,7 +197,7 @@ export default function ProfilesTab({ toast }: { toast: (msg: string) => void })
                 <label style={lbl}>Rate limit (Mikrotik-Rate-Limit)</label>
                 <input value={form.rateLimit} onChange={(e) => setForm((f) => ({ ...f, rateLimit: e.target.value }))} placeholder="10M/10M" style={{ ...inp, fontFamily: 'monospace' }} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Session timeout (seconds)</label>
                   <input type="number" value={form.sessionTimeout} onChange={(e) => setForm((f) => ({ ...f, sessionTimeout: e.target.value }))} placeholder="optional" style={inp} />

@@ -632,56 +632,64 @@ export default function CustomerPage() {
             &middot; {allRows.filter(r => r._type === 'STATIC_IP' && matchCustomer(r)?.status === 'ACTIVE').length} Static IP active
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button onClick={load} disabled={loading} style={{
-          padding: '8px 20px', borderRadius: 20, border: '1px solid var(--primary)', background: 'transparent',
-          color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-        }}>{loading ? 'Loading...' : 'Refresh'}</button>
-        <button onClick={() => { setCreateError(''); setShowCreate(true); }} style={{
-          padding: '8px 20px', borderRadius: 20, border: '1px solid var(--primary)', background: 'transparent',
-          color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-        }}>New Customer</button>
-        <button onClick={() => { setImportResult(null); setImportError(''); setImportFile(null); setShowImport(true); }} style={{
-          padding: '8px 20px', borderRadius: 20, border: 'none', background: 'var(--primary)',
-          color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-        }}>Import Excel</button>
-        <button onClick={() => { setPurgeConfirmText(''); setShowPurge(true); }} style={{
-          padding: '8px 20px', borderRadius: 20, border: '1px solid #DC2626', background: 'transparent',
-          color: '#DC2626', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-        }}>Purge Customers</button>
-        <button onClick={() => setDeleteOpen(true)} disabled={selectedKeys.size === 0} style={{
-          padding: '8px 20px', borderRadius: 20, border: '1px solid #DC2626', background: selectedKeys.size ? '#DC2626' : 'transparent',
-          color: selectedKeys.size ? '#fff' : '#DC2626', fontWeight: 600, fontSize: '0.85rem', cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 0.55,
-        }}>
-          Delete Selected{selectedKeys.size ? ` (${selectedKeys.size})` : ''}
+        <button className="btn-primary" onClick={() => { setCreateError(''); setShowCreate(true); }}>
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Customer
         </button>
       </div>
-      </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['All', 'Active', 'Non Active'] as const).map(f => (
-          <button key={f} onClick={() => { setFilter(f); setPage(0); }}
-            style={{ padding: '6px 16px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.75rem', backgroundColor: filter === f ? 'var(--primary)' : '#fff', color: filter === f ? '#fff' : 'var(--text-color)' }}>
-            {f}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          value={search}
-          onChange={e => { setSearch(e.target.value); }}
-          placeholder="Search name, email, phone, username, address…"
-          style={{ flex: '1 1 220px', padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', minWidth: 0 }}
-        />
-        <select
-          value={planFilter}
-          onChange={e => { setPlanFilter(e.target.value); }}
-          style={{ padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer', background: '#fff', maxWidth: 220 }}
-        >
-          <option value="All">All plans</option>
-          {filtered.planOptions.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
+      <div className="data-card" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="badge-tabs">
+            {(['All', 'Active', 'Non Active'] as const).map(f => (
+              <button key={f} onClick={() => { setFilter(f); setPage(0); }}
+                className={`tab-item${filter === f ? ' active' : ''}`}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}>
+                {f}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="btn-sm-outline" onClick={load} disabled={loading}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            <button className="btn-sm-outline" onClick={() => { setImportResult(null); setImportError(''); setImportFile(null); setShowImport(true); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Import Excel
+            </button>
+            <button className="btn-sm-outline" onClick={() => { setPurgeConfirmText(''); setShowPurge(true); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', color: '#DC2626', borderColor: '#FCA5A5' }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Purge
+            </button>
+            <button className="btn-sm" onClick={() => setDeleteOpen(true)} disabled={selectedKeys.size === 0}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: selectedKeys.size ? '#DC2626' : '#CBD5E1', cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 0.8 }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Delete{selectedKeys.size ? ` (${selectedKeys.size})` : ''}
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, padding: '0 18px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="search-box" style={{ flex: '1 1 260px', width: 'auto' }}>
+            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input
+              value={search}
+              onChange={e => { setSearch(e.target.value); }}
+              placeholder="Search name, email, phone, username, address…"
+            />
+          </div>
+          <select
+            value={planFilter}
+            onChange={e => { setPlanFilter(e.target.value); }}
+            style={{ padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer', background: '#fff', maxWidth: 220 }}
+          >
+            <option value="All">All plans</option>
+            {filtered.planOptions.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
       </div>
 
       {error && (
@@ -710,8 +718,8 @@ export default function CustomerPage() {
             : 'No subscribers found'}
         </div>
       ) : (
-        <div className="data-card" style={{ padding: 0, overflowY: 'auto', overflowX: 'hidden', height: 'calc(100vh - 280px)', minHeight: 360 }}>
-          <div style={{ overflowX: 'auto' }}>
+        <div className="data-card" style={{ padding: 0, overflow: 'hidden', height: 'calc(100vh - 280px)', minHeight: 360 }}>
+          <div className="h-scroll" style={{ height: '100%', overflowY: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
@@ -816,7 +824,7 @@ export default function CustomerPage() {
               <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowCreate(false)}>✕</span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="grid-2" style={{ gap: 12 }}>
               <div>
                 <label style={lbl}>Full name *</label>
                 <input value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} style={inp} />

@@ -871,7 +871,7 @@ export default function PppoeDetailPage() {
       </div>
 
       <div className="data-card" style={{ padding: 24, marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>LIVE SESSION</div>
           {mySession && (
             <button onClick={disconnectSession} disabled={busy} style={{
@@ -920,7 +920,7 @@ export default function PppoeDetailPage() {
       <UsageHistoryCard username={username} />
 
       <div className="data-card" style={{ padding: 24, marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>RADIUS (FreeRADIUS)</span>
             {radiusUsage && badge(radiusUsage.online ? 'LIVE' : 'OFFLINE', radiusUsage.online ? '#16A34A' : '#94A3B8')}
@@ -1065,7 +1065,7 @@ export default function PppoeDetailPage() {
       </div>
 
       <div className="data-card" style={{ padding: 24, marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>DIAGNOSTICS</div>
           {myIp && (
             <button onClick={() => pingAddress(myIp)} disabled={busy} style={{

@@ -46,13 +46,13 @@ export default function LoginPage() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', backgroundColor: '#F7F7F8', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      <div style={{ flex: 1, maxWidth: 600, padding: '48px 64px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#F7F7F8' }}>
+      <div className="admin-login-left" style={{ flex: 1, maxWidth: 600, padding: '48px 64px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#F7F7F8' }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <img src="/logo.png" alt="Hikonnect" style={{ height: 36, width: 'auto' }} />
         </div>
 
         <div style={{ maxWidth: 380, width: '100%', margin: 'auto 0' }}>
-          <h1 style={{ fontSize: '2.6rem', fontWeight: 800, lineHeight: 1.15, color: '#111', marginBottom: 16 }}>
+          <h1 className="admin-login-title" style={{ fontSize: '2.6rem', fontWeight: 800, lineHeight: 1.15, color: '#111', marginBottom: 16 }}>
             Manage Your Network, <span style={{ color: '#FF6224', fontStyle: 'italic' }}>Smarter</span>
           </h1>
           <p style={{ color: '#7A7D85', fontSize: '0.9rem', lineHeight: 1.5, fontWeight: 500, marginBottom: 32 }}>
@@ -115,7 +115,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
+      <div className="admin-login-right" style={{ flex: 1, backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
         <div style={{ width: '100%', height: '100%', position: 'relative', background: '#050201' }}>
           <div style={{ position: 'absolute', width: 600, height: 500, top: -120, left: -100, borderRadius: '50%', border: '80px solid #E04200', filter: 'drop-shadow(0 0 40px #FF5500)', boxShadow: 'inset 0 0 50px #000, 0 0 50px #000', borderColor: '#D33A00 #D33A00 transparent transparent', transform: 'rotate(-20deg)' }}></div>
           <div style={{ position: 'absolute', width: 700, height: 600, bottom: -150, right: -120, borderRadius: '50%', border: '80px solid #D33A00', filter: 'drop-shadow(0 0 40px #FF5500)', boxShadow: 'inset 0 0 50px #000, 0 0 50px #000', borderColor: 'transparent transparent #D33A00 #D33A00', transform: 'rotate(15deg)' }}></div>

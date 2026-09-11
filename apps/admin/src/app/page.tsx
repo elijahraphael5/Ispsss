@@ -205,7 +205,6 @@ export default function Dashboard() {
 
   if (!user) return null;
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
   const stats = data?.stats;
   const payments = data?.recentTransactions ?? [];
@@ -239,13 +238,6 @@ export default function Dashboard() {
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Welcome back to your dashboard overview</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          <span>{today}</span>
-          <div style={{ backgroundColor: '#fff', padding: '8px 16px', borderRadius: 16, fontWeight: 600, color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-            Today
-            <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-          </div>
-        </div>
       </div>
 
       {routerHealth.some(h => h.linkStatus === 'unreachable') && (
@@ -256,7 +248,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 20 }}>
+      <div className="grid-5" style={{ gap: 20 }}>
         {[
           { label: 'Total Connections', value: totalConnections || '—', change: '', positive: true, stale: !!staleDevice, icon: '<path d="M4 20h16M4 4h16v12H4z"/>' },
           { label: 'Active Connections', value: activeConnections || '—', change: '', positive: true, stale: !!staleDevice, icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
@@ -288,7 +280,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
+      <div className="grid-split" style={{ gap: 20 }}>
         <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Revenue Overview</div>
@@ -352,7 +344,7 @@ export default function Dashboard() {
           <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Network Overview</div>
           {rosDevice && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{rosDevice.name} ({rosDevice.ipAddress})</span>}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        <div className="grid-4">
           <div style={{ textAlign: 'center', padding: '16px 12px', borderRadius: 16, background: '#F0FDF4' }}>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#16A34A' }}>{(activeSessions.length || netDash?.onlineSessions) ?? '—'}</div>
             <div style={{ fontSize: '0.75rem', color: '#666', marginTop: 4 }}>Active Sessions</div>
@@ -430,7 +422,7 @@ export default function Dashboard() {
         </ResponsiveContainer>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <div className="grid-2" style={{ gap: 20 }}>
         <div style={{ backgroundColor: 'var(--bg-card)', borderRadius: 'var(--border-radius-lg)', padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Recent Notifications</div>
@@ -454,9 +446,9 @@ export default function Dashboard() {
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>{n.title}</span>
-                      {!n.read && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF6224' }} />}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, minWidth: 0 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
+                      {!n.read && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF6224', flexShrink: 0 }} />}
                     </div>
                     <p style={{ margin: 0, fontSize: 12, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.message}</p>
                   </div>
@@ -471,13 +463,14 @@ export default function Dashboard() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Recent Transactions</div>
           </div>
+          <div className="table-scroll">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, paddingBottom: 14, borderBottom: '1px solid #f0f0f0' }}>Customer</th>
-                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, paddingBottom: 14, borderBottom: '1px solid #f0f0f0' }}>Amount</th>
-                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, paddingBottom: 14, borderBottom: '1px solid #f0f0f0' }}>Status</th>
-                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, paddingBottom: 14, borderBottom: '1px solid #f0f0f0' }}>Time</th>
+                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, padding: '0 0 14px 0', borderBottom: '1px solid #f0f0f0' }}>Customer</th>
+                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, padding: '0 0 14px 0', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }}>Amount</th>
+                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, padding: '0 0 14px 0', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }}>Status</th>
+                <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, padding: '0 0 14px 0', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }}>Time</th>
               </tr>
             </thead>
             <tbody>
@@ -485,9 +478,9 @@ export default function Dashboard() {
                 <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No recent payments</td></tr>
               ) : payments.map((p) => (
                 <tr key={p.id}>
-                  <td style={{ padding: '12px 0', fontWeight: 600 }}>{p.subscriber?.email ?? '—'}</td>
-                  <td style={{ padding: '12px 0' }}>{formatNaira(p.amount)}</td>
-                  <td style={{ padding: '12px 0' }}>
+                  <td style={{ padding: '12px 0', fontWeight: 600, wordBreak: 'break-word' }}>{p.subscriber?.email ?? '—'}</td>
+                  <td style={{ padding: '12px 0', whiteSpace: 'nowrap' }}>{formatNaira(p.amount)}</td>
+                  <td style={{ padding: '12px 0', whiteSpace: 'nowrap' }}>
                     <span style={{
                       backgroundColor: p.status === 'SUCCESSFUL' ? 'var(--badge-green-bg)' : 'var(--badge-red-bg)',
                       color: p.status === 'SUCCESSFUL' ? 'var(--badge-green-text)' : 'var(--badge-red-text)',
@@ -496,11 +489,12 @@ export default function Dashboard() {
                       {p.status === 'SUCCESSFUL' ? 'PAID' : p.status}
                     </span>
                   </td>
-                  <td style={{ padding: '12px 0', color: 'var(--text-muted)' }}>{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <td style={{ padding: '12px 0', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(p.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
           {payments.length > 0 && (
             <div style={{ marginTop: 16, textAlign: 'center' }}>
               <button

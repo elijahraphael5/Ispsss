@@ -261,7 +261,7 @@ export default function NetworkPage() {
       {/* ── Dashboard Tab ───────────────────────────────── */}
       {tab === 'Dashboard' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+          <div className="grid-4" style={{ marginBottom: 20 }}>
             {[
               { label: 'Total Subscribers', value: dash?.totalSubscribers ?? '—', color: '#6366F1' },
               { label: 'Active', value: dash?.activeSubscribers ?? '—', color: '#16A34A' },
@@ -274,7 +274,7 @@ export default function NetworkPage() {
               </div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+          <div className="grid-4" style={{ marginBottom: 20 }}>
             {[
               { label: 'NAS Devices', value: dash?.nasCount ?? '—', color: '#8B5CF6' },
               { label: 'Auth Success Rate', value: dash ? `${dash.authSuccessRate}%` : '—', color: '#16A34A' },
@@ -287,7 +287,7 @@ export default function NetworkPage() {
               </div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <div className="grid-4">
             {[
               { label: 'Inactive', value: dash?.inactiveSubscribers ?? '—', color: '#94A3B8' },
               { label: 'Offline Sessions', value: dash?.offlineSessions ?? '—', color: '#94A3B8' },
@@ -401,7 +401,7 @@ export default function NetworkPage() {
               Sync ARP (Static IP)
             </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
+          <div className="grid-3" style={{ marginBottom: 20 }}>
             {[
               { label: 'Total Connections', value: connections.length, color: '#6366F1' },
               { label: 'PPPoE', value: connectionsTotals.totalPppoe, color: '#2563EB' },
@@ -494,7 +494,7 @@ export default function NetworkPage() {
 
           {rosBandwidth && rosDeviceId && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+              <div className="grid-4" style={{ marginBottom: 20 }}>
                 {[
                   { label: 'Total Queues', value: rosBandwidth.queueCount, color: '#6366F1' },
                   { label: 'Download (Total)', value: fmtBytes(rosBandwidth.totalBytesDown), color: '#F15925' },
@@ -690,7 +690,7 @@ export default function NetworkPage() {
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Device Name</label>
                 <input value={deviceForm.name} onChange={e => setDeviceForm(f => ({ ...f, name: e.target.value }))} style={inp} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Type</label>
                   <select value={deviceForm.type} onChange={e => setDeviceForm(f => ({ ...f, type: e.target.value }))} style={sel}>

@@ -38,7 +38,7 @@ export default function SubscriptionPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [drawer, setDrawer] = useState<'change' | 'add' | null>(null);
+  const [drawer, setDrawer] = useState<'change' | null>(null);
   const [paying, setPaying] = useState(false);
   const [months, setMonths] = useState(1);
 
@@ -67,7 +67,7 @@ export default function SubscriptionPage() {
   const isDue = sub?.expiresAt ? new Date(sub.expiresAt).getTime() - Date.now() < 7 * 86400000 : false;
   const isExpired = sub?.expiresAt ? new Date(sub.expiresAt).getTime() < Date.now() : false;
 
-  async function pay(action: 'change_plan' | 'renew' | 'add_plan', planId?: string) {
+  async function pay(action: 'change_plan' | 'renew', planId?: string) {
     const target = action === 'renew' ? data?.plan : plans.find((p) => p.id === planId);
     const priceKobo = target?.priceKobo ?? 0;
     if (!priceKobo) {
@@ -114,71 +114,67 @@ export default function SubscriptionPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="page-title-row">
         <div>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: 700 }}>My Subscription</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>View and manage your plans</p>
+          <h1 className="page-title">My Subscription</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>View and manage your plan</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn-primary" onClick={() => setDrawer('change')} disabled={paying}>Change Plan</button>
-          <button className="btn-primary" style={{ background: '#8B5CF6' }} onClick={() => setDrawer('add')} disabled={paying}>+ Add Plan</button>
-        </div>
+        <button className="btn-primary" onClick={() => setDrawer('change')} disabled={paying}>
+          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Change Plan
+        </button>
       </div>
 
       {/* Current Plan */}
-      <div className="data-card" style={{ padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Current Plan</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div className="data-card" style={{ padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Current Plan</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {(isDue || isExpired) && (
               <span style={{
-                fontSize: '0.75rem', padding: '4px 12px', borderRadius: 20, fontWeight: 600,
+                fontSize: '0.7rem', padding: '3px 10px', borderRadius: 20, fontWeight: 700,
                 background: isExpired ? '#FEE2E2' : '#FEF3C7', color: isExpired ? '#DC2626' : '#D97706'
               }}>
                 {isExpired ? 'Expired' : 'Due Soon'}
               </span>
             )}
             {plan && (
-              <button onClick={() => pay('renew')} disabled={paying}
-                style={{
-                  padding: '8px 18px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: '0.8rem',
-                  cursor: paying ? 'not-allowed' : 'pointer', background: 'var(--primary)', color: '#fff'
-                }}>
-                {paying ? 'Processing...' : `Pay ${fmtK(plan.priceKobo * months)} · ${monthsLabel(months)}`}
+              <button onClick={() => pay('renew')} disabled={paying} className="btn-primary" style={{ padding: '8px 18px', fontSize: '0.8rem' }}>
+                {paying ? 'Processing…' : `Pay ${fmtK(plan.priceKobo * months)} · ${monthsLabel(months)}`}
               </button>
             )}
           </div>
         </div>
         {plan ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+          <div className="grid-3" style={{ gap: 16 }}>
             {[
               { label: 'Plan Name', value: plan.name },
               { label: 'Technology', value: plan.technology ?? '—' },
               { label: 'Download Speed', value: plan.speedMbps + ' Mbps' },
               { label: 'Upload Speed', value: plan.speedMbps + ' Mbps' },
               { label: 'Monthly Price', value: fmtK(plan.priceKobo) },
-              { label: 'Auto Renew', value: sub?.autoRenew ? 'Yes' : 'No' },
+              { label: 'Data Cap', value: plan.dataCapGb ? plan.dataCapGb + ' GB' : 'Unlimited' },
+              { label: 'Started', value: sub?.startedAt ? new Date(sub.startedAt).toLocaleDateString() : '—' },
               { label: 'Expires', value: sub?.expiresAt ? new Date(sub.expiresAt).toLocaleDateString() : '—' },
               { label: 'Status', value: isExpired ? 'Expired' : sub?.expiresAt && isDue ? 'Due Soon' : 'Active' },
-              { label: 'Data Cap', value: plan.dataCapGb ? plan.dataCapGb + ' GB' : 'Unlimited' },
             ].map((f) => (
               <div key={f.label}>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 4 }}>{f.label}</div>
+                <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-muted)', fontWeight: 700, marginBottom: 4 }}>{f.label}</div>
                 <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{f.value}</div>
               </div>
             ))}
           </div>
         ) : (
-          <p style={{ color: 'var(--text-muted)' }}>No active plan</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No active plan</p>
         )}
 
         {plan && (
-          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Pay Ahead</div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Total: <strong style={{ color: 'var(--primary)', fontSize: '1rem' }}>{fmtK(plan.priceKobo * months)}</strong> for {monthsLabel(months)}
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Pay Ahead</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                Total: <strong style={{ color: 'var(--primary)', fontSize: '0.95rem' }}>{fmtK(plan.priceKobo * months)}</strong> for {monthsLabel(months)}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -189,39 +185,21 @@ export default function SubscriptionPage() {
                     border: '1px solid ' + (months === m ? 'var(--primary)' : 'var(--border-color)'),
                     background: months === m ? 'var(--primary)' : '#fff',
                     color: months === m ? '#fff' : 'var(--text-color)',
-                    fontWeight: 600, fontSize: '0.8rem',
+                    fontWeight: 600, fontSize: '0.78rem',
                   }}>
                   {monthsLabel(m)}
                 </button>
               ))}
             </div>
-            <p style={{ margin: '10px 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            <p style={{ margin: '10px 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               Pay for several months at once — your expiry date is extended by the selected period.
             </p>
           </div>
         )}
       </div>
 
-      {/* Subscription Details */}
-      <div className="data-card" style={{ padding: 24 }}>
-        <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: 12 }}>Subscription Details</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
-          {[
-            { label: 'Status', value: data?.subscriber?.status ?? '—' },
-            { label: 'Started', value: sub?.startedAt ? new Date(sub.startedAt).toLocaleDateString() : '—' },
-            { label: 'Expires', value: sub?.expiresAt ? new Date(sub.expiresAt).toLocaleDateString() : '—' },
-            { label: 'Auto Renew', value: sub?.autoRenew ? 'Yes' : 'No' },
-          ].map((f) => (
-            <div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>{f.label}</span>
-              <span style={{ fontWeight: 600 }}>{f.value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* All Plans Drawer */}
-      {(drawer === 'change' || drawer === 'add') && (
+      {drawer === 'change' && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
           onClick={() => { if (!paying) setDrawer(null); }}>
           <div style={{ background: 'white', padding: 32, width: 600, maxWidth: '95vw', height: '100vh', overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,0.1)' }}
@@ -229,10 +207,10 @@ export default function SubscriptionPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
               <div>
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-                  {drawer === 'change' ? 'Choose a New Plan' : 'Add Another Plan'}
+                  Choose a New Plan
                 </h2>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  {drawer === 'change' ? 'Select a plan to switch. You will be charged the plan price for the selected period.' : 'Add an additional ISP plan to your account.'}
+                  Select a plan to switch. You will be charged the plan price for the selected period.
                 </p>
               </div>
               <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => { if (!paying) setDrawer(null); }}>
@@ -241,16 +219,16 @@ export default function SubscriptionPage() {
             </div>
 
             {/* Comparison highlight */}
-            {plan && drawer === 'change' && (
+            {plan && (
               <div style={{ padding: '12px 16px', borderRadius: 12, background: '#FFF7ED', marginBottom: 20, fontSize: '0.85rem' }}>
                 <strong>Current:</strong> {plan.name} — {plan.speedMbps} Mbps — {fmtK(plan.priceKobo)}/mo
               </div>
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {plans.filter(p => drawer === 'add' || p.id !== plan?.id).length === 0 ? (
+              {plans.filter(p => p.id !== plan?.id).length === 0 ? (
                 <p style={{ color: 'var(--text-muted)' }}>No other plans available. Contact support for custom plans.</p>
-              ) : plans.filter(p => drawer === 'add' || p.id !== plan?.id).map((p) => (
+              ) : plans.filter(p => p.id !== plan?.id).map((p) => (
                 <div key={p.id}
                   style={{
                     padding: '18px 20px', borderRadius: 16, cursor: paying ? 'not-allowed' : 'pointer',
@@ -259,7 +237,7 @@ export default function SubscriptionPage() {
                   }}
                   onClick={() => {
                     if (paying) return;
-                    pay(drawer === 'change' ? 'change_plan' : 'add_plan', p.id);
+                    pay('change_plan', p.id);
                   }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ flex: 1 }}>

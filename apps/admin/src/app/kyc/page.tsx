@@ -168,8 +168,7 @@ export default function KycPage() {
         <div>
           <h1 className="page-title">KYC Approvals</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
-            New accounts wait here before they appear in the Customers list.
-            Maker–checker: the admin who created an account cannot approve it — a different admin must.
+            Accounts awaiting approval. Maker–checker: the creator can&apos;t approve — another admin must.
           </p>
         </div>
         <button className="btn-outline" onClick={load} disabled={loading}>

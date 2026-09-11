@@ -81,50 +81,42 @@ export default function NotificationsPage() {
 
   if (error) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 28 }}>Notifications</h1>
-        <p style={{ color: '#888', marginTop: 8 }}>Failed to load notifications.</p>
-        <button onClick={fetchNotifications} style={{ padding: '8px 16px', cursor: 'pointer', borderRadius: 20, border: '1px solid #ccc', background: '#fff' }}>Retry</button>
-      </div>
+      <>
+        <div className="page-title-row">
+          <h1 className="page-title">Notifications</h1>
+        </div>
+        <div className="data-card" style={{ padding: 40, textAlign: 'center' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Failed to load notifications.</p>
+          <button onClick={fetchNotifications} className="btn-outline" style={{ margin: '0 auto' }}>Retry</button>
+        </div>
+      </>
     );
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+    <>
+      <div className="page-title-row">
         <div>
-          <h1 style={{ margin: 0, fontSize: 28 }}>Notifications</h1>
-          <p style={{ margin: '4px 0 0', color: '#888', fontSize: 14 }}>
+          <h1 className="page-title">Notifications</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
             {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {unreadCount > 0 && (
-            <button
-              onClick={markAllAsRead}
-              style={{
-                padding: '8px 20px', borderRadius: 20, border: 'none',
-                background: '#FF6224', color: '#fff', cursor: 'pointer',
-                fontSize: 13, fontWeight: 500,
-              }}
-            >
-              Mark All Read
-            </button>
-          )}
-        </div>
+        {unreadCount > 0 && (
+          <button onClick={markAllAsRead} className="btn-primary">
+            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+            Mark All Read
+          </button>
+        )}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      <div className="badge-tabs" style={{ width: 'fit-content' }}>
         {(['ALL', 'UNREAD'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            style={{
-              padding: '6px 18px', borderRadius: 20, border: '1px solid #ddd',
-              background: filter === f ? '#FF6224' : '#fff',
-              color: filter === f ? '#fff' : '#333',
-              cursor: 'pointer', fontSize: 13, fontWeight: 500,
-            }}
+            className={`tab-item${filter === f ? ' active' : ''}`}
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}
           >
             {f === 'ALL' ? `All (${notifications.length})` : `Unread (${unreadCount})`}
           </button>
@@ -132,63 +124,52 @@ export default function NotificationsPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <div style={{ background: '#fff', borderRadius: 24, padding: 40, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', textAlign: 'center', color: '#888' }}>
-          No notifications.
+        <div className="data-card" style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+            <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>No notifications</span>
+            <span style={{ fontSize: '0.78rem' }}>{filter === 'UNREAD' ? 'You are all caught up.' : 'Nothing here yet.'}</span>
+          </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map((n) => {
+        <div className="data-card" style={{ overflow: 'hidden' }}>
+          {filtered.map((n, i) => {
             const tc = typeColors[n.type] ?? typeColors.INFO;
             return (
               <div
                 key={n.id}
                 onClick={() => n.link && router.push(n.link)}
                 style={{
-                  background: '#fff', borderRadius: 24, padding: '16px 20px',
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-                  borderLeft: `4px solid ${tc.fg}`,
-                  opacity: n.read ? 0.6 : 1,
+                  display: 'flex', gap: 12, alignItems: 'flex-start', padding: '14px 18px',
+                  borderBottom: i < filtered.length - 1 ? '1px solid var(--border-color)' : 'none',
+                  background: n.read ? 'transparent' : '#FFF9F5',
                   cursor: n.link ? 'pointer' : 'default',
-                  transition: 'opacity 0.2s',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                      <strong style={{ fontSize: 15 }}>{n.title}</strong>
-                      <span
-                        style={{
-                          fontSize: 11, fontWeight: 600, borderRadius: 20,
-                          padding: '2px 10px', background: tc.bg, color: tc.fg,
-                        }}
-                      >
-                        {tc.label}
-                      </span>
-                      {!n.read && (
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF6224', display: 'inline-block' }} />
-                      )}
-                    </div>
-                    <p style={{ margin: '4px 0', color: '#555', fontSize: 14, lineHeight: 1.4 }}>{n.message}</p>
-                    <span style={{ fontSize: 12, color: '#aaa' }}>{new Date(n.createdAt).toLocaleString()}</span>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: tc.fg, marginTop: 6, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{n.title}</span>
+                    <span style={{ fontSize: '0.66rem', fontWeight: 700, borderRadius: 20, padding: '2px 9px', background: tc.bg, color: tc.fg }}>{tc.label}</span>
+                    {!n.read && <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--primary)' }} />}
                   </div>
-                  {!n.read && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }}
-                      style={{
-                        padding: '6px 16px', cursor: 'pointer', fontSize: 12,
-                        borderRadius: 20, border: '1px solid #ddd',
-                        background: '#fff', whiteSpace: 'nowrap', flexShrink: 0,
-                      }}
-                    >
-                      Dismiss
-                    </button>
-                  )}
+                  <p style={{ margin: '2px 0', color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: 1.45 }}>{n.message}</p>
+                  <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>{new Date(n.createdAt).toLocaleString()}</span>
                 </div>
+                {!n.read && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }}
+                    className="btn-sm-outline"
+                    style={{ padding: '5px 12px', flexShrink: 0 }}
+                  >
+                    Dismiss
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
       )}
-    </div>
+    </>
   );
 }

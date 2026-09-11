@@ -146,7 +146,7 @@ export default function UsageHistoryCard({ username, ip, planSpeedMbps }: { user
         <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>
           METRICS HISTORY {isLive && latest && (connected ? <span style={{ color: '#16A34A', fontSize: '0.68rem', fontWeight: 600 }}>● live · every 30s</span> : <span style={{ color: '#B45309', fontSize: '0.68rem', fontWeight: 600 }}>● offline · last sample {timeAgo(latest.capturedAt)}</span>)}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div className="tabs-scroll" style={{ gap: 6 }}>
           {RANGES.map(r => (
             <button
               key={r.key}

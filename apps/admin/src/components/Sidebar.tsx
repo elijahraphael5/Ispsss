@@ -38,12 +38,17 @@ export default function Sidebar({ children }: { children: React.ReactNode }) {
   const { user, logout, accessToken, setAccessToken } = useAuthStore();
   const [mounted, setMounted] = useState(false);
   const [impersonatedTenant, setImpersonatedTenant] = useState<string | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     const name = localStorage.getItem('impersonatingTenantName');
     setImpersonatedTenant(name);
   }, []);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
 
   if (!mounted || !accessToken || authPaths.includes(pathname)) return <>{children}</>;
 
@@ -84,28 +89,34 @@ export default function Sidebar({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div style={{ width: '100%', height: '100vh', backgroundColor: 'var(--bg-dark)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="app-shell">
       {impersonatedTenant && (
-        <div style={{ backgroundColor: '#dc2626', color: '#fff', padding: '8px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', flexShrink: 0 }}>
+        <div className="app-impersonation">
           <span>Viewing as <strong>{impersonatedTenant}</strong></span>
           <button onClick={handleExitImpersonation} style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '4px 16px', borderRadius: 20, cursor: 'pointer', fontSize: '0.85rem' }}>
             Exit
           </button>
         </div>
       )}
-      <header style={{ backgroundColor: 'var(--bg-dark)', padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-        <div style={{ backgroundColor: '#202226', padding: '8px 18px', borderRadius: 20, display: 'flex', alignItems: 'center' }}>
-          <img src="/logo.png" alt="Hikonnect" style={{ height: 30, width: 'auto' }} />
+      <header className="app-header">
+        <div className="app-header-left">
+          <button className="app-menu-btn" aria-label="Open navigation" onClick={() => setNavOpen(true)}>
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div className="app-logo">
+            <img src="/logo.png" alt="Hikonnect" style={{ height: 30, width: 'auto' }} />
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>{user?.email}</span>
-          <button onClick={() => { logout(); router.push('/login'); }} style={{ backgroundColor: 'var(--accent-orange)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: 20, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+          <span className="app-header-user" style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>{user?.email}</span>
+          <button onClick={() => { logout(); router.push('/login'); }} style={{ backgroundColor: 'var(--accent-orange)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: 20, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
             Logout
           </button>
         </div>
       </header>
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <nav style={{ width: 240, backgroundColor: 'var(--bg-dark)', padding: '10px 20px 24px 20px', flexShrink: 0, overflow: 'hidden' }}>
+      <div className="app-body">
+        <div className={`app-nav-overlay${navOpen ? ' open' : ''}`} onClick={() => setNavOpen(false)} />
+        <nav className={`app-nav${navOpen ? ' open' : ''}`}>
           <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {visibleItems.map((item) => {
               const active = pathname === item.href;
@@ -126,7 +137,7 @@ export default function Sidebar({ children }: { children: React.ReactNode }) {
             })}
           </ul>
         </nav>
-        <main style={{ flex: 1, backgroundColor: 'var(--bg-main)', borderTopLeftRadius: 32, padding: 32, display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0, overflowY: 'auto' }}>
+        <main className="app-main">
           {children}
         </main>
       </div>

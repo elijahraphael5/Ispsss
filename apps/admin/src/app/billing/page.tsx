@@ -340,10 +340,10 @@ async function fetchSubs() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <SkeletonBlock width={200} height={28} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        <div className="grid-4">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} height={90} />)}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+        <div className="grid-5" style={{ gap: 12 }}>
           {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} height={60} />)}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -358,29 +358,58 @@ async function fetchSubs() {
 
   return (
     <>
+      <div className="page-title-row">
+        <div>
+          <h1 className="page-title">Billing &amp; Payments</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
+            Invoices, quotations, payments and reconciliation
+          </p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="tabs-scroll">
+          {TABS.map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{ padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', backgroundColor: tab === t ? 'var(--primary)' : '#fff', color: tab === t ? '#fff' : 'var(--text-color)', whiteSpace: 'nowrap' }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+          {(tab === 'Invoices') && (
+            <button className="btn-primary" onClick={openCreate}>Create Invoice</button>
+          )}
+          {(tab === 'Quotations') && (
+            <button className="btn-primary" onClick={openQuotation}>New Quotation</button>
+          )}
+        </div>
+      </div>
+
       {/* Dashboard Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-        <div className="data-card" style={{ padding: '18px 20px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Revenue Today</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)' }}>{dashboard ? fmtK(dashboard.revenueToday) : '—'}</div>
-        </div>
-        <div className="data-card" style={{ padding: '18px 20px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Revenue This Month</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>{dashboard ? fmtK(dashboard.revenueThisMonth) : '—'}</div>
-        </div>
-        <div className="data-card" style={{ padding: '18px 20px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Collection Rate</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>{dashboard ? `${dashboard.collections.collectionRate}%` : '—'}</div>
-        </div>
-        <div className="data-card" style={{ padding: '18px 20px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Outstanding Debt</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: dashboard && dashboard.collections.totalOutstanding > 0 ? '#DC2626' : 'inherit' }}>{dashboard ? fmtK(dashboard.collections.totalOutstanding) : '—'}</div>
-        </div>
+      <div className="grid-4" style={{ marginBottom: 16 }}>
+        {[
+          { label: 'Revenue Today', value: dashboard ? fmtK(dashboard.revenueToday) : '—', color: '#F15925', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> },
+          { label: 'Revenue This Month', value: dashboard ? fmtK(dashboard.revenueThisMonth) : '—', color: '#2563EB', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+          { label: 'Collection Rate', value: dashboard ? `${dashboard.collections.collectionRate}%` : '—', color: '#16A34A', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+          { label: 'Outstanding Debt', value: dashboard ? fmtK(dashboard.collections.totalOutstanding) : '—', color: dashboard && dashboard.collections.totalOutstanding > 0 ? '#DC2626' : '#64748B', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+        ].map(k => (
+          <div key={k.label} className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: `${k.color}14`, color: k.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {k.icon}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{k.label}</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: k.color, whiteSpace: 'nowrap' }}>{k.value}</div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Invoice Status Summary */}
       {dashboard && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
+        <div className="data-card" style={{ padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Invoices</span>
           {[
             { label: 'Generated', value: dashboard.invoices.generated, color: '#6B7280' },
             { label: 'Paid', value: dashboard.invoices.paid, color: '#16A34A' },
@@ -388,10 +417,11 @@ async function fetchSubs() {
             { label: 'Overdue', value: dashboard.invoices.overdue, color: '#DC2626' },
             { label: 'Void', value: dashboard.invoices.void, color: '#94A3B8' },
           ].map(s => (
-            <div key={s.label} className="data-card" style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>{s.label}</span>
-              <span style={{ fontSize: '1.1rem', fontWeight: 700, color: s.color }}>{s.value}</span>
-            </div>
+            <span key={s.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+              {s.label}
+              <strong style={{ fontSize: '1rem', color: s.color }}>{s.value}</strong>
+            </span>
           ))}
         </div>
       )}
@@ -402,42 +432,35 @@ async function fetchSubs() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{ padding: '8px 18px', borderRadius: 20, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', backgroundColor: tab === t ? 'var(--primary)' : '#fff', color: tab === t ? '#fff' : 'var(--text-color)' }}>
-            {t}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        {(tab === 'Invoices') && (
-          <button className="btn-primary" onClick={openCreate}>Create Invoice</button>
-        )}
-        {(tab === 'Quotations') && (
-          <button className="btn-primary" onClick={openQuotation}>New Quotation</button>
-        )}
-      </div>
-
       {/* ── Invoices Tab ─────────────────────────────────── */}
       {tab === 'Invoices' && (
         <>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice # or email..." style={{ ...inp, maxWidth: 240 }} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              {INVOICE_TYPES.map(t => (
-                <button key={t} onClick={() => setInvFilter(t)} style={{ padding: '5px 12px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: invFilter === t ? 600 : 400, fontSize: '0.75rem', background: invFilter === t ? 'var(--primary)' : '#fff', color: invFilter === t ? '#fff' : 'var(--text-color)' }}>
-                  {t === 'ALL' ? 'All' : t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                </button>
-              ))}
+          <div className="data-card" style={{ marginBottom: 16 }}>
+            <div style={{ padding: '12px 16px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="search-box" style={{ flex: '1 1 200px', width: 'auto' }}>
+                <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice # or email…" />
+              </div>
+              <div className="badge-tabs">
+                {INVOICE_TYPES.map(t => (
+                  <button key={t} onClick={() => setInvFilter(t)}
+                    className={`tab-item${invFilter === t ? ' active' : ''}`}
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {t === 'ALL' ? 'All' : t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 20, border: '1px solid var(--border-color)', background: '#fff' }}>
+                <svg width="14" height="14" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '0.75rem', color: 'var(--text-dark)', width: 122 }} />
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>→</span>
+                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '0.75rem', color: 'var(--text-dark)', width: 122 }} />
+              </div>
+              <button className="btn-outline" onClick={exportInvoicesCsv} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export CSV
+              </button>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>From</label>
-              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ ...inp, width: 150 }} />
-              <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>To</label>
-              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ ...inp, width: 150 }} />
-            </div>
-            <div style={{ flex: 1 }} />
-            <button className="btn-outline" onClick={exportInvoicesCsv}>Export CSV</button>
           </div>
 
           <div className="data-card" style={{ padding: 0 }}>
@@ -487,12 +510,18 @@ async function fetchSubs() {
       {/* ── Quotations Tab ───────────────────────────────── */}
       {tab === 'Quotations' && (
         <>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-            {QUOTATION_STATUSES.map(s => (
-              <button key={s} onClick={() => setQFilter(s)} style={{ padding: '5px 12px', borderRadius: 16, border: '1px solid var(--border-color)', cursor: 'pointer', fontWeight: qFilter === s ? 600 : 400, fontSize: '0.75rem', background: qFilter === s ? 'var(--primary)' : '#fff', color: qFilter === s ? '#fff' : 'var(--text-color)' }}>
-                {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
-              </button>
-            ))}
+          <div className="data-card" style={{ marginBottom: 16 }}>
+            <div style={{ padding: '12px 16px' }}>
+              <div className="badge-tabs" style={{ display: 'inline-flex' }}>
+                {QUOTATION_STATUSES.map(s => (
+                  <button key={s} onClick={() => setQFilter(s)}
+                    className={`tab-item${qFilter === s ? ' active' : ''}`}
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="data-card" style={{ padding: 0 }}>
@@ -664,7 +693,7 @@ async function fetchSubs() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="grid-2" style={{ gap: 12 }}>
                     <div>
                       <label style={lbl}>Full Name</label>
                       <input value={form.newName} onChange={e => setForm(f => ({ ...f, newName: e.target.value }))} placeholder="John Doe" style={inp} />
@@ -674,7 +703,7 @@ async function fetchSubs() {
                       <input type="email" value={form.newEmail} onChange={e => setForm(f => ({ ...f, newEmail: e.target.value }))} placeholder="new@customer.com" style={inp} />
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="grid-2" style={{ gap: 12 }}>
                     <div>
                       <label style={lbl}>Phone</label>
                       <input value={form.newPhone} onChange={e => setForm(f => ({ ...f, newPhone: e.target.value }))} placeholder="+234..." style={inp} />
@@ -690,7 +719,7 @@ async function fetchSubs() {
                 <label style={lbl}>Email invoice to (defaults to customer email)</label>
                 <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="billing@customer.com" style={inp} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Invoice Type</label>
                   <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={sel}>
@@ -720,7 +749,7 @@ async function fetchSubs() {
                 ))}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Subtotal</label>
                   <div style={{ padding: '9px 12px', background: '#F8FAFC', borderRadius: 10, fontSize: '0.9rem', fontWeight: 600 }}>{fmtK(calcSubtotal())}</div>
@@ -731,7 +760,7 @@ async function fetchSubs() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>VAT (₦, auto 7.5%)</label>
                   <input type="text" inputMode="decimal" value={form.vatNaira !== '' ? form.vatNaira : String(calcVat() / 100)} onChange={e => setForm(f => ({ ...f, vatNaira: e.target.value }))} style={inp} />
@@ -883,7 +912,7 @@ async function fetchSubs() {
                   <input value={qForm.subscriberName} onChange={e => setQForm(f => ({ ...f, subscriberName: e.target.value, subscriberId: '' }))} style={inp} />
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Email</label>
                   <input value={qForm.subscriberEmail} onChange={e => setQForm(f => ({ ...f, subscriberEmail: e.target.value }))} style={inp} />
@@ -917,7 +946,7 @@ async function fetchSubs() {
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Discount (₦)</label>
                   <input type="text" inputMode="decimal" value={qForm.discountNaira} onChange={e => setQForm(f => ({ ...f, discountNaira: e.target.value }))} placeholder="0" style={inp} />

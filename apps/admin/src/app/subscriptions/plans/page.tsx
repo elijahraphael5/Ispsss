@@ -189,18 +189,24 @@ export default function PlansPage() {
   return (
     <>
       <div className="page-title-row">
-        <h1 className="page-title">Package</h1>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div>
+          <h1 className="page-title">Package</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
+            {filtered.length} plan{filtered.length === 1 ? '' : 's'} configured
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-outline" onClick={downloadTemplate}>
-            Download Template
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ marginLeft: 6 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Template
           </button>
           <button className="btn-outline" onClick={openImport}>
+            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             Import Excel
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ marginLeft: 6 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           </button>
           <button className="btn-primary" onClick={openCreate}>
-            Add Plan <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Plan
           </button>
         </div>
       </div>
@@ -221,37 +227,47 @@ export default function PlansPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {filtered.map(p => (
             <div key={p.id} className="data-card" style={{ padding: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '20px 24px', borderBottom: '1px solid var(--border-color)' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, padding: '18px 22px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                     <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{p.name}</h3>
                     {badge(p.technology, p.technology === 'FIBER' ? '#8B5CF6' : p.technology === 'DIA' ? '#DC2626' : '#F59E0B')}
                     {badge(p.category.replace(/_/g, ' '), '#3B82F6')}
                     {p.level && badge(p.level, p.level === 'GOLD' ? '#B45309' : p.level === 'SILVER' ? '#64748B' : '#92400E')}
                     {!p.isActive && badge('INACTIVE', '#94A3B8')}
                   </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>{p.description}</p>
+                  {p.description && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>{p.description}</p>}
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--primary)' }}>{fmtKobo(p.priceKobo)}<span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>/mo</span></div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--primary)', whiteSpace: 'nowrap' }}>{fmtKobo(p.priceKobo)}<span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>/mo</span></div>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, padding: '16px 24px', background: '#FAFAFA', fontSize: '0.8rem' }}>
-                <div><strong>{p.speedMbps} Mbps</strong> <span style={{ color: 'var(--text-muted)' }}>Speed</span></div>
-                {p.sla ? <div><strong>{p.sla / 10}%</strong> <span style={{ color: 'var(--text-muted)' }}>SLA</span></div> : null}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12, padding: '14px 22px', background: '#FAFAFA', fontSize: '0.8rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted)' }}>Speed</div>
+                  <div style={{ fontWeight: 700, marginTop: 2 }}>{p.speedMbps} Mbps</div>
+                </div>
+                {p.sla ? (
+                  <div>
+                    <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted)' }}>SLA</div>
+                    <div style={{ fontWeight: 700, marginTop: 2 }}>{p.sla / 10}%</div>
+                  </div>
+                ) : null}
               </div>
               {p.features && (
-                <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ padding: '12px 22px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {(JSON.parse(p.features) as string[]).map((f, i) => (
                     <span key={i} style={{ padding: '3px 10px', borderRadius: 8, background: '#F1F5F9', fontSize: '0.75rem', color: '#475569' }}>{f}</span>
                   ))}
                 </div>
               )}
-              <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => toggleActive(p)} style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500 }}>
+              <div style={{ padding: '12px 22px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button onClick={() => toggleActive(p)} className="btn-sm-outline" style={{
+                  padding: '6px 14px', color: p.isActive ? '#DC2626' : '#16A34A', borderColor: p.isActive ? '#FCA5A5' : '#86EFAC',
+                }}>
                   {p.isActive ? 'Deactivate' : 'Activate'}
                 </button>
-                <button onClick={() => openEdit(p)} style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500 }}>
+                <button onClick={() => openEdit(p)} className="btn-sm-outline" style={{ padding: '6px 14px' }}>
                   Edit
                 </button>
               </div>
@@ -276,7 +292,7 @@ export default function PlansPage() {
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Plan Name</label>
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Home Gold" style={inp} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Technology</label>
                   <select value={form.technology} onChange={e => setForm(f => ({ ...f, technology: e.target.value }))} style={sel}>
@@ -290,7 +306,7 @@ export default function PlansPage() {
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div className="grid-3" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Speed (Mbps)</label>
                   <input type="number" value={form.speedMbps} onChange={e => setForm(f => ({ ...f, speedMbps: Number(e.target.value) }))} style={inp} />
@@ -316,7 +332,7 @@ export default function PlansPage() {
                   {LEVEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Monthly Price (₦)</label>
                   <input type="text" inputMode="decimal" value={form.priceNaira} onChange={e => setForm(f => ({ ...f, priceNaira: e.target.value }))} placeholder="e.g. 25000" style={inp} />
@@ -326,7 +342,7 @@ export default function PlansPage() {
                   <input type="text" inputMode="decimal" value={form.installationFeeNaira} onChange={e => setForm(f => ({ ...f, installationFeeNaira: e.target.value }))} placeholder="e.g. 5000" style={inp} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Data Cap (GB)</label>
                   <input type="number" value={form.dataCapGb} onChange={e => setForm(f => ({ ...f, dataCapGb: Number(e.target.value) }))} style={inp} />
@@ -336,7 +352,7 @@ export default function PlansPage() {
                   <input type="number" value={form.fairUsageGb} onChange={e => setForm(f => ({ ...f, fairUsageGb: Number(e.target.value) }))} style={inp} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>SLA (%)</label>
                   <input type="number" value={form.sla} onChange={e => setForm(f => ({ ...f, sla: Number(e.target.value) }))} placeholder="e.g. 999 for 99.9%" style={inp} />

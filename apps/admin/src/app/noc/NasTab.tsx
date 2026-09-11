@@ -126,11 +126,16 @@ export default function NasTab({ toast }: { toast: (msg: string) => void }) {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
-          RADIUS clients (routers) read by FreeRADIUS from the <code>nas</code> table. Secrets are write-only.
-        </p>
-        <button className="btn-primary" onClick={openCreate}>Add NAS</button>
+      <div className="data-card" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+            RADIUS clients (routers) read by FreeRADIUS from the <code>nas</code> table. Secrets are masked.
+          </span>
+          <button className="btn-primary" onClick={openCreate} style={{ flexShrink: 0 }}>
+            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add NAS
+          </button>
+        </div>
       </div>
 
       <div className="data-card" style={{ padding: 0 }}>
@@ -152,7 +157,13 @@ export default function NasTab({ toast }: { toast: (msg: string) => void }) {
                 {loading ? (
                   <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</td></tr>
                 ) : rows.length === 0 ? (
-                  <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No NAS entries yet — add your router to enable SQL-based clients.</td></tr>
+                  <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+                      <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 14V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                      <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>No NAS entries yet</span>
+                      <span style={{ fontSize: '0.78rem' }}>Add your router to enable SQL-based clients.</span>
+                    </div>
+                  </td></tr>
                 ) : rows.map((n) => (
                   <tr key={n.id}>
                     <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>{n.shortname ?? '—'}</td>
@@ -192,7 +203,7 @@ export default function NasTab({ toast }: { toast: (msg: string) => void }) {
                 <label style={lbl}>NAS IP / hostname</label>
                 <input value={form.nasname} onChange={(e) => setForm((f) => ({ ...f, nasname: e.target.value }))} placeholder="203.0.113.10" style={inp} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Shortname</label>
                   <input value={form.shortname} onChange={(e) => setForm((f) => ({ ...f, shortname: e.target.value }))} placeholder="mtk-main" style={inp} />
@@ -205,7 +216,7 @@ export default function NasTab({ toast }: { toast: (msg: string) => void }) {
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2" style={{ gap: 12 }}>
                 <div>
                   <label style={lbl}>Auth port</label>
                   <input type="number" value={form.ports} onChange={(e) => setForm((f) => ({ ...f, ports: Number(e.target.value) }))} style={inp} />
