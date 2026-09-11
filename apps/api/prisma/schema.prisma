@@ -781,6 +781,8 @@ model AuditLog {
   metadata    Json?
   createdAt   DateTime @default(now())
   deletedAt   DateTime?
+
+  @@index([entityType, entityId])
 }
 
 model Notification {
