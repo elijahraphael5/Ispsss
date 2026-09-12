@@ -116,6 +116,29 @@ function cell(pad = '7px 12px') {
 const lbl = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 } as const;
 const inp = { width: '100%', padding: '8px 12px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', boxSizing: 'border-box' as const };
 
+function snapshotRows(snapshots: SnapshotRow[]): RosSubscriber[] {
+  return snapshots.map((s): RosSubscriber => ({
+    id: s.id,
+    username: s.username,
+    customer: s.customer || s.username,
+    plan: s.plan || 'PPPoE',
+    active: s.active,
+    isOnline: s.isOnline,
+    service: 'pppoe',
+    lastCallerId: s.lastCallerId,
+    lastDisconnectReason: s.lastDisconnectReason,
+    lastLoggedOut: s.lastLoggedOut,
+    comment: s.customer,
+    name: s.name,
+    email: s.email,
+    phone: s.phone,
+    address: s.address,
+    installerName: s.installerName,
+    cached: true,
+    capturedAt: s.capturedAt,
+  }));
+}
+
 export default function CustomerPage() {
   const router = useRouter();
   const [subscribers, setSubscribers] = useState<RosSubscriber[]>([]);
@@ -129,6 +152,7 @@ export default function CustomerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cached, setCached] = useState<string | null>(null);
+  const [routerLoading, setRouterLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState<'All' | 'Active' | 'Non Active'>('All');
   const [search, setSearch] = useState('');
@@ -461,12 +485,13 @@ export default function CustomerPage() {
     setLoading(true);
     setError('');
     try {
-      const [devices, connections, health, cust, planList] = await Promise.all([
+      const [devices, connections, health, cust, planList, snapshots] = await Promise.all([
         api<any[]>('/network/devices'),
         api<{ connections: StaticConn[] }>('/network/connections'),
         api<any[]>('/router-health').catch(() => []),
         api<Customer[]>('/users/customers'),
         api<any[]>('/subscriptions/plans').catch(() => []),
+        api<SnapshotRow[]>('/routeros/snapshots').catch(() => []),
       ]);
       setPlans(planList);
       setStaticConns(connections.connections.filter(c => c.type === 'STATIC_IP'));
@@ -494,6 +519,15 @@ export default function CustomerPage() {
         return;
       }
       setRosDevice({ id: ros.id });
+
+      // Render the DB snapshot immediately so the table isn't blocked on the
+      // router; the live fetch below replaces it when it returns.
+      if (snapshots.length) setSubscribers(snapshotRows(snapshots));
+      setCached(null);
+      setPage(0);
+      setLoading(false);
+      setRouterLoading(true);
+
       try {
         const [data, profs, qs] = await Promise.all([
           api<RosSubscriber[]>(`/routeros/devices/${ros.id}/subscribers`),
@@ -505,32 +539,14 @@ export default function CustomerPage() {
         setQueues(qs);
         setCached(null);
       } catch {
-        const snapshots = await api<SnapshotRow[]>('/routeros/snapshots');
-        setSubscribers(snapshots.map((s): RosSubscriber => ({
-          id: s.id,
-          username: s.username,
-          customer: s.customer || s.username,
-          plan: s.plan || 'PPPoE',
-          active: s.active,
-          isOnline: s.isOnline,
-          service: 'pppoe',
-          lastCallerId: s.lastCallerId,
-          lastDisconnectReason: s.lastDisconnectReason,
-          lastLoggedOut: s.lastLoggedOut,
-          comment: s.customer,
-          name: s.name,
-          email: s.email,
-          phone: s.phone,
-          address: s.address,
-          installerName: s.installerName,
-          cached: true,
-          capturedAt: s.capturedAt,
-        })));
-        // Only warn about stale data when there actually is cached data to show —
-        // an empty table (e.g. after a purge) has nothing "stale" to explain.
-        setCached(snapshots.length ? 'router unreachable — showing last known data from DB' : null);
+        // Only warn about stale data when there actually is cached data to
+        // show — an empty table (e.g. after a purge) has nothing to explain.
+        setCached(snapshots.length
+          ? 'router unreachable — showing last known data from DB'
+          : 'router unreachable — no cached data yet');
+      } finally {
+        setRouterLoading(false);
       }
-      setPage(0);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
@@ -708,6 +724,12 @@ export default function CustomerPage() {
         <div style={{ padding: '10px 16px', background: '#FEF3C7', color: '#92400E', borderRadius: 12, marginBottom: 16, fontSize: '0.85rem', display: 'flex', gap: 8, alignItems: 'center' }}>
           <span>⚠</span>
           <span>{cached}{subscribers[0]?.capturedAt ? ` · captured ${new Date(subscribers[0].capturedAt).toLocaleString()}` : ''}. Fields you edit are saved to the DB and will sync to the router when it is back.</span>
+        </div>
+      )}
+
+      {routerLoading && !cached && (
+        <div style={{ padding: '10px 16px', background: '#EFF6FF', color: '#1D4ED8', borderRadius: 12, marginBottom: 16, fontSize: '0.85rem' }}>
+          {subscribers.length ? 'Loading live data from the router… showing cached data meanwhile.' : 'Loading data from the router…'}
         </div>
       )}
 
