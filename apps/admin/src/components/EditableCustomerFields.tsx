@@ -102,7 +102,20 @@ export default function EditableCustomerFields({ customer, onSaved }: { customer
       if (draft.email.trim()) body.email = draft.email;
       if (draft.dueAt) body.dueAt = draft.dueAt;
       const updated = await api<any>(`/users/customers/${customer.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      onSaved(updated);
+      // Re-read the canonical record so the Details tab (and this form) show
+      // exactly what was persisted, including derived fields (plan speed/price).
+      const fresh = await api<any>(`/users/customers/${customer.id}`).catch(() => updated);
+      onSaved(fresh);
+      setDraft({
+        name: fresh.name ?? '',
+        email: fresh.email ?? '',
+        phone: fresh.phone ?? '',
+        address: fresh.address ?? '',
+        networkType: fresh.networkType ?? '',
+        plan: fresh.plan ?? '',
+        installerName: fresh.cpes?.[0]?.installerName ?? '',
+        dueAt: fresh.dueAt ? new Date(fresh.dueAt).toISOString().slice(0, 10) : '',
+      });
       setMsg('Saved');
     } catch (e: any) {
       setMsg(e.message || 'Save failed');

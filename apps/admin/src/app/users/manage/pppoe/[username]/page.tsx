@@ -214,7 +214,7 @@ export default function PppoeDetailPage() {
         ]);
         const snap = snapshots.find(s => s.username === username) || null;
         setSnapshot(snap);
-        setCust(customers.find(c => c.name === username || c.email === username || c.cpes?.some((cp: any) => cp.name === username)) || null);
+        setCust(customers.find(c => c.name === username || c.email === username || c.pppoeUsername === username || c.cpes?.some((cp: any) => cp.name === username)) || null);
         try {
           const subs = await api<Secret[]>(`/routeros/devices/${dev.id}/subscribers`);
           const found = subs.find(s => s.username === username);
@@ -267,7 +267,7 @@ export default function PppoeDetailPage() {
   }, [deviceId, username]);
 
   async function saveSnapshotProfile() {
-    if (!snapshot) return;
+    if (!snapshot) { setToast('No cached snapshot yet — use the customer record to edit these fields'); return; }
     setBusy(true);
     setToast('');
     try {

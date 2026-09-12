@@ -7,6 +7,7 @@ import { SkeletonTable } from '../../../../components/Skeleton';
 import EditableCustomerFields from '../../../../components/EditableCustomerFields';
 import { notifyCustomersChanged } from '@isp/shared';
 import UsageHistoryCard from '../../../../components/UsageHistoryCard';
+import { getCachedCustomer, setCachedCustomer } from '../../../../lib/customer-cache';
 
 interface Cpe {
   id: string;
@@ -88,8 +89,12 @@ export default function CustomerDetailPage() {
   const [statusBusy, setStatusBusy] = useState(false);
 
   useEffect(() => {
+    // Paint the row data from the list instantly, then revalidate in the
+    // background so the detail page never shows a blank skeleton.
+    const cached = getCachedCustomer(params.id);
+    if (cached) { setCustomer(cached); setLoading(false); }
     api<CustomerDetail>(`/users/customers/${params.id}`)
-      .then(setCustomer)
+      .then(c => { setCustomer(c); setCachedCustomer(params.id, c); })
       .catch((e: any) => setError(e.message || 'Failed to load customer'))
       .finally(() => setLoading(false));
     api<any[]>('/network/devices')
@@ -105,6 +110,11 @@ export default function CustomerDetailPage() {
       })
       .catch(() => {});
   }, [params.id]);
+
+  // Keep the shared cache fresh after edits/status changes.
+  useEffect(() => {
+    if (customer) setCachedCustomer(params.id, customer);
+  }, [customer, params.id]);
 
   async function resetPassword() {
     if (!customer) return;

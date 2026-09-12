@@ -13,7 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>
+      <body suppressHydrationWarning style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>
         <Providers>
           <CustomerSidebar>{children}</CustomerSidebar>
         </Providers>

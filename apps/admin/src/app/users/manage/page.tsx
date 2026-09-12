@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, apiUpload, timeAgo, onCustomersChanged, notifyCustomersChanged } from '@isp/shared';
 import { useRouter } from 'next/navigation';
+import { setCachedCustomer } from '../../../lib/customer-cache';
 import { SkeletonTable } from '../../../components/Skeleton';
 
 interface ImportResult {
@@ -139,17 +140,29 @@ function snapshotRows(snapshots: SnapshotRow[]): RosSubscriber[] {
   }));
 }
 
+interface CustomersPageCache {
+  subscribers: RosSubscriber[];
+  staticConns: StaticConn[];
+  customers: Customer[];
+  routerHealth: any[];
+  plans: any[];
+}
+
+// Module scope survives client-side navigation: revisiting the page paints the
+// previous rows instantly while the requests revalidate in the background.
+let pageCache: CustomersPageCache | null = null;
+
 export default function CustomerPage() {
   const router = useRouter();
-  const [subscribers, setSubscribers] = useState<RosSubscriber[]>([]);
-  const [staticConns, setStaticConns] = useState<StaticConn[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [subscribers, setSubscribers] = useState<RosSubscriber[]>(() => pageCache?.subscribers ?? []);
+  const [staticConns, setStaticConns] = useState<StaticConn[]>(() => pageCache?.staticConns ?? []);
+  const [customers, setCustomers] = useState<Customer[]>(() => pageCache?.customers ?? []);
   const [rosDevice, setRosDevice] = useState<{ id: string } | null>(null);
-  const [routerHealth, setRouterHealth] = useState<any[]>([]);
+  const [routerHealth, setRouterHealth] = useState<any[]>(() => pageCache?.routerHealth ?? []);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
-  const [plans, setPlans] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [plans, setPlans] = useState<any[]>(() => pageCache?.plans ?? []);
+  const [loading, setLoading] = useState(() => !pageCache);
   const [error, setError] = useState('');
   const [cached, setCached] = useState<string | null>(null);
   const [routerLoading, setRouterLoading] = useState(false);
@@ -469,7 +482,7 @@ export default function CustomerPage() {
   const rosHealth = routerHealth.find(h => h.deviceId === rosDevice?.id);
   const staleDevice = rosHealth && rosHealth.linkStatus !== 'up' ? rosHealth : null;
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(!!pageCache); }, []);
 
   // Keep the table fresh when customer data changes elsewhere (detail-page
   // edits, KYC approvals) — Next's router cache would otherwise serve stale
@@ -481,6 +494,11 @@ export default function CustomerPage() {
     window.addEventListener('focus', onFocus);
     return () => { off(); window.removeEventListener('focus', onFocus); };
   }, []);
+
+  // Keep the module cache in sync so revisiting the page paints instantly.
+  useEffect(() => {
+    pageCache = { subscribers, staticConns, customers, routerHealth, plans };
+  }, [subscribers, staticConns, customers, routerHealth, plans]);
 
   function matchCustomer(row: Row): Customer | undefined {
     if (row._type === 'PPPOE') {
@@ -503,18 +521,20 @@ export default function CustomerPage() {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const [devices, connections, health, cust, planList, snapshots] = await Promise.all([
-        api<any[]>('/network/devices'),
-        api<{ connections: StaticConn[] }>('/network/connections'),
-        api<any[]>('/router-health').catch(() => []),
-        api<Customer[]>('/users/customers'),
-        api<any[]>('/subscriptions/plans').catch(() => []),
-        api<SnapshotRow[]>('/routeros/snapshots').catch(() => []),
-      ]);
-      setPlans(planList);
-      setStaticConns(connections.connections.filter(c => c.type === 'STATIC_IP'));
-      setRouterHealth(health);
-      setCustomers(cust);
+      // Fire every request independently so each section paints as soon as its
+      // data lands instead of waiting for the slowest endpoint.
+      const pDevices = api<any[]>('/network/devices').catch(() => [] as any[]);
+      void api<{ connections: StaticConn[] }>('/network/connections')
+        .then(c => setStaticConns((c.connections ?? []).filter(x => x.type === 'STATIC_IP')))
+        .catch(() => {});
+      void api<any[]>('/router-health').then(setRouterHealth).catch(() => {});
+      void api<Customer[]>('/users/customers').then(setCustomers).catch(() => {});
+      void api<any[]>('/subscriptions/plans').then(setPlans).catch(() => {});
+      void api<SnapshotRow[]>('/routeros/snapshots')
+        .then(s => { if (s.length) setSubscribers(snapshotRows(s)); })
+        .catch(() => {});
+
+      const devices = await pDevices;
       const ros = devices.find(d => d.routerosUsername);
       if (!ros) {
         const sessions = await api<any[]>('/network/sessions').catch(() => []);
@@ -536,13 +556,8 @@ export default function CustomerPage() {
         return;
       }
       setRosDevice({ id: ros.id });
-
-      // Render the DB snapshot immediately so the table isn't blocked on the
-      // router; the live fetch below replaces it when it returns.
-      if (snapshots.length) setSubscribers(snapshotRows(snapshots));
       setCached(null);
       setPage(0);
-      if (!silent) setLoading(false);
       setRouterLoading(true);
 
       try {
@@ -558,9 +573,7 @@ export default function CustomerPage() {
       } catch {
         // Only warn about stale data when there actually is cached data to
         // show — an empty table (e.g. after a purge) has nothing to explain.
-        setCached(snapshots.length
-          ? 'router unreachable — showing last known data from DB'
-          : 'router unreachable — no cached data yet');
+        setCached('router unreachable — showing last known data from DB');
       } finally {
         setRouterLoading(false);
       }
@@ -624,6 +637,7 @@ export default function CustomerPage() {
     if (row._type === 'PPPOE') {
       const c = matchCustomer(row);
       if (c && (row as RosSubscriber & { _type: 'PPPOE' }).dbOnly) {
+        setCachedCustomer(c.id, c);
         router.push(`/users/manage/${c.id}`);
         return;
       }
@@ -631,18 +645,7 @@ export default function CustomerPage() {
       return;
     }
     const c = matchCustomer(row);
-    if (c) router.push(`/users/manage/${c.id}`);
-  }
-
-  if (loading) {
-    return (
-      <main style={{ padding: 24 }}>
-        <h1 className="page-title">Customers</h1>
-        <div className="data-card" style={{ padding: 24, marginTop: 20 }}>
-          <SkeletonTable rows={10} cols={9} />
-        </div>
-      </main>
-    );
+    if (c) { setCachedCustomer(c.id, c); router.push(`/users/manage/${c.id}`); }
   }
 
   return (
@@ -750,7 +753,11 @@ export default function CustomerPage() {
         </div>
       )}
 
-      {filteredRows.length === 0 ? (
+      {loading && allRows.length === 0 ? (
+        <div className="data-card" style={{ padding: 24 }}>
+          <SkeletonTable rows={10} cols={9} />
+        </div>
+      ) : filteredRows.length === 0 ? (
         <div className="data-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
           {search || filter !== 'All' || planFilter !== 'All'
             ? 'No customers match your search/filters'
