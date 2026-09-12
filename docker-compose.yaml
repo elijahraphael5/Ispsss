@@ -102,6 +102,12 @@ services:
         condition: service_healthy
       init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   auth-service:
     <<: *app
@@ -275,6 +281,12 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   customer:
     <<: *app
@@ -285,6 +297,12 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   nginx:
     build:
@@ -310,6 +328,12 @@ services:
       - traefik.http.routers.isp-web-http.middlewares=isp-web-redirect
       - traefik.http.middlewares.isp-web-redirect.redirectscheme.scheme=https
       - traefik.http.middlewares.isp-web-redirect.redirectscheme.permanent=true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       - api
       - admin
