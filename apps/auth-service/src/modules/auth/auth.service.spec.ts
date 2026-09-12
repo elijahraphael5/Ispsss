@@ -32,7 +32,11 @@ describe('AuthService', () => {
     $transaction: jest.fn((ops: any) => Promise.all(ops)),
   };
   const tenant = { resolveTenant: jest.fn().mockResolvedValue('tenant-1') };
-  const mail = { sendLoginAlert: jest.fn().mockResolvedValue(undefined), send: jest.fn().mockResolvedValue(undefined) };
+  const mail = {
+    sendLoginAlert: jest.fn().mockResolvedValue(undefined),
+    send: jest.fn().mockResolvedValue(undefined),
+    enqueue: (task: () => Promise<unknown>) => { void task(); },
+  };
   const jwt = { sign: jest.fn().mockReturnValue('signed.jwt.token') };
   const hashOf = (s: string) => require('crypto').createHash('sha256').update(s).digest('hex');
 

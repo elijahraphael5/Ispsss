@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Query, Logger } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -11,6 +11,8 @@ import { ActionQueueService } from './action-queue.service';
 @Controller('routeros')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 export class RouterOsController {
+  private readonly logger = new Logger(RouterOsController.name);
+
   constructor(
     private readonly service: RouterOsService,
     private readonly snapshot: RouterSnapshotService,
@@ -144,7 +146,9 @@ export class RouterOsController {
   @Post('devices/:deviceId/sync-sessions')
   @Roles('NOC_ENGINEER', 'SUPER_ADMIN')
   syncSessions(@Param('deviceId') deviceId: string) {
-    return this.service.syncSessions(deviceId);
+    // Fire-and-forget: the router round-trip can take seconds — the UI polls.
+    void this.service.syncSessions(deviceId).catch((e: Error) => this.logger.warn(`Session sync failed: ${e.message}`));
+    return { queued: true };
   }
 
   // ─── PPP Secrets (Subscribers) ───────────────────────────
@@ -180,7 +184,9 @@ export class RouterOsController {
   @Post('sync-arp')
   @Roles('NOC_ENGINEER', 'SUPER_ADMIN')
   syncArp(@Body('deviceId') deviceId?: string) {
-    return this.service.syncArpToSubscribers(deviceId);
+    // Fire-and-forget: the router round-trip can take seconds — the UI polls.
+    void this.service.syncArpToSubscribers(deviceId).catch((e: Error) => this.logger.warn(`ARP sync failed: ${e.message}`));
+    return { queued: true };
   }
 
   @Get('arp-entries')
@@ -208,7 +214,9 @@ export class RouterOsController {
   @Post('snapshots/sync')
   @Roles('NOC_ENGINEER', 'CEO', 'OPERATIONS_MANAGER', 'SUPER_ADMIN', 'FIELD_ENGINEER')
   syncSnapshots() {
-    return this.snapshot.snapshotAll();
+    // Fire-and-forget: the router round-trip can take seconds — the UI polls.
+    void this.snapshot.snapshotAll().catch((e: Error) => this.logger.warn(`Snapshot sync failed: ${e.message}`));
+    return { queued: true };
   }
 
   @Get('snapshots')

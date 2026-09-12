@@ -199,7 +199,8 @@ export class RadiusService {
   }> {
     const username = await this.requireUsername(customerId);
     await this.upsertCheck(username, AUTH_TYPE, ':=', 'Reject');
-    await this.coa.disconnectSession(username);
+    // Best-effort kick: never block the DB change on the NAS.
+    void this.coa.disconnectSession(username);
 
     this.logger.log(`Deactivated ${username} (customer ${customerId})`);
     return { customerId, username, deactivated: true };
@@ -222,7 +223,8 @@ export class RadiusService {
         [username, rateLimit],
       );
     }
-    await this.coa.sendCoa(username, { 'Mikrotik-Rate-Limit': rateLimit });
+    // Best-effort live speed change: never block the DB change on the NAS.
+    void this.coa.sendCoa(username, { 'Mikrotik-Rate-Limit': rateLimit });
 
     this.logger.log(`Plan rate-limit for ${username} set to ${rateLimit}`);
     return { customerId, username, rateLimit };
@@ -399,7 +401,8 @@ export class RadiusService {
     }
 
     if (profile?.rateLimit) {
-      await this.coa.sendCoa(username, { 'Mikrotik-Rate-Limit': profile.rateLimit });
+      // Best-effort live speed change: never block the DB change on the NAS.
+      void this.coa.sendCoa(username, { 'Mikrotik-Rate-Limit': profile.rateLimit });
     }
 
     this.logger.log(`RADIUS profile for ${username} set to ${opts.profile ?? '(none)'}`);

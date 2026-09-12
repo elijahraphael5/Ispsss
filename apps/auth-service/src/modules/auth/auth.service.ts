@@ -58,7 +58,7 @@ export class AuthService {
       where: { id: user.id },
       data: { twoFaOtpHash: otpHash, twoFaOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) },
     });
-    await this.mail.send({
+    this.mail.enqueue(() => this.mail.send({
       to: user.email,
       subject: 'Your Hikonnect login code',
       html: `
@@ -67,7 +67,7 @@ export class AuthService {
         <p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>
         <p>This code expires in 10 minutes. If you did not try to sign in, change your password immediately.</p>
       `,
-    });
+    }));
     return this.maskEmail(user.email);
   }
 
@@ -278,20 +278,16 @@ export class AuthService {
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
     const resetLink = `${frontendUrl}/login/reset?token=${raw}`;
 
-    try {
-      await this.mail.send({
-        to: email,
-        subject: 'Reset your password',
-        html: `
-          <h2>Password Reset Request</h2>
-          <p>Click the link below to reset your password. This link expires in 1 hour.</p>
-          <p><a href="${resetLink}">${resetLink}</a></p>
-          <p>If you did not request this, please ignore this email.</p>
-        `,
-      });
-    } catch (err) {
-      this.logger.error(`Failed to send reset email to ${email}: ${err}`);
-    }
+    this.mail.enqueue(() => this.mail.send({
+      to: email,
+      subject: 'Reset your password',
+      html: `
+        <h2>Password Reset Request</h2>
+        <p>Click the link below to reset your password. This link expires in 1 hour.</p>
+        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>If you did not request this, please ignore this email.</p>
+      `,
+    }));
 
     return { message: 'If that email exists, a reset link has been sent.' };
   }

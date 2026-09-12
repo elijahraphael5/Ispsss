@@ -251,8 +251,13 @@ export default function NetworkPage() {
     if (!rosDeviceId) return;
     try {
       const res = await api<any>(`/routeros/devices/${rosDeviceId}/sync-sessions`, { method: 'POST' });
-      alert(`Synced: ${res.created} created, ${res.updated} updated, ${res.deactivated} deactivated`);
-      await fetchAll();
+      if (res?.queued) {
+        alert('Session sync started in the background — refreshing shortly…');
+        setTimeout(() => { void fetchAll(); }, 5000);
+      } else {
+        alert(`Synced: ${res.created} created, ${res.updated} updated, ${res.deactivated} deactivated`);
+        await fetchAll();
+      }
     } catch { setRosError('Failed to sync sessions'); }
   }
 
@@ -394,8 +399,13 @@ export default function NetworkPage() {
             <button className="btn-sm" onClick={async () => {
               try {
                 const res = await api<any>('/routeros/sync-arp', { method: 'POST' });
-                alert(`ARP sync complete: ${res.created} created, ${res.skipped} skipped, ${res.total} total`);
-                await fetchAll();
+                if (res?.queued) {
+                  alert('ARP sync started in the background — refreshing shortly…');
+                  setTimeout(() => { void fetchAll(); }, 5000);
+                } else {
+                  alert(`ARP sync complete: ${res.created} created, ${res.skipped} skipped, ${res.total} total`);
+                  await fetchAll();
+                }
               } catch { setError('Failed to sync ARP entries'); }
             }}>
               Sync ARP (Static IP)

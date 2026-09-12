@@ -131,7 +131,7 @@ export class UsersController {
     if (desired && desired.length < 6) throw new BadRequestException('Password must be at least 6 characters');
     const newPassword = desired || crypto.randomBytes(4).toString('hex');
     await this.service.update(id, { password: newPassword }, actorId);
-    await this.mail.sendPasswordReset(user.email, newPassword);
+    this.mail.enqueue(() => this.mail.sendPasswordReset(user.email, newPassword));
     return { message: 'Password updated — give this password to the customer', email: user.email, newPassword };
   }
 }

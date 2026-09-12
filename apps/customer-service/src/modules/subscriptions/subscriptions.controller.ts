@@ -108,8 +108,8 @@ export class SubscriptionsController {
       installationFeeKobo: plan.installationFeeKobo,
 
     };
-    await this.mail.sendWelcome(welcomeData);
-    return { message: 'Welcome email sent to ' + user.email };
+    this.mail.enqueue(() => this.mail.sendWelcome(welcomeData));
+    return { message: 'Welcome email queued for ' + user.email };
   }
 
   @Patch('subscriptions/:id')

@@ -27,6 +27,7 @@ describe('BillingService', () => {
   const mail = {
     sendInvoiceEmail: jest.fn().mockResolvedValue(undefined),
     sendQuotationEmail: jest.fn().mockResolvedValue(undefined),
+    enqueue: (task: () => Promise<unknown>) => { void task(); },
   };
   const pdf = {
     invoicePdf: jest.fn().mockResolvedValue({ invoiceNumber: 'INV-1', buffer: Buffer.from('%PDF') }),

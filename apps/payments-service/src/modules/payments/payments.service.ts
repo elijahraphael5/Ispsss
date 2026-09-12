@@ -413,7 +413,7 @@ export class PaymentsService {
         planName = sub?.plan?.name;
       }
       if (outcome === 'success') {
-        await this.mail.sendPaymentReceipt({
+        this.mail.enqueue(() => this.mail.sendPaymentReceipt({
           email,
           customerName: name,
           invoiceNumber: payment.invoice.invoiceNumber,
@@ -421,15 +421,15 @@ export class PaymentsService {
           reference,
           action: (action as any) ?? 'renew',
           planName,
-        });
+        }));
       } else {
-        await this.mail.sendPaymentFailed({
+        this.mail.enqueue(() => this.mail.sendPaymentFailed({
           email,
           customerName: name,
           invoiceNumber: payment.invoice.invoiceNumber,
           amountKobo: payment.amountKobo,
           reference,
-        });
+        }));
       }
     } catch (err: any) {
       this.logger.error(`Payment email failed: ${err?.message}`);

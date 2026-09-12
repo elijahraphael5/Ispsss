@@ -194,6 +194,18 @@ export class MailService {
    * Returns true when the mail was actually handed to the SMTP server.
    * Errors are logged, not thrown, so fire-and-forget callers keep working.
    */
+  /**
+   * Fire-and-forget send: starts the task immediately and returns, logging any
+   * failure. Callers never block on SMTP and never see an unhandled rejection.
+   */
+  enqueue(task: () => Promise<unknown>): void {
+    try {
+      void task().catch((err) => this.logger.error(`Async mail failed: ${(err as Error).message}`));
+    } catch (err) {
+      this.logger.error(`Async mail failed: ${(err as Error).message}`);
+    }
+  }
+
   async send(options: MailOptions): Promise<boolean> {
     const transporter = await this.resolveTransport();
     if (!transporter) {

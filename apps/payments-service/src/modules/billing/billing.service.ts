@@ -547,14 +547,14 @@ export class BillingService {
         customerName: invoice.subscriber?.user?.email ?? '—',
         customerEmail: email,
       });
-      await this.mail.sendInvoiceEmail({
+      this.mail.enqueue(() => this.mail.sendInvoiceEmail({
         email,
         customerName: invoice.subscriber?.user?.email ?? 'Customer',
         invoiceNumber: invoice.invoiceNumber,
         amountKobo: invoice.amountKobo,
         dueAt: invoice.dueAt?.toISOString(),
         pdf: buffer,
-      });
+      }));
     } catch (err) {
       this.logger.error(`Failed to email invoice ${invoice.invoiceNumber}: ${(err as Error).message}`);
     }
@@ -589,14 +589,14 @@ export class BillingService {
         customerPhone: quotation.subscriberPhone,
         customerAddress: quotation.subscriberAddress,
       });
-      await this.mail.sendQuotationEmail({
+      this.mail.enqueue(() => this.mail.sendQuotationEmail({
         email,
         customerName: quotation.subscriberName,
         quotationNumber: quotation.quotationNumber,
         totalKobo: quotation.totalKobo,
         validUntil: quotation.validUntil?.toISOString(),
         pdf: buffer,
-      });
+      }));
     } catch (err) {
       this.logger.error(`Failed to email quotation ${quotation.quotationNumber}: ${(err as Error).message}`);
     }

@@ -19,7 +19,10 @@ describe('SubscriptionsController', () => {
     updateSubscription: jest.fn(),
     removeSubscription: jest.fn(),
   };
-  const mail = { sendWelcome: jest.fn() };
+  const mail = {
+    sendWelcome: jest.fn(),
+    enqueue: (task: () => Promise<unknown>) => { void task(); },
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -97,7 +100,7 @@ describe('SubscriptionsController', () => {
       subscriptions: [{ plan: { name: 'Starter', speedMbps: 10, priceKobo: 100000, installationFeeKobo: 0 } }],
     });
     mail.sendWelcome.mockResolvedValue(undefined);
-    expect(await controller.sendWelcome('s1', {})).toEqual({ message: 'Welcome email sent to a@b.co' });
+    expect(await controller.sendWelcome('s1', {})).toEqual({ message: 'Welcome email queued for a@b.co' });
     const data: WelcomeData = mail.sendWelcome.mock.calls[0][0];
     expect(data.email).toBe('a@b.co');
     expect(data.planName).toBe('Starter');
