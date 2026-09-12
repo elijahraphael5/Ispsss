@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, BadGatewayException, RequestTimeoutException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
@@ -70,23 +70,41 @@ export class RouterOsService {
     options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseUrl(deviceIp, devicePort)}${path}`;
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: this.authHeader(username, password),
-        ...(options.headers as Record<string, string>),
-      },
-      signal: AbortSignal.timeout(10000),
-    });
+    // RouterOS HTTPS uses a self-signed certificate by default — same bypass
+    // arpFetch uses. Restored in the finally block.
+    const isHttps = url.startsWith('https:');
+    const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    if (isHttps) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: this.authHeader(username, password),
+          ...(options.headers as Record<string, string>),
+        },
+        signal: AbortSignal.timeout(10000),
+      });
 
-    if (res.status === 204) return undefined as T;
-    if (!res.ok) {
-      let msg: string;
-      try { const j = await res.json(); msg = j.error || j.message || res.statusText; } catch { msg = await res.text(); }
-      throw new BadRequestException(`RouterOS error (${res.status}): ${msg}`);
+      if (res.status === 204) return undefined as T;
+      if (!res.ok) {
+        let msg: string;
+        try { const j = await res.json(); msg = j.error || j.message || res.statusText; } catch { msg = await res.text(); }
+        throw new BadRequestException(`RouterOS error (${res.status}): ${msg}`);
+      }
+      return res.json();
+    } catch (e: any) {
+      if (e instanceof BadRequestException) throw e;
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+        throw new RequestTimeoutException(`RouterOS request timed out (${path})`);
+      }
+      throw new BadGatewayException(`RouterOS unreachable (${path}): ${e?.message ?? e}`);
+    } finally {
+      if (isHttps) {
+        if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls;
+      }
     }
-    return res.json();
   }
 
   // ─── Queue Simple ─────────────────────────────────────────────
