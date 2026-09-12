@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { CacheService } from '../../common/cache/cache.service';
 import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { MailService, LoginDetailsData } from '../mail/mail.service';
@@ -151,6 +152,7 @@ export class UsersService {
       select: userSelect,
     });
     await this.audit.log({ actorId, action: 'USER_CREATED', entityType: 'User', entityId: result.id, afterData: { email, name: data.name, phone: data.phone, customRoleId: data.customRoleId } as any, metadata: { email, customRoleId: data.customRoleId } });
+    await this.invalidateCustomerCache();
     return result;
   }
 
@@ -174,11 +176,15 @@ export class UsersService {
       select: userSelect,
     });
     await this.audit.log({ actorId, action: 'USER_UPDATED', entityType: 'User', entityId: id, beforeData: before as any, afterData: { email: result.email, name: result.name, phone: result.phone, isSuperAdmin: result.isSuperAdmin, customRoleId: result.customRoleId } as any, metadata: { changes: Object.keys(updateData) } });
+    await this.invalidateCustomerCache();
     return result;
   }
 
   async customers() {
     const tenantId = await this.tenant.resolveTenant();
+    const cacheKey = `users:customers:${tenantId}`;
+    const cached = await this.cache.get<any[]>(cacheKey);
+    if (cached) return cached;
     // Accounts awaiting KYC approval (maker–checker) stay out of the customer
     // table until a checker approves them.
     const subs = await this.prisma.subscriber.findMany({
@@ -186,11 +192,22 @@ export class UsersService {
       include: customerInclude,
       orderBy: { createdAt: 'desc' },
     });
-    return subs.map(toCustomerView);
+    const result = subs.map(toCustomerView);
+    // Short TTL: read on every admin page load; mutations invalidate explicitly.
+    await this.cache.set(cacheKey, result, 30);
+    return result;
+  }
+
+  /** Drop cached user/customer reads after any mutation that affects them. */
+  private async invalidateCustomerCache(): Promise<void> {
+    await this.cache.invalidatePattern('users:*');
   }
 
   async kycQueue() {
     const tenantId = await this.tenant.resolveTenant();
+    const cacheKey = `users:kyc:${tenantId}`;
+    const cached = await this.cache.get<any[]>(cacheKey);
+    if (cached) return cached;
     const subs = await this.prisma.subscriber.findMany({
       where: { tenantId, deletedAt: null, status: 'PENDING_KYC' },
       include: {
@@ -211,7 +228,7 @@ export class UsersService {
       ? await this.prisma.user.findMany({ where: { id: { in: staffIds } }, select: { id: true, name: true, email: true } })
       : [];
     const staffMap = new Map(staff.map(u => [u.id, u]));
-    return subs.map(s => {
+    const result = subs.map(s => {
       const plan = s.subscriptions?.[0]?.plan ?? null;
       const email: string | null = s.user?.email ?? null;
       const maker = s.kycSubmittedById ? staffMap.get(s.kycSubmittedById) : null;
@@ -243,6 +260,8 @@ export class UsersService {
         createdAt: s.createdAt,
       };
     });
+    await this.cache.set(cacheKey, result, 15);
+    return result;
   }
 
   async approveKyc(id: string, actor: { id: string; isSuperAdmin?: boolean; customRole?: { name: string } | null }) {
@@ -272,6 +291,7 @@ export class UsersService {
       select: { id: true, status: true, kycVerified: true, kycApprovedAt: true },
     });
     await this.audit.log({ actorId, action: 'KYC_APPROVED', entityType: 'Subscriber', entityId: id, beforeData: { status: sub.status } as any, afterData: { status: 'ACTIVE', kycVerified: true } as any, metadata: { userId: sub.userId } });
+    await this.invalidateCustomerCache();
     return updated;
   }
 
@@ -290,6 +310,7 @@ export class UsersService {
       select: { id: true, status: true, kycVerified: true, kycRejectedAt: true },
     });
     await this.audit.log({ actorId, action: 'KYC_REJECTED', entityType: 'Subscriber', entityId: id, beforeData: { status: sub.status } as any, afterData: { kycRejectReason: reason?.trim() || null } as any, metadata: { userId: sub.userId } });
+    await this.invalidateCustomerCache();
     return updated;
   }
 
@@ -307,6 +328,7 @@ export class UsersService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly cache: CacheService,
   ) {
     // Periodically purge finished background jobs so the in-memory maps
     // can't grow unbounded across a long-lived process.
@@ -458,11 +480,16 @@ export class UsersService {
   }
 
   async customerDetail(id: string) {
+    const cacheKey = `users:customer:${id}`;
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
     const sub = await this.prisma.subscriber.findUniqueOrThrow({
       where: { id, deletedAt: null },
       include: customerInclude,
     });
-    return toCustomerView(sub);
+    const view = toCustomerView(sub);
+    await this.cache.set(cacheKey, view, 30);
+    return view;
   }
 
   async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string }, actorId: string) {
@@ -503,7 +530,19 @@ export class UsersService {
       }
     }
     if (data.installerName !== undefined) {
-      await this.prisma.cpe.updateMany({ where: { subscriberId: id }, data: { installerName: data.installerName || null } });
+      const updated = await this.prisma.cpe.updateMany({ where: { subscriberId: id }, data: { installerName: data.installerName || null } });
+      // Imported PPPoE customers have no CPE row, so create one to hold the
+      // installer (connectionType PPPOE is excluded from static-IP counts).
+      if (updated.count === 0 && data.installerName) {
+        await this.prisma.cpe.create({
+          data: {
+            subscriberId: id,
+            name: sub.pppoeUsername ?? null,
+            installerName: data.installerName,
+            connectionType: 'PPPOE',
+          },
+        });
+      }
     }
     if (data.planName !== undefined && data.planName) {
       const plan = await this.prisma.plan.findFirst({ where: { tenantId: sub.tenantId, name: { equals: data.planName, mode: 'insensitive' } } });
@@ -548,6 +587,7 @@ export class UsersService {
       }
     }
     await this.audit.log({ actorId, action: 'USER_UPDATED', entityType: 'User', entityId: sub.userId, beforeData: { name: sub.user.name, email: sub.user.email, phone: sub.user.phone } as any, afterData: data as any, metadata: { changes: Object.keys(data) } });
+    await this.invalidateCustomerCache();
     return this.customerDetail(id);
   }
 
@@ -558,11 +598,13 @@ export class UsersService {
     // the trail of who did what survives the user's removal. The user row is
     // soft-deleted AND its unique email is released (moved to an id-based
     // placeholder) so the address can be registered as a brand-new account.
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.deleteMany({ where: { userId: id } });
       await tx.user.update({ where: { id }, data: { deletedAt: new Date(), email: `deleted-${id}@local` } });
       return tx.user.findUnique({ where: { id }, select: userSelect });
     });
+    await this.invalidateCustomerCache();
+    return result;
   }
 
   // ── Excel import ────────────────────────────────────────────
@@ -593,7 +635,7 @@ export class UsersService {
   private async clearCustomerData() {    const tenantId = await this.tenant.resolveTenant();
     await this.prisma.$transaction(async (tx) => {
       // Tenant-scoped: never touch other tenants' plans/customers.
-      const subs = await tx.subscriber.findMany({ where: { tenantId }, select: { id: true } });
+      const subs = await tx.subscriber.findMany({ where: { tenantId }, select: { id: true, userId: true } });
       const subIds = subs.map((s) => s.id);
       if (!subIds.length) {
         await tx.plan.deleteMany({ where: { tenantId } });
@@ -609,8 +651,9 @@ export class UsersService {
       const paymentIds = payments.map((pm) => pm.id);
       const quotations = await tx.quotation.findMany({ where: { subscriberId: { in: subIds } }, select: { id: true } });
       const quotationIds = quotations.map((q) => q.id);
-      const users = await tx.user.findMany({ where: { subscriber: { isNot: null } }, select: { id: true } });
-      const userIds = users.map((u) => u.id);
+      // Only users whose subscriber is part of this wipe — keeps the delete
+      // tenant-scoped and avoids orphaning other tenants' data.
+      const userIds = subs.map((s) => s.userId);
 
       await tx.chatMessage.deleteMany({ where: { sessionId: { in: sessionIds } } });
       await tx.fileUpload.deleteMany({ where: { OR: [{ sessionId: { in: sessionIds } }, { ticketId: { in: ticketIds } }] } });
@@ -640,9 +683,15 @@ export class UsersService {
       // Audit logs are immutable — preserved even when customer data is wiped.
       await tx.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
       await tx.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
+      // Every remaining FK to User must be cleared before the user rows go,
+      // regardless of tenant/soft-delete scope (agent assignments, presence).
+      await tx.ticket.updateMany({ where: { assignedAgentId: { in: userIds } }, data: { assignedAgentId: null } });
+      await tx.chatSession.updateMany({ where: { agentId: { in: userIds } }, data: { agentId: null } });
+      await tx.agentPresence.deleteMany({ where: { userId: { in: userIds } } });
       await tx.user.deleteMany({ where: { id: { in: userIds } } });
       await tx.plan.deleteMany({ where: { tenantId } });
     }, { timeout: 120_000, maxWait: 10_000 });
+    await this.invalidateCustomerCache();
   }
 
   startImport(file: Express.Multer.File, actorId: string): { jobId: string } {
@@ -900,5 +949,6 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
     job.skipped = skipped;
     job.errors = errors;
     job.rows = results;
+    await this.invalidateCustomerCache();
   }
 }

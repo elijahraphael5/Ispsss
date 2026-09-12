@@ -5,6 +5,7 @@ import { BullModule } from '@nestjs/bullmq';
 
 import { TenantModule } from './common/tenant/tenant.module';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { CacheModule } from './common/cache/cache.module';
 import { JwtAuthModule } from './common/auth/jwt-auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { NetworkModule } from './modules/network/network.module';
@@ -29,6 +30,7 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
   imports: [
     PrismaModule,
     TenantModule,
+    CacheModule,
     JwtAuthModule,
     ...(redisUrl === 'none' ? [] : [BullModule.forRoot({ connection: { url: redisUrl } })]),
     ConfigModule.forRoot({ isGlobal: true }),

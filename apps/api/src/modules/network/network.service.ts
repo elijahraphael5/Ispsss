@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
+import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class NetworkService {
@@ -9,11 +10,18 @@ export class NetworkService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
     private readonly audit: AuditService,
+    private readonly cache: CacheService,
   ) {}
+
+  private async invalidateNetworkCache(): Promise<void> {
+    await this.cache.invalidatePattern('network:*');
+  }
 
   // ── Dashboard ──────────────────────────────────────────────
 
   async getDashboard() {
+    const cached = await this.cache.get<any>('network:dashboard');
+    if (cached) return cached;
     const [
       totalSubs, activeSubs, suspendedSubs,
     ] = await Promise.all([
@@ -22,18 +30,24 @@ export class NetworkService {
       this.prisma.subscriber.count({ where: { status: 'SUSPENDED', deletedAt: null } }),
     ]);
 
-    return {
+    const result = {
       totalSubscribers: totalSubs,
       activeSubscribers: activeSubs,
       inactiveSubscribers: totalSubs - activeSubs - suspendedSubs,
       suspendedSubscribers: suspendedSubs,
     };
+    await this.cache.set('network:dashboard', result, 15);
+    return result;
   }
 
   // ── Network Devices ───────────────────────────────────────
 
   async findAllDevices() {
-    return this.prisma.networkDevice.findMany({ orderBy: { updatedAt: 'desc' } });
+    const cached = await this.cache.get<any[]>('network:devices');
+    if (cached) return cached;
+    const devices = await this.prisma.networkDevice.findMany({ orderBy: { updatedAt: 'desc' } });
+    await this.cache.set('network:devices', devices, 30);
+    return devices;
   }
 
   async findDevice(id: string) {
@@ -46,12 +60,14 @@ export class NetworkService {
     const tenantId = await this.tenant.resolveTenant();
     const device = await this.prisma.networkDevice.create({ data: { tenantId, ...data } });
     await this.audit.log({ action: 'DEVICE_CREATED', entityType: 'NetworkDevice', entityId: device.id, metadata: { name: data.name, type: data.type, ipAddress: data.ipAddress } });
+    await this.invalidateNetworkCache();
     return device;
   }
 
   async updateDevice(id: string, data: any) {
     const device = await this.prisma.networkDevice.update({ where: { id }, data });
     await this.audit.log({ action: 'DEVICE_UPDATED', entityType: 'NetworkDevice', entityId: id, metadata: { ...data } });
+    await this.invalidateNetworkCache();
     return device;
   }
 
@@ -148,6 +164,8 @@ export class NetworkService {
   }
 
   async getAllConnections() {
+    const cached = await this.cache.get<any>('network:connections');
+    if (cached) return cached;
     const [pppoeSessions, staticCpes] = await Promise.all([
       this.prisma.pppoeSession.findMany({
         where: { isActive: true },
@@ -194,13 +212,15 @@ export class NetworkService {
       subscriberId: c.subscriberId,
     }));
 
-    return {
+    const result = {
       connections: [...pppoeConnections, ...staticConnections].sort(
         (a, b) => new Date(b.lastSeen ?? 0).getTime() - new Date(a.lastSeen ?? 0).getTime(),
       ),
       totalPppoe: pppoeConnections.length,
       totalStatic: staticConnections.length,
     };
+    await this.cache.set('network:connections', result, 15);
+    return result;
   }
 
   // ── CPE / IP Management ──────────────────────────────────
@@ -221,17 +241,20 @@ export class NetworkService {
       },
     });
     await this.audit.log({ action: 'CPE_CREATED', entityType: 'Cpe', entityId: cpe.id, metadata: { subscriberId, macAddress: cpe.macAddress, ipAddress: data.ipAddress } });
+    await this.invalidateNetworkCache();
     return cpe;
   }
 
   async updateCpe(id: string, data: { name?: string; ipAddress?: string }) {
     const cpe = await this.prisma.cpe.update({ where: { id }, data });
     await this.audit.log({ action: 'CPE_UPDATED', entityType: 'Cpe', entityId: id, metadata: data as any });
+    await this.invalidateNetworkCache();
     return cpe;
   }
 
   async deleteCpe(id: string) {
     await this.prisma.cpe.delete({ where: { id } });
     await this.audit.log({ action: 'CPE_DELETED', entityType: 'Cpe', entityId: id });
+    await this.invalidateNetworkCache();
   }
 }

@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/com
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantContext } from '../../common/tenant/tenant-context';
 import { RouterOsService } from './routeros.service';
+import { CacheService } from '../../common/cache/cache.service';
 
 function parseQueueBytes(raw: string | null | undefined): bigint | null {
   if (!raw) return null;
@@ -39,6 +40,7 @@ export class RouterSnapshotService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ros: RouterOsService,
+    private readonly cache: CacheService,
   ) {}
 
   onModuleInit() {
@@ -256,12 +258,14 @@ export class RouterSnapshotService implements OnModuleInit {
   }
 
   async listSnapshots() {
+    const cached = await this.cache.get<any[]>('routeros:snapshots');
+    if (cached) return cached;
     const tenantId = await this.resolveTenantId();
     const rows = await this.prisma.routerSnapshot.findMany({
       where: tenantId ? { tenantId } : undefined,
       orderBy: { username: 'asc' },
     });
-    return rows.map(r => ({
+    const result = rows.map(r => ({
       id: r.id,
       username: r.username,
       customer: r.comment || '',
@@ -282,6 +286,8 @@ export class RouterSnapshotService implements OnModuleInit {
       capturedAt: r.capturedAt,
       cached: true,
     }));
+    await this.cache.set('routeros:snapshots', result, 10);
+    return result;
   }
 
   async listMetrics(username?: string, ip?: string, limit = 60) {

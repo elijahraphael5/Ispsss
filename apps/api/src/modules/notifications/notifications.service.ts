@@ -1,38 +1,55 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantService } from '../../common/tenant/tenant.service';
+import { CacheService } from '../../common/cache/cache.service';
 
 @Injectable()
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
+    private readonly cache: CacheService,
   ) {}
+
+  private async invalidateNotifications(): Promise<void> {
+    await this.cache.invalidatePattern('notifications:*');
+  }
 
   async findAll() {
     const tenantId = await this.tenant.resolveTenant();
+    const cacheKey = `notifications:${tenantId}`;
+    const cached = await this.cache.get<any[]>(cacheKey);
+    if (cached) return cached;
     await this.generateFromSystem(tenantId);
-    return this.prisma.notification.findMany({
+    const rows = await this.prisma.notification.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+    await this.cache.set(cacheKey, rows, 10);
+    return rows;
   }
 
   async create(data: { title: string; message: string; type?: string; subscriberId?: string; link?: string }) {
     const tenantId = await this.tenant.resolveTenant();
-    return this.prisma.notification.create({
+    const created = await this.prisma.notification.create({
       data: { tenantId, title: data.title, message: data.message, type: data.type ?? 'INFO', subscriberId: data.subscriberId, link: data.link },
     });
+    await this.invalidateNotifications();
+    return created;
   }
 
   async markRead(id: string) {
-    return this.prisma.notification.update({ where: { id }, data: { read: true } });
+    const updated = await this.prisma.notification.update({ where: { id }, data: { read: true } });
+    await this.invalidateNotifications();
+    return updated;
   }
 
   async markAllRead() {
     const tenantId = await this.tenant.resolveTenant();
-    return this.prisma.notification.updateMany({ where: { tenantId, read: false }, data: { read: true } });
+    const result = await this.prisma.notification.updateMany({ where: { tenantId, read: false }, data: { read: true } });
+    await this.invalidateNotifications();
+    return result;
   }
 
   private async generateFromSystem(tenantId: string) {

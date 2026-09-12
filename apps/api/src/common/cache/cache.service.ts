@@ -58,7 +58,11 @@ class RedisCache implements CacheStore {
     try {
       const stream = this.redis.scanStream({ match: `cache:${pattern}`, count: 100 });
       for await (const keys of stream) {
-        if (keys.length) await this.redis.del(...keys);
+        if (keys.length) {
+          // scanStream returns full keys (prefix included); ioredis re-applies
+          // keyPrefix on DEL, so strip it or the delete silently misses.
+          await this.redis.del(...keys.map((k: string) => k.slice('cache:'.length)));
+        }
       }
     } catch {}
   }
