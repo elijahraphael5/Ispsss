@@ -614,9 +614,11 @@ export class UsersService {
 
       await tx.chatMessage.deleteMany({ where: { sessionId: { in: sessionIds } } });
       await tx.fileUpload.deleteMany({ where: { OR: [{ sessionId: { in: sessionIds } }, { ticketId: { in: ticketIds } }] } });
-      await tx.chatSession.deleteMany({ where: { id: { in: sessionIds } } });
+      // Tickets reference their source chat session (Ticket.sourceChatSessionId
+      // FK) — delete tickets/comments before the sessions or the wipe fails.
       await tx.ticketComment.deleteMany({ where: { ticketId: { in: ticketIds } } });
       await tx.ticket.deleteMany({ where: { id: { in: ticketIds } } });
+      await tx.chatSession.deleteMany({ where: { id: { in: sessionIds } } });
       await tx.refund.deleteMany({ where: { paymentId: { in: paymentIds } } });
       await tx.creditNote.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
       await tx.paymentAttempt.deleteMany({ where: { paymentId: { in: paymentIds } } });
