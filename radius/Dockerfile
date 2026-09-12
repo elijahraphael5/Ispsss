@@ -5,7 +5,7 @@ FROM freeradius/freeradius-server:latest-3.2
 # module. Base is Ubuntu 22.04 with the FreeRADIUS project's own debs; the
 # daemon binary is /usr/sbin/freeradius (radiusd was renamed upstream).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends freeradius freeradius-mysql \
+ && apt-get install -y --no-install-recommends freeradius freeradius-mysql mariadb-client \
  && rm -rf /var/lib/apt/lists/* \
  && ln -sfn /etc/freeradius /etc/raddb
 
