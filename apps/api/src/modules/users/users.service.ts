@@ -350,49 +350,29 @@ export class UsersService {
     };
 
     if (body.testEmail) {
+      // Dry run: send a preview to ANY address. Never look up or modify the
+      // recipient's account — the password in the email is a throwaway sample
+      // and is not saved anywhere. Works even when there are no customers yet.
       const password = this.genPassword();
-      const testUser = await this.prisma.user.findFirst({
-        where: { email: body.testEmail, deletedAt: null },
-        include: {
-          subscriber: {
-            include: {
-              subscriptions: { include: { plan: { select: planSelect } }, orderBy: { startedAt: 'desc' }, take: 1 },
-            },
-          },
-        },
-      });
-
-      if (testUser) {
-        const data = buildData(testUser, password);
-        const sent = await this.mail.sendLoginDetails({ ...data, email: body.testEmail });
-        if (!sent) {
-          return {
-            mode: 'test',
-            sentTo: body.testEmail,
-            sample: { email: testUser.email, username: data.username, customerId: data.customerId, planName: data.planName },
-            note: 'Email could not be delivered (SMTP) — password was NOT changed.',
-          };
-        }
-        const bcrypt = await import('bcryptjs');
-        const passwordHash = await bcrypt.hash(password, 12);
-        await this.prisma.user.update({ where: { id: testUser.id }, data: { passwordHash } });
-        return {
-          mode: 'test',
-          sentTo: body.testEmail,
-          sample: { email: testUser.email, username: data.username, customerId: data.customerId, planName: data.planName },
-          note: 'Password updated for this account — the login in this email works.',
-        };
-      }
-
       const sample = users[0];
-      if (!sample) throw new NotFoundException('No customers found');
-      const data = buildData(sample, password);
-      await this.mail.sendLoginDetails({ ...data, email: body.testEmail });
+      const data: LoginDetailsData = sample
+        ? buildData(sample, password)
+        : {
+            email: body.testEmail,
+            username: 'demo-pppoe',
+            password,
+            customerId: 'DEMO0001',
+            planName: 'SAMPLE PLAN',
+            portalUrl,
+          };
+      const sent = await this.mail.sendLoginDetails({ ...data, email: body.testEmail });
       return {
         mode: 'test',
         sentTo: body.testEmail,
-        sample: { email: sample.email, username: data.username, customerId: data.customerId, planName: data.planName },
-        note: `No account exists for ${body.testEmail} — preview only; the password shown is a sample and will not work.`,
+        sample: { email: data.email, username: data.username, customerId: data.customerId, planName: data.planName },
+        note: sent
+          ? 'Preview only — the password in this email is a sample and will not work; no account was changed.'
+          : 'Email could not be delivered (SMTP) — no account was changed.',
       };
     }
 
@@ -660,7 +640,7 @@ export class UsersService {
       await tx.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
       await tx.user.deleteMany({ where: { id: { in: userIds } } });
       await tx.plan.deleteMany({ where: { tenantId } });
-    });
+    }, { timeout: 120_000, maxWait: 10_000 });
   }
 
   startImport(file: Express.Multer.File, actorId: string): { jobId: string } {

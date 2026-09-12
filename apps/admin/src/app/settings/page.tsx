@@ -695,7 +695,7 @@ export default function SettingsPage() {
             </p>
 
             <div style={{ marginTop: 16, padding: 16, background: '#F8FAFC', borderRadius: 12, border: '1px solid var(--border-color)' }}>
-              <label style={fieldLabel}>Send test email <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>(updates that account&apos;s password so the login works)</span></label>
+              <label style={fieldLabel}>Send test email</label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com"
                   style={{ ...fieldInput, flex: '1 1 220px', width: 'auto' }} />
@@ -705,7 +705,7 @@ export default function SettingsPage() {
                 </button>
               </div>
               <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Sends a real launch email to the address you enter. If that account exists its password is updated so the login link works; otherwise it&apos;s a preview with sample credentials.
+                Sends a preview of the launch email to any address you enter. No account is changed — the credentials in it are samples.
               </p>
             </div>
 

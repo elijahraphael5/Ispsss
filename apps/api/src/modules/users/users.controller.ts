@@ -62,7 +62,7 @@ export class UsersController {
 
   @Post('import')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
   importCustomers(@UploadedFile() file: Express.Multer.File, @CurrentUser('id') actorId: string) {
     return this.service.startImport(file, actorId);
   }
