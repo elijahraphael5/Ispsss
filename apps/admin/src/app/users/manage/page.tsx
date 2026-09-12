@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, apiUpload, timeAgo, onCustomersChanged, notifyCustomersChanged } from '@isp/shared';
 import { useRouter } from 'next/navigation';
 import { SkeletonTable } from '../../../components/Skeleton';
@@ -161,6 +161,7 @@ export default function CustomerPage() {
   // excel import
   const [showImport, setShowImport] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportJob | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -214,28 +215,31 @@ export default function CustomerPage() {
           }),
         });
       }
-      if (f.ipAddress.trim()) {
-        await api(`/network/subscribers/${sub.id}/cpes`, {
-          method: 'POST',
-          body: JSON.stringify({ name: f.pppoeUsername.trim() || f.name.trim(), ipAddress: f.ipAddress.trim() }),
-        });
-      }
-      if (f.pppoeUsername.trim()) {
-        await api(`/customers/${sub.id}/radius/activate`, {
-          method: 'POST',
-          body: JSON.stringify({
-            ...(f.radiusPassword.trim() ? { password: f.radiusPassword.trim() } : {}),
-            ...(f.expiry ? { expiresAt: new Date(f.expiry).toISOString() } : {}),
-          }),
-        });
-      }
-      if (f.sendWelcome) {
-        await api(`/subscriptions/${sub.id}/send-welcome`, { method: 'POST', body: JSON.stringify({ password }) });
-      }
+      // Independent follow-ups — run together instead of one after another.
+      await Promise.all([
+        f.ipAddress.trim()
+          ? api(`/network/subscribers/${sub.id}/cpes`, {
+              method: 'POST',
+              body: JSON.stringify({ name: f.pppoeUsername.trim() || f.name.trim(), ipAddress: f.ipAddress.trim() }),
+            })
+          : Promise.resolve(),
+        f.pppoeUsername.trim()
+          ? api(`/customers/${sub.id}/radius/activate`, {
+              method: 'POST',
+              body: JSON.stringify({
+                ...(f.radiusPassword.trim() ? { password: f.radiusPassword.trim() } : {}),
+                ...(f.expiry ? { expiresAt: new Date(f.expiry).toISOString() } : {}),
+              }),
+            })
+          : Promise.resolve(),
+        f.sendWelcome
+          ? api(`/subscriptions/${sub.id}/send-welcome`, { method: 'POST', body: JSON.stringify({ password }) })
+          : Promise.resolve(),
+      ]);
       setShowCreate(false);
       setCreateForm({ name: '', email: '', phone: '', address: '', planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '', expiry: '', fee: '', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: false });
       setCreateSuccess('Customer created — it will appear in the Customers list after KYC approval (see the KYC tab).');
-      await load();
+      void load(true);
     } catch (e: any) {
       setCreateError(e?.message ?? 'Failed to create customer');
     } finally {
@@ -244,7 +248,16 @@ export default function CustomerPage() {
   }
 
   async function handleImport() {
-    if (!importFile) { setImportError('Choose an .xlsx or .csv file first'); return; }
+    if (!importFile) { setImportError('Choose an .xlsx, .xls or .csv file first'); return; }
+    const name = importFile.name.toLowerCase();
+    if (!/\.(xlsx|xls|csv)$/.test(name)) {
+      setImportError(`"${importFile.name}" is not an .xlsx, .xls or .csv file`);
+      return;
+    }
+    if (importFile.size > 25 * 1024 * 1024) {
+      setImportError(`File is ${Math.round(importFile.size / 1024 / 1024)} MB — the limit is 25 MB`);
+      return;
+    }
     setImporting(true);
     setImportError('');
     setImportProgress({ status: 'running', stage: 'uploading…', total: 0, processed: 0, created: 0, skipped: 0, errors: 0 });
@@ -257,18 +270,22 @@ export default function CustomerPage() {
           if (job.status === 'done') {
             setImportResult(job as unknown as ImportResult);
             setImportFile(null);
-            await load();
+            if (importInputRef.current) importInputRef.current.value = '';
+            await load(true);
           } else if (job.status === 'failed') {
+            setImportProgress(null);
             setImportError(job.error ?? 'Import failed');
           } else {
             setTimeout(poll, 1200);
           }
         } catch (e: any) {
+          setImportProgress(null);
           setImportError(e?.message ?? 'Failed to fetch import progress');
         }
       };
       poll();
     } catch (e: any) {
+      setImportProgress(null);
       setImportError(e?.message ?? 'Import failed');
     } finally {
       setImporting(false);
@@ -283,7 +300,7 @@ export default function CustomerPage() {
       setShowPurge(false);
       setPurgeConfirmText('');
       setCreateSuccess(`All ${res.removedSubscribers} customers purged — the customer table is now empty.`);
-      await load();
+      await load(true);
     } catch (e: any) {
       setError(e?.message ?? 'Purge failed');
     } finally {
@@ -458,8 +475,9 @@ export default function CustomerPage() {
   // edits, KYC approvals) — Next's router cache would otherwise serve stale
   // rows after navigating back. Also reload when the window regains focus.
   useEffect(() => {
-    const off = onCustomersChanged(load);
-    const onFocus = () => load();
+    // Silent reloads: never blank the page (the file picker fires `focus`).
+    const off = onCustomersChanged(() => load(true));
+    const onFocus = () => load(true);
     window.addEventListener('focus', onFocus);
     return () => { off(); window.removeEventListener('focus', onFocus); };
   }, []);
@@ -481,8 +499,8 @@ export default function CustomerPage() {
     return undefined;
   }
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const [devices, connections, health, cust, planList, snapshots] = await Promise.all([
@@ -515,7 +533,6 @@ export default function CustomerPage() {
           comment: null,
         })));
         setPage(0);
-        setLoading(false);
         return;
       }
       setRosDevice({ id: ros.id });
@@ -525,7 +542,7 @@ export default function CustomerPage() {
       if (snapshots.length) setSubscribers(snapshotRows(snapshots));
       setCached(null);
       setPage(0);
-      setLoading(false);
+      if (!silent) setLoading(false);
       setRouterLoading(true);
 
       try {
@@ -550,7 +567,7 @@ export default function CustomerPage() {
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -666,7 +683,7 @@ export default function CustomerPage() {
             ))}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="btn-sm-outline" onClick={load} disabled={loading}
+            <button className="btn-sm-outline" onClick={() => load()} disabled={loading}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               {loading ? 'Loading…' : 'Refresh'}
@@ -945,8 +962,25 @@ export default function CustomerPage() {
               <br/><b>Warning:</b> uploading wipes ALL existing customer data first — the file is the new source of truth.
             </div>
 
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={e => { setImportFile(e.target.files?.[0] ?? null); setImportResult(null); setImportProgress(null); setImportError(''); }}
-              style={{ width: '100%', marginBottom: 12, fontSize: '0.85rem' }} />
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv"
+              onChange={e => {
+                const f = e.target.files?.[0] ?? null;
+                setImportFile(f);
+                setImportResult(null);
+                setImportProgress(null);
+                setImportError('');
+                e.target.value = '';
+              }}
+              style={{ width: '100%', marginBottom: 8, fontSize: '0.85rem' }}
+            />
+            {importFile && (
+              <div style={{ fontSize: '0.8rem', color: '#334155', marginBottom: 12 }}>
+                Selected: <b>{importFile.name}</b> ({Math.max(1, Math.round(importFile.size / 1024))} KB)
+              </div>
+            )}
 
             {importProgress && importProgress.status === 'running' && (
               <div style={{ marginBottom: 16 }}>
