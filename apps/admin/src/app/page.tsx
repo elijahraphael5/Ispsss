@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, api, timeAgo, formatNaira } from '@isp/shared';
 import {
@@ -132,6 +132,7 @@ export default function Dashboard() {
   const [routerHealth, setRouterHealth] = useState<any[]>([]);
   const [connectionsData, setConnectionsData] = useState<ConnectionsData | null>(null);
   const [bwHistory, setBwHistory] = useState<{ time: string; down: number; up: number; pppoe: number; static: number }[]>([]);
+  const routerDownUntil = useRef(0);
 
   const fetchBandwidth = useCallback(async (range: BandwidthRange) => {
     try {
@@ -178,18 +179,21 @@ export default function Dashboard() {
           if (ros) setRosDevice(ros);
           return;
         }
+        const live = Date.now() >= routerDownUntil.current;
+        const down = () => { routerDownUntil.current = Date.now() + 60000; return null; };
         const [bw, sessions, conns, resource, routerHealth] = await Promise.all([
-          api<any>(`/routeros/devices/${rosDevice.id}/bandwidth`),
-          api<any[]>(`/routeros/devices/${rosDevice.id}/sessions`),
+          live ? api<any>(`/routeros/devices/${rosDevice.id}/bandwidth`).catch(down) : Promise.resolve(null),
+          live ? api<any[]>(`/routeros/devices/${rosDevice.id}/sessions`).catch(down) : Promise.resolve(null),
           api<ConnectionsData>('/network/connections'),
-          api<RosResource>(`/routeros/devices/${rosDevice.id}/system`),
+          live ? api<RosResource>(`/routeros/devices/${rosDevice.id}/system`).catch(down) : Promise.resolve(null),
           api<any[]>('/router-health'),
         ]);
-        setRosBandwidth(bw);
-        setActiveSessions(sessions);
+        if (bw) setRosBandwidth(bw);
+        if (sessions) setActiveSessions(sessions);
         setConnectionsData(conns);
-        setRosResource(resource);
+        if (resource) setRosResource(resource);
         setRouterHealth(routerHealth);
+        if (!bw || !sessions) return;
         const now = new Date();
         const t = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0') + ':' + now.getSeconds().toString().padStart(2, '0');
         const staticActive = conns.connections.filter(c => c.type === 'STATIC_IP' && (c.status === 'ACTIVE' || c.status === 'ONLINE')).length;

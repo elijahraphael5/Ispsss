@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, BadGatewayException, RequestTimeoutException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, BadGatewayException, RequestTimeoutException, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
@@ -41,7 +41,24 @@ export interface RouterOsSession {
 
 @Injectable()
 export class RouterOsService {
+  // Circuit breaker: an unreachable device must not make every caller wait the
+  // full 10s timeout on every request. After BREAKER_FAILURES consecutive
+  // timeouts/network errors for a device, live calls fail fast for the cooldown
+  // (callers fall back to cached DB data), then one probe is allowed through.
+  private static readonly BREAKER_FAILURES = 3;
+  private static readonly BREAKER_COOLDOWN_MS = 60_000;
+  private readonly breakers = new Map<string, { failures: number; openUntil: number }>();
+
   constructor(private readonly prisma: PrismaService) {}
+
+  private recordFailure(key: string) {
+    const state = this.breakers.get(key) ?? { failures: 0, openUntil: 0 };
+    state.failures += 1;
+    if (state.failures >= RouterOsService.BREAKER_FAILURES) {
+      state.openUntil = Date.now() + RouterOsService.BREAKER_COOLDOWN_MS;
+    }
+    this.breakers.set(key, state);
+  }
 
   private async getDevice(deviceId: string) {
     const device = await this.prisma.networkDevice.findUnique({ where: { id: deviceId } });
@@ -70,6 +87,11 @@ export class RouterOsService {
     options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseUrl(deviceIp, devicePort)}${path}`;
+    const breakerKey = `${deviceIp}:${devicePort ?? 80}`;
+    const breaker = this.breakers.get(breakerKey);
+    if (breaker && breaker.openUntil > Date.now()) {
+      throw new ServiceUnavailableException('RouterOS device unreachable — live data paused, showing cached data');
+    }
     // RouterOS HTTPS uses a self-signed certificate by default — same bypass
     // arpFetch uses. Restored in the finally block.
     const isHttps = url.startsWith('https:');
@@ -86,6 +108,8 @@ export class RouterOsService {
         signal: AbortSignal.timeout(10000),
       });
 
+      // Any HTTP response means the device is reachable — close the breaker.
+      this.breakers.delete(breakerKey);
       if (res.status === 204) return undefined as T;
       if (!res.ok) {
         let msg: string;
@@ -95,6 +119,7 @@ export class RouterOsService {
       return res.json();
     } catch (e: any) {
       if (e instanceof BadRequestException) throw e;
+      this.recordFailure(breakerKey);
       if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
         throw new RequestTimeoutException(`RouterOS request timed out (${path})`);
       }
