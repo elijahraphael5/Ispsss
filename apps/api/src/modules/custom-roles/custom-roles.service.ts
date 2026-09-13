@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
@@ -30,8 +31,24 @@ export class CustomRolesService {
     return role;
   }
 
+  /**
+   * `CustomRole.name` is unique across ALL rows — soft-deleted ones included,
+   * since the DB index ignores `deletedAt`. A stale row releases the name so a
+   * re-created role can reuse it; a live duplicate is a 409.
+   */
+  private async releaseStaleRoleName(name: string): Promise<void> {
+    const rows: Array<{ id: string; deletedAt: Date | null }> = await this.prisma.$queryRaw`
+      SELECT id, "deletedAt" FROM "CustomRole" WHERE name = ${name} LIMIT 1
+    `;
+    const owner = rows[0];
+    if (!owner) return;
+    if (!owner.deletedAt) throw new ConflictException(`A role named "${name}" already exists`);
+    await this.prisma.$queryRaw`UPDATE "CustomRole" SET name = 'deleted-' || id WHERE id = ${owner.id}`;
+  }
+
   async create(dto: CreateCustomRoleDto) {
     const tenantId = await this.tenant.resolveTenant();
+    await this.releaseStaleRoleName(dto.name);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const role = await tx.customRole.create({
@@ -107,7 +124,9 @@ export class CustomRolesService {
     if (actor) {
       this.audit.assertNotMaker(actor, await this.audit.makerOf('CustomRole', id), 'role');
     }
-    await this.prisma.customRole.delete({ where: { id } });
+    // Soft delete: the role row and its permissions survive for audit/restore.
+    // The unique name is released on demand when a new role reuses it.
+    await softDelete(this.prisma.customRole, { where: { id } });
     await this.audit.log({ action: 'ROLE_DELETED', entityType: 'CustomRole', entityId: id });
   }
 }

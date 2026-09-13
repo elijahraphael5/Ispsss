@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantService } from '../../common/tenant/tenant.service';
 import { TenantContext } from '../../common/tenant/tenant-context';
@@ -488,7 +489,9 @@ export class SupportService {
   }
 
   async deleteCanned(id: string) {
-    return this.prisma.cannedResponse.delete({ where: { id } });
+    const canned = await this.prisma.cannedResponse.findUnique({ where: { id }, select: { id: true } });
+    if (!canned) throw new NotFoundException(`Canned response ${id} not found`);
+    return softDelete(this.prisma.cannedResponse, { where: { id } });
   }
 
   async useCanned(id: string) {

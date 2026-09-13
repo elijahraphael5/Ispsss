@@ -16,7 +16,7 @@ function pinIcon(color: string) {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
-export default function CoverageMap({ areas, height = 320 }: { areas: CoverageArea[]; height?: number | string }) {
+export default function CoverageMap({ areas, height = 320, focus = null }: { areas: CoverageArea[]; height?: number | string; focus?: { lat: number; lng: number } | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
 
@@ -49,6 +49,12 @@ export default function CoverageMap({ areas, height = 320 }: { areas: CoverageAr
     });
     return () => { layer.remove(); };
   }, [areas]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focus) return;
+    map.setView([focus.lat, focus.lng], Math.max(map.getZoom(), 13));
+  }, [focus]);
 
   return <div ref={containerRef} style={{ height, width: '100%', borderRadius: 16, zIndex: 0 }} />;
 }

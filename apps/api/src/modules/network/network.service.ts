@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
@@ -230,16 +231,22 @@ export class NetworkService {
   }
 
   async createCpe(subscriberId: string, data: { name?: string; ipAddress: string; macAddress?: string; connectionType?: 'PPPOE' | 'STATIC_IP' }) {
-    const cpe = await this.prisma.cpe.create({
-      data: {
-        subscriberId,
-        name: data.name ?? null,
-        macAddress: data.macAddress ?? `00:${Array.from({ length: 5 }, () => Math.floor(Math.random() * 100).toString(16).padStart(2, '0')).join(':')}`,
-        ipAddress: data.ipAddress,
-        status: 'OFFLINE',
-        connectionType: data.connectionType ?? 'STATIC_IP',
-      },
-    });
+    let cpe;
+    try {
+      cpe = await this.prisma.cpe.create({
+        data: {
+          subscriberId,
+          name: data.name ?? null,
+          macAddress: data.macAddress ?? `00:${Array.from({ length: 5 }, () => Math.floor(Math.random() * 100).toString(16).padStart(2, '0')).join(':')}`,
+          ipAddress: data.ipAddress,
+          status: 'OFFLINE',
+          connectionType: data.connectionType ?? 'STATIC_IP',
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('This CPE (MAC address) is already registered');
+      throw e;
+    }
     await this.audit.log({ action: 'CPE_CREATED', entityType: 'Cpe', entityId: cpe.id, metadata: { subscriberId, macAddress: cpe.macAddress, ipAddress: data.ipAddress } });
     await this.invalidateNetworkCache();
     return cpe;
@@ -253,7 +260,11 @@ export class NetworkService {
   }
 
   async deleteCpe(id: string) {
-    await this.prisma.cpe.delete({ where: { id } });
+    const cpe = await this.prisma.cpe.findUnique({ where: { id }, select: { id: true } });
+    if (!cpe) throw new NotFoundException(`CPE ${id} not found`);
+    // Soft delete, and free the unique macAddress slot so the same hardware can
+    // be re-added to another customer (EntityHistory keeps the old value).
+    await softDelete(this.prisma.cpe, { where: { id }, data: { macAddress: null } });
     await this.audit.log({ action: 'CPE_DELETED', entityType: 'Cpe', entityId: id });
     await this.invalidateNetworkCache();
   }

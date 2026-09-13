@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from './components/Skeleton';
@@ -165,13 +166,18 @@ export default function CustomerDashboard() {
         <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Fiber Coverage</div>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              {coverage.filter(c => c.status === 'COVERED').length} areas covered · {coverage.length} total
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                {coverage.filter(c => c.status === 'COVERED').length} areas covered · {coverage.length} total
+              </span>
+              <Link href="/coverage" style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, textDecoration: 'none' }}>
+                View all coverage →
+              </Link>
+            </div>
           </div>
           <div className="coverage-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16 }}>
-            <CoverageMap areas={coverage} height={320} />
-            <div style={{ maxHeight: 320, overflowY: 'auto', borderLeft: '1px solid var(--border-color)', paddingLeft: 16 }}>
+            <CoverageMap areas={coverage} height={300} />
+            <div style={{ maxHeight: 300, overflowY: 'auto', borderLeft: '1px solid var(--border-color)', paddingLeft: 16 }}>
               {['IKORODU', 'LAGOS_MAINLAND', 'LAGOS_ISLAND', 'OTHER'].map(zone => {
                 const items = coverage.filter(c => c.zone === zone);
                 if (items.length === 0) return null;

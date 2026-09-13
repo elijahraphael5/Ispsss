@@ -626,7 +626,8 @@ export class UsersService {
   }
 
   async remove(id: string, actorId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true, phone: true, customRoleId: true, isSuperAdmin: true } });
+    const user = await this.prisma.user.findUnique({ where: { id }, select: { email: true, phone: true, customRoleId: true, isSuperAdmin: true } });
+    if (!user) throw new NotFoundException(`User ${id} not found`);
     await this.audit.log({ actorId, action: 'USER_DELETED', entityType: 'User', entityId: id, beforeData: user as any, metadata: { email: user.email } });
     // Audit logs are immutable — they are intentionally NOT deleted here so
     // the trail of who did what survives the user's removal. The user row is
@@ -668,43 +669,61 @@ export class UsersService {
    */
   private async clearCustomerData() {    const tenantId = await this.tenant.resolveTenant();
     await this.prisma.$transaction(async (tx) => {
-      // Tenant-scoped: never touch other tenants' plans/customers.
-      const subs = await tx.subscriber.findMany({ where: { tenantId }, select: { id: true, userId: true } });
+      // Tenant-scoped: never touch other tenants' plans/customers. Raw read so
+      // soft-deleted subscribers (deleted customers) are included too — their
+      // subscriptions still reference plans and would otherwise block the final
+      // plan.deleteMany (Subscription_planId_fkey RESTRICT). The child deletes
+      // below match by relation, so they clean soft-deleted rows as well.
+      const subs: Array<{ id: string; userId: string }> = await tx.$queryRaw`
+        SELECT id, "userId" FROM "Subscriber" WHERE "tenantId" = ${tenantId}
+      `;
       const subIds = subs.map((s) => s.id);
       if (!subIds.length) {
         await tx.plan.deleteMany({ where: { tenantId } });
         return;
       }
-      const sessions = await tx.chatSession.findMany({ where: { subscriberId: { in: subIds } }, select: { id: true } });
-      const sessionIds = sessions.map((s) => s.id);
-      const tickets = await tx.ticket.findMany({ where: { subscriberId: { in: subIds } }, select: { id: true } });
-      const ticketIds = tickets.map((t) => t.id);
-      const invoices = await tx.invoice.findMany({ where: { subscriberId: { in: subIds } }, select: { id: true } });
-      const invoiceIds = invoices.map((i) => i.id);
-      const payments = await tx.payment.findMany({ where: { invoiceId: { in: invoiceIds } }, select: { id: true } });
-      const paymentIds = payments.map((pm) => pm.id);
-      const quotations = await tx.quotation.findMany({ where: { subscriberId: { in: subIds } }, select: { id: true } });
-      const quotationIds = quotations.map((q) => q.id);
       // Only users whose subscriber is part of this wipe — keeps the delete
       // tenant-scoped and avoids orphaning other tenants' data.
       const userIds = subs.map((s) => s.userId);
+      // Match children through their parent relation instead of ID lists read
+      // with the soft-delete extension: a soft-deleted invoice/payment/ticket/
+      // session still holds a RESTRICT FK to its (active) subscriber, survives
+      // the child deletes when looked up by id, and then blocks the final
+      // subscriber delete.
+      const subWhere = { subscriberId: { in: subIds } };
+      // PaymentAttempt has no relation to Payment (plain string FK), so its
+      // rows are cleaned via the payment ids.
+      const paymentRows: Array<{ id: string }> = await tx.$queryRaw`
+        SELECT p.id FROM "Payment" p JOIN "Invoice" i ON p."invoiceId" = i.id
+        WHERE i."subscriberId" IN (${Prisma.join(subIds)})
+      `;
+      const paymentIds = paymentRows.map((p) => p.id);
 
-      await tx.chatMessage.deleteMany({ where: { sessionId: { in: sessionIds } } });
-      await tx.fileUpload.deleteMany({ where: { OR: [{ sessionId: { in: sessionIds } }, { ticketId: { in: ticketIds } }] } });
+      await tx.chatMessage.deleteMany({ where: { session: subWhere } });
+      await tx.fileUpload.deleteMany({
+        where: {
+          OR: [
+            { session: subWhere },
+            { message: { session: subWhere } },
+            { ticket: subWhere },
+            { ticketComment: { ticket: subWhere } },
+          ],
+        },
+      });
       // Tickets reference their source chat session (Ticket.sourceChatSessionId
       // FK) — delete tickets/comments before the sessions or the wipe fails.
-      await tx.ticketComment.deleteMany({ where: { ticketId: { in: ticketIds } } });
-      await tx.ticket.deleteMany({ where: { id: { in: ticketIds } } });
-      await tx.chatSession.deleteMany({ where: { id: { in: sessionIds } } });
-      await tx.refund.deleteMany({ where: { paymentId: { in: paymentIds } } });
-      await tx.creditNote.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
+      await tx.ticketComment.deleteMany({ where: { ticket: subWhere } });
+      await tx.ticket.deleteMany({ where: subWhere });
+      await tx.chatSession.deleteMany({ where: subWhere });
+      await tx.refund.deleteMany({ where: { OR: [{ payment: { invoice: subWhere } }, { invoice: subWhere }] } });
+      await tx.creditNote.deleteMany({ where: { invoice: subWhere } });
       await tx.paymentAttempt.deleteMany({ where: { paymentId: { in: paymentIds } } });
-      await tx.receipt.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
-      await tx.payment.deleteMany({ where: { id: { in: paymentIds } } });
-      await tx.invoiceLine.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
-      await tx.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
-      await tx.quotationItem.deleteMany({ where: { quotationId: { in: quotationIds } } });
-      await tx.quotation.deleteMany({ where: { id: { in: quotationIds } } });
+      await tx.receipt.deleteMany({ where: { invoice: subWhere } });
+      await tx.payment.deleteMany({ where: { invoice: subWhere } });
+      await tx.invoiceLine.deleteMany({ where: { invoice: subWhere } });
+      await tx.invoice.deleteMany({ where: subWhere });
+      await tx.quotationItem.deleteMany({ where: { quotation: subWhere } });
+      await tx.quotation.deleteMany({ where: subWhere });
       await tx.walletTransaction.deleteMany({ where: { wallet: { subscriberId: { in: subIds } } } });
       await tx.virtualAccount.deleteMany({ where: { subscriberId: { in: subIds } } });
       await tx.wallet.deleteMany({ where: { subscriberId: { in: subIds } } });
@@ -870,11 +889,15 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
         if (autoEmail) radiusNote = `email auto-generated from ID (${autoEmail})`;
         else if (useEmail !== email) radiusNote = `email auto-generated (${useEmail})`;
         await this.prisma.$transaction(async (tx) => {
-          const phoneTaken = phone ? await tx.user.findFirst({ where: { phone }, select: { id: true } }) : null;
+          // Raw read: a soft-deleted user still owns the unique phone slot, so
+          // include them or the insert below fails on the phone constraint.
+          const phoneTaken: Array<{ id: string }> = phone
+            ? await tx.$queryRaw`SELECT id FROM "User" WHERE phone = ${phone} LIMIT 1`
+            : [];
           const bcrypt = await import('bcryptjs');
           const passwordHash = await bcrypt.hash(portalPassword || crypto.randomBytes(8).toString('hex'), 10);
           const user = await tx.user.create({
-            data: { tenantId, email: useEmail, name: name || null, phone: phoneTaken ? null : phone || null, passwordHash },
+            data: { tenantId, email: useEmail, name: name || null, phone: phoneTaken.length ? null : phone || null, passwordHash },
             select: { id: true },
           });
           const subscriber = await tx.subscriber.create({

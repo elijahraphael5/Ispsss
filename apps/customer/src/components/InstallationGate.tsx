@@ -23,7 +23,8 @@ const InstallationGateContext = createContext<GateState>({ locked: false, invoic
 export const useInstallationGate = () => useContext(InstallationGateContext);
 
 // While the installation invoice is unpaid only billing/payment routes work.
-const ALLOWED_PREFIXES = ['/billing', '/payment/callback'];
+// Coverage is informational, so it stays viewable.
+const ALLOWED_PREFIXES = ['/billing', '/payment/callback', '/coverage'];
 
 export function InstallationGate({ children }: { children: React.ReactNode }) {
   const { accessToken } = useAuthStore();

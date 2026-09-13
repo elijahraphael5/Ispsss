@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { softDelete, softDeleteMany } from '@isp/prisma';
@@ -46,8 +46,25 @@ export class SubscriptionsService {
     });
   }
 
+  /**
+   * `Subscriber.pppoeUsername` is unique across ALL rows — soft-deleted ones
+   * included, since the DB index ignores `deletedAt`. A stale row releases the
+   * username so a re-created customer can reuse it; a live duplicate gets a
+   * 409 instead of the Prisma unique-constraint 500.
+   */
+  private async assertPppoeAvailable(username: string): Promise<void> {
+    const rows: Array<{ id: string; deletedAt: Date | null }> = await this.prisma.$queryRaw`
+      SELECT id, "deletedAt" FROM "Subscriber" WHERE "pppoeUsername" = ${username} LIMIT 1
+    `;
+    const owner = rows[0];
+    if (!owner) return;
+    if (!owner.deletedAt) throw new ConflictException('PPPoE username is already in use by another customer');
+    await this.prisma.$queryRaw`UPDATE "Subscriber" SET "pppoeUsername" = NULL WHERE id = ${owner.id}`;
+  }
+
   async create(data: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string }, actorId?: string) {
     const tenantId = await this.tenant.resolveTenant();
+    if (data.pppoeUsername) await this.assertPppoeAvailable(data.pppoeUsername);
     // A soft-deleted subscriber (customer deleted earlier) still holds the
     // unique userId slot — restore it instead of crashing on the constraint.
     const rows: Array<{ id: string }> = await this.prisma.$queryRaw`SELECT id FROM "Subscriber" WHERE "userId" = ${data.userId} LIMIT 1`;
@@ -77,21 +94,27 @@ export class SubscriptionsService {
       await this.notifications.create({ title: 'New Account Created', message: `Customer ${sub.user?.email ?? '—'} signed up`, type: 'INFO', subscriberId: sub.id, link: '/subscriptions/subscribers' });
       return sub;
     }
-    const sub = await this.prisma.subscriber.create({
-      data: {
-        tenantId,
-        userId: data.userId,
-        type: data.type as any,
-        address: data.address,
-        pppoeUsername: data.pppoeUsername,
-        networkType: data.networkType,
-        // Maker–checker KYC: record which admin created the account so the
-        // KYC approver (checker) can never be the same person.
-        kycSubmittedById: actorId ?? null,
-        kycSubmittedAt: actorId ? new Date() : undefined,
-      },
-      include: { user: { select: { id: true, email: true, phone: true } } },
-    });
+    let sub;
+    try {
+      sub = await this.prisma.subscriber.create({
+        data: {
+          tenantId,
+          userId: data.userId,
+          type: data.type as any,
+          address: data.address,
+          pppoeUsername: data.pppoeUsername,
+          networkType: data.networkType,
+          // Maker–checker KYC: record which admin created the account so the
+          // KYC approver (checker) can never be the same person.
+          kycSubmittedById: actorId ?? null,
+          kycSubmittedAt: actorId ? new Date() : undefined,
+        },
+        include: { user: { select: { id: true, name: true, email: true, phone: true } } },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('PPPoE username is already in use by another customer');
+      throw e;
+    }
     await this.audit.log({ action: 'SUBSCRIBER_CREATED', entityType: 'Subscriber', entityId: sub.id, metadata: { userId: data.userId, type: data.type } });
     await this.notifications.create({ title: 'New Account Created', message: `Customer ${sub.user?.email ?? '—'} signed up`, type: 'INFO', subscriberId: sub.id, link: '/subscriptions/subscribers' });
     return sub;
@@ -154,7 +177,9 @@ export class SubscriptionsService {
         await softDeleteMany(tx.wallet, { where: { id: { in: walletIds } } });
       }
 
-      await softDeleteMany(tx.cpe, { where: { subscriberId: id } });
+      // CPEs are soft-deleted with their unique macAddress released so the
+      // hardware can be attached to a new customer later.
+      await tx.cpe.updateMany({ where: { subscriberId: id }, data: { deletedAt: new Date(), macAddress: null } });
       await softDeleteMany(tx.subscription, { where: { subscriberId: id } });
       await tx.ticketComment.deleteMany({ where: { ticket: { subscriberId: id } } });
       await softDeleteMany(tx.ticket, { where: { subscriberId: id } });
