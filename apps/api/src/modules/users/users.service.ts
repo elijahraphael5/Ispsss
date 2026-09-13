@@ -125,8 +125,25 @@ export class UsersService {
     });
   }
 
+  /**
+   * `User.phone` is unique across ALL rows — soft-deleted ones included, since
+   * the DB index ignores `deletedAt`. A stale row's phone is released so the
+   * new account can claim it; a live duplicate gets a 409 instead of the
+   * Prisma unique-constraint 500.
+   */
+  private async assertPhoneAvailable(phone: string, excludeUserId?: string): Promise<void> {
+    const rows: Array<{ id: string; deletedAt: Date | null }> = excludeUserId
+      ? await this.prisma.$queryRaw`SELECT id, "deletedAt" FROM "User" WHERE phone = ${phone} AND id <> ${excludeUserId} LIMIT 1`
+      : await this.prisma.$queryRaw`SELECT id, "deletedAt" FROM "User" WHERE phone = ${phone} LIMIT 1`;
+    const owner = rows[0];
+    if (!owner) return;
+    if (!owner.deletedAt) throw new ConflictException('A user with this phone number already exists');
+    await this.prisma.$queryRaw`UPDATE "User" SET phone = NULL WHERE id = ${owner.id}`;
+  }
+
   async create(data: { email: string; password: string; phone?: string; name?: string; customRoleId?: string }, actorId: string) {
     const email = data.email.trim().toLowerCase();
+    const phone = data.phone?.trim() || null;
     // Soft-deleted rows are invisible to the soft-delete extension, so check
     // the raw table: an ACTIVE customer keeps their email, anything stale
     // (soft-deleted user or orphan left by a customer deletion) releases it.
@@ -139,6 +156,7 @@ export class UsersService {
     if (existing && !existing.deletedAt && existing.hasSubscriber) {
       throw new ConflictException('A user with this email already exists');
     }
+    if (phone) await this.assertPhoneAvailable(phone);
     if (existing) {
       // Never reuse deleted data: move the stale row's email to an id-based
       // placeholder so the address belongs to a brand-new account only.
@@ -147,11 +165,17 @@ export class UsersService {
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(data.password, 12);
     const tenantId = await this.tenant.resolveTenant();
-    const result = await this.prisma.user.create({
-      data: { tenantId, email, name: data.name, passwordHash, phone: data.phone, customRoleId: data.customRoleId },
-      select: userSelect,
-    });
-    await this.audit.log({ actorId, action: 'USER_CREATED', entityType: 'User', entityId: result.id, afterData: { email, name: data.name, phone: data.phone, customRoleId: data.customRoleId } as any, metadata: { email, customRoleId: data.customRoleId } });
+    let result;
+    try {
+      result = await this.prisma.user.create({
+        data: { tenantId, email, name: data.name, passwordHash, phone, customRoleId: data.customRoleId },
+        select: userSelect,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('A user with this email or phone number already exists');
+      throw e;
+    }
+    await this.audit.log({ actorId, action: 'USER_CREATED', entityType: 'User', entityId: result.id, afterData: { email, name: data.name, phone, customRoleId: data.customRoleId } as any, metadata: { email, customRoleId: data.customRoleId } });
     await this.invalidateCustomerCache();
     return result;
   }
@@ -163,18 +187,27 @@ export class UsersService {
     const updateData: any = {};
     if (data.email !== undefined) updateData.email = data.email;
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.phone !== undefined) {
+      if (data.phone) await this.assertPhoneAvailable(data.phone, id);
+      updateData.phone = data.phone;
+    }
     if (data.customRoleId !== undefined) updateData.customRoleId = data.customRoleId;
     if (data.isSuperAdmin !== undefined) updateData.isSuperAdmin = data.isSuperAdmin;
     if (data.password) {
       const bcrypt = await import('bcryptjs');
       updateData.passwordHash = await bcrypt.hash(data.password, 12);
     }
-    const result = await this.prisma.user.update({
-      where: { id },
-      data: updateData,
-      select: userSelect,
-    });
+    let result;
+    try {
+      result = await this.prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: userSelect,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('A user with this email or phone number already exists');
+      throw e;
+    }
     await this.audit.log({ actorId, action: 'USER_UPDATED', entityType: 'User', entityId: id, beforeData: before as any, afterData: { email: result.email, name: result.name, phone: result.phone, isSuperAdmin: result.isSuperAdmin, customRoleId: result.customRoleId } as any, metadata: { changes: Object.keys(updateData) } });
     await this.invalidateCustomerCache();
     return result;
@@ -504,6 +537,7 @@ export class UsersService {
       if (taken) throw new ConflictException('A user with this email already exists');
       data.email = normalized;
     }
+    if (data.phone) await this.assertPhoneAvailable(data.phone, sub.userId);
     if (data.email !== undefined || data.phone !== undefined || data.name !== undefined) {
       await this.prisma.user.update({
         where: { id: sub.userId },
