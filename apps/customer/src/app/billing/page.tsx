@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonTable } from '../components/Skeleton';
+import { useInstallationGate } from '../../components/InstallationGate';
 
 function fmtK(k: number) { return formatNaira(k); }
 function fmtD(d: string) { return new Date(d).toLocaleDateString('en-GB'); }
@@ -54,6 +55,7 @@ function loadPaystackInline(): Promise<void> {
 
 export default function BillingPage() {
   const { accessToken, user } = useAuthStore();
+  const { locked, invoice: installationInvoice } = useInstallationGate();
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -158,6 +160,15 @@ export default function BillingPage() {
         <h1 style={{ fontSize: '1.6rem', fontWeight: 700 }}>Billing & Payments</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Invoices, payments and receipts in one place</p>
       </div>
+
+      {locked && (
+        <div className="data-card" style={{ padding: '16px 20px', borderLeft: '4px solid #F15925', background: '#FFF7ED' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#9A3412' }}>Installation fee required</div>
+          <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#9A3412' }}>
+            Pay your installation invoice{installationInvoice ? ` ${installationInvoice.invoiceNumber} (${fmtK(installationInvoice.amountKobo)})` : ''} below to unlock the rest of your account.
+          </p>
+        </div>
+      )}
 
       <div className="grid-4">
         <div className="data-card" style={{ padding: '18px 20px' }}>

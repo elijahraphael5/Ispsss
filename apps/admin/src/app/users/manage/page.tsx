@@ -198,7 +198,7 @@ export default function CustomerPage() {
   const [createForm, setCreateForm] = useState({
     name: '', email: '', phone: '', address: '',
     planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '',
-    expiry: '', fee: '', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: false,
+    expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true,
   });
 
   async function handleCreateCustomer() {
@@ -229,29 +229,45 @@ export default function CustomerPage() {
         });
       }
       // Independent follow-ups — run together instead of one after another.
-      await Promise.all([
-        f.ipAddress.trim()
-          ? api(`/network/subscribers/${sub.id}/cpes`, {
-              method: 'POST',
-              body: JSON.stringify({ name: f.pppoeUsername.trim() || f.name.trim(), ipAddress: f.ipAddress.trim() }),
-            })
-          : Promise.resolve(),
-        f.pppoeUsername.trim()
-          ? api(`/customers/${sub.id}/radius/activate`, {
-              method: 'POST',
-              body: JSON.stringify({
-                ...(f.radiusPassword.trim() ? { password: f.radiusPassword.trim() } : {}),
-                ...(f.expiry ? { expiresAt: new Date(f.expiry).toISOString() } : {}),
-              }),
-            })
-          : Promise.resolve(),
-        f.sendWelcome
-          ? api(`/subscriptions/${sub.id}/send-welcome`, { method: 'POST', body: JSON.stringify({ password }) })
-          : Promise.resolve(),
-      ]);
+      // A RADIUS/CPE/email hiccup must not fail the whole creation: the
+      // customer already exists, so report what needs a retry instead.
+      const followUps: { label: string; run: Promise<unknown> }[] = [];
+      if (f.ipAddress.trim()) {
+        followUps.push({
+          label: 'CPE',
+          run: api(`/network/subscribers/${sub.id}/cpes`, {
+            method: 'POST',
+            body: JSON.stringify({ name: f.pppoeUsername.trim() || f.name.trim(), ipAddress: f.ipAddress.trim() }),
+          }),
+        });
+      }
+      if (f.pppoeUsername.trim()) {
+        followUps.push({
+          label: 'RADIUS activation',
+          run: api(`/customers/${sub.id}/radius/activate`, {
+            method: 'POST',
+            body: JSON.stringify({
+              ...(f.radiusPassword.trim() ? { password: f.radiusPassword.trim() } : {}),
+              ...(f.expiry ? { expiresAt: new Date(f.expiry).toISOString() } : {}),
+            }),
+          }),
+        });
+      }
+      if (f.sendWelcome) {
+        followUps.push({
+          label: 'welcome email',
+          run: api(`/subscriptions/${sub.id}/send-welcome`, { method: 'POST', body: JSON.stringify({ password }) }),
+        });
+      }
+      const settled = await Promise.allSettled(followUps.map(x => x.run));
+      const failed = settled.flatMap((r, i) => (r.status === 'rejected' ? [followUps[i].label] : []));
       setShowCreate(false);
-      setCreateForm({ name: '', email: '', phone: '', address: '', planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '', expiry: '', fee: '', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: false });
-      setCreateSuccess('Customer created — it will appear in the Customers list after KYC approval (see the KYC tab).');
+      setCreateForm({ name: '', email: '', phone: '', address: '', planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '', expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true });
+      setCreateSuccess(
+        failed.length
+          ? `Customer created, but ${failed.join(' and ')} failed — open the customer from the KYC tab to retry.`
+          : 'Customer created — it will appear in the Customers list after KYC approval (see the KYC tab).',
+      );
       void load(true);
     } catch (e: any) {
       setCreateError(e?.message ?? 'Failed to create customer');
@@ -920,7 +936,7 @@ export default function CustomerPage() {
                 <span>Include installation fee</span>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Installation fee (₦) — optional</label>
+                <label style={lbl}>Installation fee (₦)</label>
                 <input value={createForm.fee} disabled={!createForm.includeInstallation} onChange={e => setCreateForm({ ...createForm, fee: e.target.value })} style={{ ...inp, ...(createForm.includeInstallation ? {} : { background: '#F5F5F5', color: 'var(--text-muted)' }) }} placeholder="auto-filled from plan" />
               </div>
               <div>

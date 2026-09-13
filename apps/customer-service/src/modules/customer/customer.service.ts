@@ -21,7 +21,7 @@ export class CustomerService {
     const subscription = subscriber.subscriptions?.[0] ?? null;
     const cpe = subscriber.devices?.[0] ?? null;
 
-    const [lastPayment, lastInvoice] = await Promise.all([
+    const [lastPayment, lastInvoice, installationInvoice] = await Promise.all([
       this.prisma.payment.findFirst({
         where: { invoice: { subscriberId: subscriber.id } },
         orderBy: { createdAt: 'desc' },
@@ -31,6 +31,11 @@ export class CustomerService {
         where: { subscriberId: subscriber.id, status: { in: ['ISSUED', 'OVERDUE'] } },
         orderBy: { dueAt: 'asc' },
         select: { id: true, amountKobo: true, status: true, dueAt: true },
+      }),
+      this.prisma.invoice.findFirst({
+        where: { subscriberId: subscriber.id, type: 'INSTALLATION', status: { in: ['ISSUED', 'OVERDUE'] }, deletedAt: null },
+        orderBy: { dueAt: 'asc' },
+        select: { id: true, invoiceNumber: true, amountKobo: true, status: true, dueAt: true },
       }),
     ]);
 
@@ -44,12 +49,32 @@ export class CustomerService {
       session: null,
       status: subscriber.status,
       outstandingKobo,
+      installationDue: !!installationInvoice,
+      installationInvoice: installationInvoice ?? null,
       downloadToday: 0,
       uploadToday: 0,
       monthlyUsage: 0,
       lastPayment: lastPayment ?? null,
       lastInvoice: lastInvoice ?? null,
     };
+  }
+
+  /**
+   * Lightweight access gate for the customer portal: true while an unpaid
+   * INSTALLATION invoice exists. Clears automatically once it is paid.
+   */
+  async getAccess(userId: string) {
+    const subscriber = await this.prisma.subscriber.findFirst({
+      where: { userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!subscriber) return { installationDue: false, invoice: null };
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { subscriberId: subscriber.id, type: 'INSTALLATION', status: { in: ['ISSUED', 'OVERDUE'] }, deletedAt: null },
+      orderBy: { dueAt: 'asc' },
+      select: { id: true, invoiceNumber: true, amountKobo: true, status: true, dueAt: true },
+    });
+    return { installationDue: !!invoice, invoice: invoice ?? null };
   }
 
   async getAnalytics(userId: string) {

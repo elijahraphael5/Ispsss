@@ -309,7 +309,48 @@ export class SubscriptionsService {
       include: { plan: true, subscriber: { select: { id: true, userId: true } } },
     });
     await this.audit.log({ action: 'SUBSCRIPTION_CREATED', entityType: 'Subscription', entityId: sub.id, metadata: { subscriberId: data.subscriberId, planId: data.planId } });
-    return sub;
+
+    // Installation fee → raise an ISSUED installation invoice immediately so
+    // the customer portal can gate access until it is paid.
+    const installationFeeKobo = data.installationFeeKobo ?? 0;
+    if (installationFeeKobo <= 0) return sub;
+    const installationInvoice = await this.createInstallationInvoice(data.subscriberId, installationFeeKobo);
+    return { ...sub, installationInvoice };
+  }
+
+  /** Creates the ISSUED INSTALLATION invoice with a collision-safe number. */
+  private async createInstallationInvoice(subscriberId: string, amountKobo: number) {
+    const year = new Date().getFullYear();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const last = await this.prisma.invoice.findFirst({
+          where: { invoiceNumber: { startsWith: `INV-INS-${year}` } },
+          orderBy: { createdAt: 'desc' },
+        });
+        const seq = last ? parseInt(last.invoiceNumber.split('-').pop()!, 10) + 1 : 1;
+        const invoiceNumber = `INV-INS-${year}-${String(seq).padStart(6, '0')}`;
+        return await this.prisma.invoice.create({
+          data: {
+            invoiceNumber,
+            subscriberId,
+            type: 'INSTALLATION',
+            status: 'ISSUED',
+            subtotalKobo: amountKobo,
+            vatKobo: 0,
+            discountKobo: 0,
+            amountKobo,
+            dueAt: new Date(Date.now() + 7 * 86400000),
+            issuedAt: new Date(),
+            lines: { createMany: { data: [{ description: 'Installation Fee', amountKobo, quantity: 1 }] } },
+          },
+          include: { lines: true },
+        });
+      } catch (e: any) {
+        if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('invoiceNumber')) continue;
+        throw e;
+      }
+    }
+    throw new Error('Could not allocate an installation invoice number');
   }
 
   async updateSubscription(id: string, data: { planId?: string; autoRenew?: boolean }) {

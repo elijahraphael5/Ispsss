@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@isp/shared';
+import { useInstallationGate } from './InstallationGate';
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>' },
@@ -19,6 +20,7 @@ export default function CustomerSidebar({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, accessToken } = useAuthStore();
+  const { locked } = useInstallationGate();
   const [mounted, setMounted] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -56,18 +58,31 @@ export default function CustomerSidebar({ children }: { children: React.ReactNod
           <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {navItems.map((item) => {
               const active = pathname === item.href;
+              const disabled = locked && item.href !== '/billing';
               return (
                 <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px',
-                      color: active ? 'var(--text-dark)' : 'var(--text-light-muted)',
-                      textDecoration: 'none', fontWeight: active ? 600 : 500, fontSize: '0.95rem',
-                      borderRadius: 20, backgroundColor: active ? '#fff' : 'transparent',
-                    }}
-                    dangerouslySetInnerHTML={{ __html: item.icon + '<span>' + item.label + '</span>' }}
-                  />
+                  {disabled ? (
+                    <span
+                      title="Pay your installation fee to unlock this section"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px',
+                        color: 'var(--text-light-muted)', opacity: 0.4, cursor: 'not-allowed',
+                        fontWeight: 500, fontSize: '0.95rem', borderRadius: 20,
+                      }}
+                      dangerouslySetInnerHTML={{ __html: item.icon + '<span>' + item.label + '</span>' }}
+                    />
+                  ) : (
+                    <Link
+                      href={item.href}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px',
+                        color: active ? 'var(--text-dark)' : 'var(--text-light-muted)',
+                        textDecoration: 'none', fontWeight: active ? 600 : 500, fontSize: '0.95rem',
+                        borderRadius: 20, backgroundColor: active ? '#fff' : 'transparent',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: item.icon + '<span>' + item.label + '</span>' }}
+                    />
+                  )}
                 </li>
               );
             })}

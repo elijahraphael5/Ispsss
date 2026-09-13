@@ -18,6 +18,11 @@ export class CustomerController {
     return this.service.getDashboard(req.user.id);
   }
 
+  @Get('access')
+  access(@Req() req: any) {
+    return this.service.getAccess(req.user.id);
+  }
+
   @Get('analytics')
   analytics(@Req() req: any) {
     return this.service.getAnalytics(req.user.id);

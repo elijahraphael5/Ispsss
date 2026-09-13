@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore, api, startIdleSessionTimeout } from '@isp/shared';
+import { InstallationGate } from '../components/InstallationGate';
 
 const queryClient = new QueryClient();
 
@@ -46,7 +47,7 @@ function AuthInit({ children }: { children: React.ReactNode }) {
   if (isAuthPath) return <>{children}</>;
   if (!ready || !accessToken || !user) return null;
 
-  return <>{children}</>;
+  return <InstallationGate>{children}</InstallationGate>;
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
