@@ -131,7 +131,7 @@ export default function Dashboard() {
   const [rosSubscribers, setRosSubscribers] = useState<any[]>([]);
   const [routerHealth, setRouterHealth] = useState<any[]>([]);
   const [connectionsData, setConnectionsData] = useState<ConnectionsData | null>(null);
-  const [bwHistory, setBwHistory] = useState<{ time: string; down: number; up: number; pppoe: number; static: number }[]>([]);
+  const [bwHistory, setBwHistory] = useState<{ time: string; down: number; up: number; fiber: number; radio: number }[]>([]);
   const routerDownUntil = useRef(0);
 
   const fetchBandwidth = useCallback(async (range: BandwidthRange) => {
@@ -198,7 +198,7 @@ export default function Dashboard() {
         const t = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0') + ':' + now.getSeconds().toString().padStart(2, '0');
         const staticActive = conns.connections.filter(c => c.type === 'STATIC_IP' && (c.status === 'ACTIVE' || c.status === 'ONLINE')).length;
         setBwHistory(prev => {
-          const next = [...prev, { time: t, down: bw.totalRateDown, up: bw.totalRateUp, pppoe: sessions.length, static: staticActive }];
+          const next = [...prev, { time: t, down: bw.totalRateDown, up: bw.totalRateUp, fiber: sessions.length, radio: staticActive }];
           return next.slice(-60);
         });
       } catch {}
@@ -235,10 +235,10 @@ export default function Dashboard() {
   const staleDevice = rosHealth && rosHealth.linkStatus !== 'up' ? rosHealth : null;
 
   const connDistData = [
-    { name: 'PPPoE Active', value: activePPPoE },
-    { name: 'PPPoE Offline', value: Math.max(0, totalPPPoE - activePPPoE) },
-    { name: 'Static IP Active', value: activeStatic },
-    { name: 'Static IP Offline', value: totalStatic - activeStatic },
+    { name: 'Fiber Active', value: activePPPoE },
+    { name: 'Fiber Offline', value: Math.max(0, totalPPPoE - activePPPoE) },
+    { name: 'Radio Active', value: activeStatic },
+    { name: 'Radio Offline', value: totalStatic - activeStatic },
   ];
 
   return (
@@ -265,8 +265,8 @@ export default function Dashboard() {
           { label: 'Total Connections', value: totalConnections || '—', color: '#2563EB', stale: !!staleDevice, icon: '<path d="M4 20h16M4 4h16v12H4z"/>' },
           { label: 'Active Connections', value: activeConnections, color: '#16A34A', stale: !!staleDevice, icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
           { label: 'Due Amount', value: stats ? formatNaira(stats.dueKobo) : '—', color: '#DC2626', stale: false, icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
-          { label: 'PPPoE', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', color: '#F15925', stale: !!staleDevice, icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
-          { label: 'Static IP', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', color: '#8B5CF6', stale: false, icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>' },
+          { label: 'Fiber', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', color: '#F15925', stale: !!staleDevice, icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
+          { label: 'Radio', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', color: '#8B5CF6', stale: false, icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>' },
         ].map((card) => (
           <div key={card.label} className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, background: `${card.color}14`, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -375,16 +375,16 @@ export default function Dashboard() {
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             <span>↓ {formatRate(rosBandwidth?.totalRateDown ?? 0)}</span>
             <span>↑ {formatRate(rosBandwidth?.totalRateUp ?? 0)}</span>
-            <span>{activePPPoE} PPPoE</span>
-            <span>{activeStatic} Static</span>
+            <span>{activePPPoE} Fiber</span>
+            <span>{activeStatic} Radio</span>
           </div>
         </div>
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={bwHistory.length > 1
             ? bwHistory
             : bandwidthData.length > 0
-              ? bandwidthData.map(p => ({ time: p.time, down: p.download, up: p.upload, pppoe: activePPPoE, static: activeStatic }))
-              : [{ time: '—', down: 0, up: 0, pppoe: 0, static: 0 }]}
+              ? bandwidthData.map(p => ({ time: p.time, down: p.download, up: p.upload, fiber: activePPPoE, radio: activeStatic }))
+              : [{ time: '—', down: 0, up: 0, fiber: 0, radio: 0 }]}
             margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="bwDownGrad" x1="0" y1="0" x2="0" y2="1">
@@ -405,8 +405,8 @@ export default function Dashboard() {
               formatter={(value: number, name: string) => {
                 if (name === 'down') return [formatRate(value), 'Download'];
                 if (name === 'up') return [formatRate(value), 'Upload'];
-                if (name === 'pppoe') return [value, 'PPPoE Active'];
-                if (name === 'static') return [value, 'Static IP Active'];
+                if (name === 'fiber') return [value, 'Fiber Active'];
+                if (name === 'radio') return [value, 'Radio Active'];
                 return [value, name];
               }}
               labelFormatter={(label: string) => `Time: ${label}`}
@@ -421,8 +421,8 @@ export default function Dashboard() {
             />
             <Area yAxisId="bw" type="monotone" dataKey="down" stroke="#F15925" strokeWidth={2} fill="url(#bwDownGrad)" dot={false} activeDot={{ r: 4, fill: '#F15925', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={true} animationDuration={300} name="down" />
             <Area yAxisId="bw" type="monotone" dataKey="up" stroke="#3b82f6" strokeWidth={2} fill="url(#bwUpGrad)" dot={false} activeDot={{ r: 4, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={true} animationDuration={300} name="up" />
-            <Area yAxisId="conn" type="monotone" dataKey="pppoe" stroke="#16A34A" strokeWidth={2} fill="none" dot={false} activeDot={{ r: 4, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={true} animationDuration={300} name="pppoe" />
-            <Area yAxisId="conn" type="monotone" dataKey="static" stroke="#F59E0B" strokeWidth={2} fill="none" dot={false} activeDot={{ r: 4, fill: '#F59E0B', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={true} animationDuration={300} name="static" />
+            <Area yAxisId="conn" type="monotone" dataKey="fiber" stroke="#16A34A" strokeWidth={2} fill="none" dot={false} activeDot={{ r: 4, fill: '#16A34A', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={true} animationDuration={300} name="fiber" />
+            <Area yAxisId="conn" type="monotone" dataKey="radio" stroke="#F59E0B" strokeWidth={2} fill="none" dot={false} activeDot={{ r: 4, fill: '#F59E0B', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={true} animationDuration={300} name="radio" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
