@@ -572,9 +572,10 @@ export class PaymentsService {
     if (wallet.balanceKobo < invoice.amountKobo) throw new BadRequestException('Insufficient wallet balance');
 
     const reference = `WAL-${Date.now()}`;
-
+    let debited = false;
     try {
       await this.debitWallet(subscriberId, invoice.amountKobo, reference, `Payment for ${invoice.invoiceNumber}`, invoiceId);
+      debited = true;
 
       await this.prisma.payment.create({
         data: {
@@ -590,13 +591,16 @@ export class PaymentsService {
       await this.billing.markPaid(invoiceId);
       await this.notifyRadiusActivation(invoiceId);
     } catch (err) {
-      // Don't leave the wallet debited if anything after the debit failed.
-      await this.creditWallet(
-        subscriberId,
-        invoice.amountKobo,
-        `REF-${reference}`,
-        `Refund — failed to mark ${invoice.invoiceNumber} paid`,
-      ).catch(() => {});
+      // Only credit-back if the debit actually succeeded — otherwise the
+      // insufficient-funds error would incorrectly mint money.
+      if (debited) {
+        await this.creditWallet(
+          subscriberId,
+          invoice.amountKobo,
+          `REF-${reference}`,
+          `Refund — failed to mark ${invoice.invoiceNumber} paid`,
+        ).catch(() => {});
+      }
       throw err;
     }
 
