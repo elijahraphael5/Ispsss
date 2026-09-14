@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { BillingService } from '../billing/billing.service';
 import { AuditService } from '../audit-logs/audit.service';
@@ -371,6 +371,13 @@ export class PaymentsService {
       // transient/ambiguous states.
       this.logger.warn(`Paystack verification for ${reference} inconclusive ('${verified.status}') — leaving payment pending`);
       return { status: verified.status.toUpperCase(), reference };
+    }
+
+    // Ensure the amount paid on Paystack matches the invoice amount in kobo.
+    // Paystack returns amount in kobo already, so direct comparison is correct.
+    if (verified.amountKobo !== payment.amountKobo) {
+      this.logger.warn(`Amount mismatch for ${reference}: verified ${verified.amountKobo} vs expected ${payment.amountKobo}`);
+      throw new ConflictException(`Amount mismatch: expected ${payment.amountKobo} kobo but verified ${verified.amountKobo} kobo`);
     }
 
     const attempt = await this.prisma.paymentAttempt.findFirst({
