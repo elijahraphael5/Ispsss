@@ -28,37 +28,51 @@ export class InvoiceGeneratorProcessor extends WorkerHost {
     for (const sub of subscriptions) {
       if (!sub.expiresAt) continue;
       const newExpiry = new Date(sub.expiresAt);
-      newExpiry.setDate(newExpiry.getDate() + 30);
+      // Add one month correctly (handle month-end)
+      const day = newExpiry.getDate();
+      newExpiry.setMonth(newExpiry.getMonth() + 1);
+      if (newExpiry.getDate() < day) newExpiry.setDate(0);
 
       const vatKobo = Math.round(sub.plan.priceKobo * 0.075);
 
-      const count = await this.prisma.invoice.count();
-      const invoiceNumber = `INV-${now.getFullYear()}-${String(count + 1).padStart(6, '0')}`;
+      // Use prefix-scoped sequence via findFirst orderBy invoiceNumber desc inside transaction
+      const year = now.getFullYear();
+      const prefix = `INV-${year}-`;
+      let invoiceNumber: string | null = null;
+      await this.prisma.$transaction(async (tx) => {
+        const last = await tx.invoice.findFirst({
+          where: { invoiceNumber: { startsWith: prefix } },
+          orderBy: { invoiceNumber: 'desc' },
+          select: { invoiceNumber: true },
+        });
+        const seq = last ? parseInt(last.invoiceNumber.split('-').pop() || '0', 10) + 1 : 1;
+        invoiceNumber = `${prefix}${String(seq).padStart(6, '0')}`;
 
-      await this.prisma.invoice.create({
-        data: {
-          invoiceNumber,
-          subscriberId: sub.subscriberId,
-          type: 'SUBSCRIPTION',
-          amountKobo: sub.plan.priceKobo + vatKobo,
-          subtotalKobo: sub.plan.priceKobo,
-          vatKobo,
-          discountKobo: 0,
-          dueAt: now,
-          status: 'DRAFT',
-          lines: {
-            create: {
-              description: `${sub.plan.name} — ${sub.plan.speedMbps}Mbps`,
-              amountKobo: sub.plan.priceKobo,
-              quantity: 1,
+        await tx.invoice.create({
+          data: {
+            invoiceNumber: invoiceNumber!,
+            subscriberId: sub.subscriberId,
+            type: 'SUBSCRIPTION',
+            amountKobo: sub.plan.priceKobo + vatKobo,
+            subtotalKobo: sub.plan.priceKobo,
+            vatKobo,
+            discountKobo: 0,
+            dueAt: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
+            status: 'DRAFT',
+            lines: {
+              create: {
+                description: `${sub.plan.name} — ${sub.plan.speedMbps}Mbps`,
+                amountKobo: sub.plan.priceKobo,
+                quantity: 1,
+              },
             },
           },
-        },
-      });
+        });
 
-      await this.prisma.subscription.update({
-        where: { id: sub.id },
-        data: { expiresAt: newExpiry },
+        await tx.subscription.update({
+          where: { id: sub.id },
+          data: { expiresAt: newExpiry },
+        });
       });
 
       created++;

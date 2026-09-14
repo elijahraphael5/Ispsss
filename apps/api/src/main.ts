@@ -66,6 +66,7 @@ function setupSocketProxy(server: http.Server) {
 }
 
 async function bootstrap() {
+  if (process.env.TRUST_PROXY === 'true') { /* will set after app creation */ }
   assertProdEnv([
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
     { name: 'DATABASE_URL', forbidden: 'change_me' },
@@ -91,7 +92,8 @@ async function bootstrap() {
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean);
-        const ok = !origin || allowed.includes(origin);
+        const isProd = process.env.NODE_ENV === 'production';
+        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || allowed.includes(origin));
         cb(null, ok);
       },
       credentials: true,

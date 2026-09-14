@@ -23,6 +23,7 @@ export class SubscriptionsController {
     return this.service.findAll(Number(skip) || 0, Number(take) || 50, search, planFilter);
   }
 
+  @Roles('BILLING_OFFICER', 'CEO', 'SUPER_ADMIN')
   @Get('plans')
   listPlans() {
     return this.service.listPlans();
