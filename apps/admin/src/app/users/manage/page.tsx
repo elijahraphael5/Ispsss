@@ -179,6 +179,8 @@ export default function CustomerPage() {
   const [importProgress, setImportProgress] = useState<ImportJob | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [showColumnsHelp, setShowColumnsHelp] = useState(false);
 
   // new customer
   const [showCreate, setShowCreate] = useState(false);
@@ -968,118 +970,218 @@ export default function CustomerPage() {
       )}
 
       {showImport && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setShowImport(false)}>
-          <div style={{ background: 'white', padding: 32, width: 560, maxWidth: '95vw', height: '100vh', overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,0.1)' }}
+          <div style={{ background: 'white', borderRadius: 24, width: 640, maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.18), 0 8px 20px rgba(0,0,0,0.12)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Import Customers from Excel</h2>
-              <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowImport(false)}>✕</span>
+            {/* Header */}
+            <div style={{ padding: '24px 28px 0', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: '#F1592514', color: '#F15925', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, letterSpacing: -0.3, margin: 0, lineHeight: 1.2 }}>Import Customers</h2>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.4 }}>Upload an Excel or CSV file — the first row must be headers</p>
+              </div>
+              <button onClick={() => setShowImport(false)} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid #E2E8F0', background: '#fff', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
             </div>
 
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.6 }}>
-              Upload an <b>.xlsx</b>, <b>.xls</b> or <b>.csv</b> file. The first row must be headers. Recognized columns (case-insensitive):
-              <b>Name</b> (or <b>First Name</b> + <b>Last Name</b>), <b>Email</b> (optional — auto-generated from the ID when blank), <b>Phone</b>/<b>Contact Number</b>, <b>Address</b> (or <b>Station</b>),
-              <b>Plan</b>, <b>Installation Fee</b>, <b>Expiry Date</b>, <b>ID</b>/<b>ID2</b> (PPPoE username), <b>Password</b> (RADIUS), <b>Portal Password</b> (app login),
-              <b>User Type</b> (PPPOE/STATIC), <b>IP Address</b>. PPPoE customers are activated on RADIUS immediately with the expiry written to FreeRADIUS so it's enforced the moment the connection starts.
-              <br/><b>Warning:</b> uploading wipes ALL existing customer data first — the file is the new source of truth.
-            </div>
+            {/* Body — scrollable */}
+            <div style={{ padding: '20px 28px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv"
-              onChange={e => {
-                const f = e.target.files?.[0] ?? null;
-                setImportFile(f);
-                setImportResult(null);
-                setImportProgress(null);
-                setImportError('');
-                e.target.value = '';
-              }}
-              style={{ width: '100%', marginBottom: 8, fontSize: '0.85rem' }}
-            />
-            {importFile && (
-              <div style={{ fontSize: '0.8rem', color: '#334155', marginBottom: 12 }}>
-                Selected: <b>{importFile.name}</b> ({Math.max(1, Math.round(importFile.size / 1024))} KB)
-              </div>
-            )}
+              <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
 
-            {importProgress && importProgress.status === 'running' && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {importProgress.stage === 'importing' ? 'Importing…' : importProgress.stage === 'uploading…' ? 'Uploading file…' : importProgress.stage}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>
-                    {importProgress.total > 0 ? `${importProgress.processed} / ${importProgress.total}` : ''}
-                  </span>
+              {/* Warning callout */}
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 14, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 28, height: 28, borderRadius: 10, background: '#F59E0B18', color: '#B45309', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 </div>
-                <div style={{ background: '#F1F5F9', borderRadius: 10, height: 10, overflow: 'hidden' }}>
-                  <div style={{
-                    width: `${importProgress.total > 0 ? Math.round((importProgress.processed / importProgress.total) * 100) : 12}%`,
-                    height: '100%', background: '#F15925', borderRadius: 10, transition: 'width 0.4s ease',
-                  }} />
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  <span style={{ color: '#16A34A', fontWeight: 600 }}>{importProgress.created} created</span>
-                  <span style={{ color: '#B45309', fontWeight: 600 }}>{importProgress.skipped} skipped</span>
-                  <span style={{ color: '#DC2626', fontWeight: 600 }}>{importProgress.errors} errors</span>
+                <div style={{ fontSize: '0.8rem', lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 700, color: '#92400E', marginBottom: 2 }}>This will replace all customer data</div>
+                  <div style={{ color: '#78350F' }}>Uploading wipes <b>every</b> customer, subscription, invoice and ticket first — the file becomes the new source of truth. Staff accounts are kept.</div>
                 </div>
               </div>
-            )}
 
-            {importError && (
-              <div style={{ padding: '10px 14px', background: '#FEE2E2', color: '#DC2626', borderRadius: 10, marginBottom: 12, fontSize: '0.85rem' }}>{importError}</div>
-            )}
-
-            {importResult && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-                  <span style={{ padding: '6px 14px', borderRadius: 16, background: '#16A34A18', color: '#16A34A', fontWeight: 700, fontSize: '0.8rem' }}>{importResult.created} created</span>
-                  <span style={{ padding: '6px 14px', borderRadius: 16, background: '#F59E0B18', color: '#B45309', fontWeight: 700, fontSize: '0.8rem' }}>{importResult.skipped} skipped</span>
-                  <span style={{ padding: '6px 14px', borderRadius: 16, background: '#DC262618', color: '#DC2626', fontWeight: 700, fontSize: '0.8rem' }}>{importResult.errors} errors</span>
-                  <span style={{ padding: '6px 14px', borderRadius: 16, background: '#E2E8F0', color: '#334155', fontWeight: 700, fontSize: '0.8rem' }}>{importResult.total} rows</span>
+              {/* Dropzone */}
+              <div>
+                <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv" onChange={e => {
+                  const f = e.target.files?.[0] ?? null;
+                  setImportFile(f);
+                  setImportResult(null);
+                  setImportProgress(null);
+                  setImportError('');
+                  e.target.value = '';
+                }} style={{ display: 'none' }} />
+                <div
+                  onClick={() => importInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => {
+                    e.preventDefault(); setDragOver(false);
+                    const f = e.dataTransfer.files?.[0] ?? null;
+                    if (f) { setImportFile(f); setImportResult(null); setImportProgress(null); setImportError(''); }
+                  }}
+                  style={{
+                    border: `2px dashed ${dragOver ? '#F15925' : importFile ? '#16A34A' : '#E2E8F0'}`,
+                    backgroundColor: dragOver ? '#FFF7ED' : importFile ? '#F0FDF4' : '#F8FAFC',
+                    borderRadius: 16, padding: importFile ? 14 : 28, textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s ease',
+                  }}>
+                  {!importFile ? (
+                    <>
+                      <div style={{ width: 48, height: 48, borderRadius: 14, background: dragOver ? '#F1592514' : 'white', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', color: dragOver ? '#F15925' : '#64748B' }}>
+                        <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="12" y1="17" x2="12" y2="9"/></svg>
+                      </div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{dragOver ? 'Drop file here' : 'Drop file here or click to browse'}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>XLSX, XLS or CSV • up to 25 MB • first row must be headers</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, padding: '6px 14px', borderRadius: 999, background: 'white', border: '1px solid #E2E8F0', fontSize: '0.78rem', fontWeight: 600, color: '#334155' }}>
+                        <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Choose file
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left' }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 12, background: importFile.name.endsWith('.csv') ? '#EFF6FF' : '#DCFCE7', color: importFile.name.endsWith('.csv') ? '#2563EB' : '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.7rem', flexShrink: 0 }}>
+                        {importFile.name.endsWith('.csv') ? 'CSV' : 'XLS'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{importFile.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{Math.max(1, Math.round(importFile.size / 1024)).toLocaleString()} KB • {importFile.name.split('.').pop()?.toUpperCase()}</div>
+                      </div>
+                      <button onClick={e => { e.stopPropagation(); setImportFile(null); setImportError(''); }} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid #E2E8F0', background: 'white', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                        <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); importInputRef.current?.click(); }} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid #E2E8F0', background: 'white', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>Change</button>
+                    </div>
+                  )}
                 </div>
-                {importResult.rows.length > 0 && (
-                  <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 12 }}>
-                    <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
-                      <thead style={{ position: 'sticky', top: 0, background: '#F8FAFC' }}>
-                        <tr>
-                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>ROW</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>NAME</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>EMAIL</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>RESULT</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importResult.rows.map(r => (
-                          <tr key={r.row} style={{ borderTop: '1px solid #F1F5F9' }}>
-                            <td style={{ padding: '6px 12px', color: 'var(--text-muted)' }}>{r.row}</td>
-                            <td style={{ padding: '6px 12px' }}>{r.name || '—'}</td>
-                            <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: '0.75rem' }}>{r.email || '—'}</td>
-                            <td style={{ padding: '6px 12px' }}>
-                              <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 600,
-                                background: r.status === 'created' ? '#16A34A18' : r.status === 'skipped' ? '#F59E0B18' : '#DC262618',
-                                color: r.status === 'created' ? '#16A34A' : r.status === 'skipped' ? '#B45309' : '#DC2626' }}>
-                                {r.status === 'created' ? `Created${r.plan ? ` · ${r.plan}` : ''}` : r.status}
-                              </span>
-                              {r.reason && <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: 2 }}>{r.reason}</div>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Accepted: .xlsx, .xls, .csv • Max 25 MB</span>
+                  <button onClick={e => { e.preventDefault(); const csv = 'Name,Email,Phone,Address,Plan,Installation Fee,Expiry Date,ID,Password,Portal Password,User Type,IP Address\nJohn Doe,john@example.com,08012345678,No 1 Main St,Home Fiber,50000,2026-12-31,HIF-0001,radius123,portal123,PPPOE,\n'; const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'hikonnect-import-template.csv'; a.click(); URL.revokeObjectURL(url); }} style={{ fontSize: '0.72rem', fontWeight: 600, color: '#F15925', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download template
+                  </button>
+                </div>
+              </div>
+
+              {/* Columns help — collapsible */}
+              <div style={{ border: '1px solid #F1F5F9', borderRadius: 14, overflow: 'hidden' }}>
+                <button onClick={() => setShowColumnsHelp(v => !v)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#F8FAFC', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    Recognized columns
+                    <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>case-insensitive • first row = headers</span>
+                  </span>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ transform: showColumnsHelp ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {showColumnsHelp && (
+                  <div style={{ padding: '14px 16px', background: 'white', borderTop: '1px solid #F1F5F9' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {[
+                        ['Name','First + Last'],['Email','auto from ID'],['Phone','Contact'],['Address','Station'],['Plan',''],['Install Fee',''],['Expiry','Date'],['ID / ID2','PPPoE user'],['Password','RADIUS'],['Portal Pass','Login'],['User Type','PPPOE/STATIC'],['IP Address','']].map(([a,b]) => (
+                        <span key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999, background: '#F8FAFC', border: '1px solid #E2E8F0', fontSize: '0.7rem' }}>
+                          <span style={{ fontWeight: 700, color: '#0F172A' }}>{a}</span>{b && <span style={{ color: 'var(--text-muted)' }}>• {b}</span>}
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, background: '#F8FAFC', borderRadius: 10, padding: '10px 12px' }}>
+                      <b style={{ color: '#334155' }}>PPPoE</b> customers are activated on RADIUS immediately — expiry is written to FreeRADIUS so it’s enforced the moment the connection starts.
+                    </div>
                   </div>
                 )}
               </div>
-            )}
 
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-              <button onClick={() => setShowImport(false)} className="btn-outline">Close</button>
-              <button onClick={handleImport} disabled={importing || !importFile || importProgress?.status === 'running'} className="btn-primary">
-                {importing ? 'Importing...' : 'Import File'}
-              </button>
+              {/* Progress */}
+              {importProgress && importProgress.status === 'running' && (
+                <div style={{ background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 14, padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F15925', display: 'inline-block', animation: 'pulse 1.2s infinite' }} />
+                      {importProgress.stage === 'importing' ? 'Importing customers…' : importProgress.stage === 'uploading…' ? 'Uploading file…' : importProgress.stage}
+                    </span>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#F15925' }}>
+                      {importProgress.total > 0 ? `${importProgress.processed} / ${importProgress.total}` : '—'}
+                    </span>
+                  </div>
+                  <div style={{ background: '#E2E8F0', borderRadius: 999, height: 8, overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${importProgress.total > 0 ? Math.round((importProgress.processed / importProgress.total) * 100) : 12}%`,
+                      height: '100%', background: 'linear-gradient(90deg, #F15925, #FB923C)', borderRadius: 999, transition: 'width 0.4s ease',
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#DCFCE7', color: '#166534', fontWeight: 700, fontSize: '0.72rem' }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A' }} />{importProgress.created} created</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 700, fontSize: '0.72rem' }}>{importProgress.skipped} skipped</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#FEE2E2', color: '#991B1B', fontWeight: 700, fontSize: '0.72rem' }}>{importProgress.errors} errors</span>
+                  </div>
+                </div>
+              )}
+
+              {importError && (
+                <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', borderRadius: 14, fontSize: '0.82rem', lineHeight: 1.4 }}>
+                  <svg width="18" height="18" fill="none" stroke="#DC2626" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 1 }}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  <span>{importError}</span>
+                </div>
+              )}
+
+              {importResult && (
+                <div style={{ border: '1px solid #F1F5F9', borderRadius: 14, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '14px 16px', background: '#F8FAFC', borderBottom: '1px solid #F1F5F9' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: '#DCFCE7', color: '#166534', fontWeight: 800, fontSize: '0.75rem' }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A' }} />{importResult.created} created</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 800, fontSize: '0.75rem' }}>{importResult.skipped} skipped</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: '#FEE2E2', color: '#991B1B', fontWeight: 800, fontSize: '0.75rem' }}>{importResult.errors} errors</span>
+                    <span style={{ marginLeft: 'auto', padding: '6px 12px', borderRadius: 999, background: 'white', border: '1px solid #E2E8F0', color: '#334155', fontWeight: 700, fontSize: '0.75rem' }}>{importResult.total} rows</span>
+                  </div>
+                  {importResult.rows.length > 0 && (
+                    <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                      <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#F8FAFC', zIndex: 1 }}>
+                          <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            <th style={{ padding: '10px 14px', fontWeight: 700 }}>Row</th>
+                            <th style={{ padding: '10px 14px', fontWeight: 700 }}>Name</th>
+                            <th style={{ padding: '10px 14px', fontWeight: 700 }}>Email</th>
+                            <th style={{ padding: '10px 14px', fontWeight: 700 }}>Result</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importResult.rows.map(r => (
+                            <tr key={r.row} style={{ borderTop: '1px solid #F1F5F9' }}>
+                              <td style={{ padding: '8px 14px', color: 'var(--text-muted)', fontWeight: 600 }}>{r.row}</td>
+                              <td style={{ padding: '8px 14px', fontWeight: 600 }}>{r.name || '—'}</td>
+                              <td style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: '0.72rem' }}>{r.email || '—'}</td>
+                              <td style={{ padding: '8px 14px' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0.2,
+                                  background: r.status === 'created' ? '#DCFCE7' : r.status === 'skipped' ? '#FEF3C7' : '#FEE2E2',
+                                  color: r.status === 'created' ? '#166534' : r.status === 'skipped' ? '#92400E' : '#991B1B' }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.status === 'created' ? '#16A34A' : r.status === 'skipped' ? '#F59E0B' : '#DC2626' }} />
+                                  {r.status === 'created' ? `Created${r.plan ? ` · ${r.plan}` : ''}` : r.status}
+                                </span>
+                                {r.reason && <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', marginTop: 3, lineHeight: 1.3 }}>{r.reason}</div>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 28px 24px', borderTop: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: 'white' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{importFile ? `${Math.max(1, Math.round(importFile.size/1024)).toLocaleString()} KB • Ready to import` : 'No file chosen'}</span>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setShowImport(false)} style={{ padding: '10px 18px', borderRadius: 999, border: '1px solid #E2E8F0', background: 'white', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={handleImport} disabled={importing || !importFile || importProgress?.status === 'running'} style={{ padding: '10px 20px', borderRadius: 999, border: 'none', background: importing || !importFile ? '#E2E8F0' : '#F15925', color: importing || !importFile ? '#94A3B8' : 'white', fontWeight: 800, fontSize: '0.82rem', cursor: importing || !importFile ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: importing || !importFile ? 'none' : '0 4px 12px rgba(241,89,37,0.25)' }}>
+                  {importing ? (
+                    <><span style={{ width: 14, height: 14, border: '2px solid #94A3B8', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />Importing…</>
+                  ) : (
+                    <><svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Import file</>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
