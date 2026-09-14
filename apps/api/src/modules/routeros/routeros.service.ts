@@ -78,6 +78,26 @@ export class RouterOsService {
     return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
   }
 
+  private isAllowedDeviceIp(ip: string): boolean {
+    if (!ip || typeof ip !== 'string') return false;
+    // Reject loopback, link-local, multicast, unspecified, broadcast
+    if (ip === '0.0.0.0' || ip === '255.255.255.255') return false;
+    if (ip.startsWith('127.')) return false;
+    if (ip.startsWith('169.254.')) return false;
+    const firstOctet = parseInt(ip.split('.')[0], 10);
+    if (Number.isNaN(firstOctet)) return false;
+    if (firstOctet >= 224 && firstOctet <= 239) return false;
+    if (firstOctet === 0) return false;
+    // Basic IPv4 format check
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    for (const p of parts) {
+      const n = Number(p);
+      if (!Number.isInteger(n) || n < 0 || n > 255) return false;
+    }
+    return true;
+  }
+
   private async fetch<T>(
     deviceIp: string,
     devicePort: number | null,
@@ -86,6 +106,9 @@ export class RouterOsService {
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
+    if (!this.isAllowedDeviceIp(deviceIp)) {
+      throw new BadRequestException(`Device IP ${deviceIp} is not allowed`);
+    }
     const url = `${this.baseUrl(deviceIp, devicePort)}${path}`;
     const breakerKey = `${deviceIp}:${devicePort ?? 80}`;
     const breaker = this.breakers.get(breakerKey);

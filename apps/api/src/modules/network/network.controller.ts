@@ -4,6 +4,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { NetworkService } from './network.service';
+import { CreateNetworkDeviceDto, UpdateNetworkDeviceDto } from './dto/network.dto';
 
 const NETWORK_READ_ROLES = ['NOC_ENGINEER', 'CEO', 'OPERATIONS_MANAGER', 'SUPER_ADMIN', 'FIELD_ENGINEER', 'SUPPORT_AGENT', 'CUSTOMER_SUPPORT', 'SALES_AGENT', 'BILLING_OFFICER', 'FINANCE_MANAGER'];
 
@@ -37,13 +38,13 @@ export class NetworkController {
 
   @Post('devices')
   @Roles('NOC_ENGINEER', 'SUPER_ADMIN')
-  createDevice(@Body() body: { name: string; type: string; ipAddress: string; vendor?: string; location?: string; secret?: string }) {
+  createDevice(@Body() body: CreateNetworkDeviceDto) {
     return this.service.createDevice(body);
   }
 
   @Patch('devices/:id')
   @Roles('NOC_ENGINEER', 'SUPER_ADMIN')
-  updateDevice(@Param('id') id: string, @Body() body: any) {
+  updateDevice(@Param('id') id: string, @Body() body: UpdateNetworkDeviceDto) {
     return this.service.updateDevice(id, body);
   }
 
