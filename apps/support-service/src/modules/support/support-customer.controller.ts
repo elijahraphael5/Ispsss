@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Param, Body, Req, Res, UseGuards, UseInterceptors, UploadedFile, BadRequestException, Headers, ForbiddenException } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -34,7 +35,12 @@ export class SupportCustomerController {
     @Headers('x-webhook-token') webhookToken?: string,
   ) {
     const expected = process.env.WEBHOOK_SERVICE_TOKEN;
-    if (expected && webhookToken !== expected) {
+    if (!expected) {
+      throw new ForbiddenException('WEBHOOK_SERVICE_TOKEN not configured');
+    }
+    const a = Buffer.from(String(webhookToken ?? ''), 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       throw new ForbiddenException('Forbidden');
     }
     return this.service.createTicketForCustomer(req.user.id, body);

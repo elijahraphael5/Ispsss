@@ -7,6 +7,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { RadiusService } from './radius.service';
 import { ChangePlanDto } from './dto/change-plan.dto';
 import { RadiusMutationGuard } from './radius-mutation.guard';
@@ -23,12 +24,11 @@ export class RadiusInternalController {
   private assertToken(token: string | undefined): void {
     const expected = process.env.WEBHOOK_SERVICE_TOKEN;
     if (!expected) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new ForbiddenException('WEBHOOK_SERVICE_TOKEN not configured — internal endpoints disabled');
-      }
-      return;
+      throw new ForbiddenException('WEBHOOK_SERVICE_TOKEN not configured — internal endpoints disabled');
     }
-    if (token !== expected) {
+    const a = Buffer.from(String(token ?? ''), 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       throw new ForbiddenException('Missing or invalid webhook token');
     }
   }

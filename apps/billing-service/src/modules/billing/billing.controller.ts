@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Headers, ForbiddenException, Res } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -87,11 +88,15 @@ export class BillingController {
     @CurrentUser('id') actorId?: string,
   ) {
     const expected = process.env.WEBHOOK_SERVICE_TOKEN;
-    if (!expected && process.env.NODE_ENV === 'production') {
+    if (!expected) {
       throw new ForbiddenException('WEBHOOK_SERVICE_TOKEN not configured — direct PAID transition disabled');
     }
-    if (expected && webhookToken !== expected) {
-      throw new ForbiddenException('Direct PAID transition denied — use payment webhook');
+    {
+      const a = Buffer.from(String(webhookToken ?? ''), 'utf8');
+      const b = Buffer.from(expected, 'utf8');
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        throw new ForbiddenException('Direct PAID transition denied — use payment webhook');
+      }
     }
     return this.service.markPaid(id, body ? { provider: body.provider!, reference: body.reference!, amountKobo: body.amountKobo! } : undefined, actorId);
   }

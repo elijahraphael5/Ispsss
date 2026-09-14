@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Param, Body, Req, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, Req, UseGuards, Query, Headers, ForbiddenException } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -179,7 +180,34 @@ export class PaymentsController {
   // ── Webhook ────────────────────────────────────────────────
 
   @Post('webhook/generic')
-  handleWebhook(@Body() body: { reference: string; status: string; provider: string; providerReference?: string }) {
+  handleWebhook(
+    @Body() body: { reference: string; status: string; provider: string; providerReference?: string },
+    @Headers('x-webhook-token') token?: string,
+    @Headers('x-webhook-signature') signature?: string,
+    @Req() req?: any,
+  ) {
+    const expected = process.env.WEBHOOK_SERVICE_TOKEN;
+    if (!expected) {
+      throw new ForbiddenException('WEBHOOK_SERVICE_TOKEN not configured');
+    }
+    // Verify token via timingSafeEqual (fail closed)
+    {
+      const a = Buffer.from(String(token ?? ''), 'utf8');
+      const b = Buffer.from(expected, 'utf8');
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        throw new ForbiddenException('Invalid webhook token');
+      }
+    }
+    // If signature provided, verify HMAC-SHA512 of raw body (or JSON stringified body) using the same secret
+    if (signature) {
+      const raw = req?.rawBody ? req.rawBody : Buffer.from(JSON.stringify(body), 'utf8');
+      const hmac = crypto.createHmac('sha512', expected).update(raw).digest('hex');
+      const exp = Buffer.from(hmac, 'utf8');
+      const rec = Buffer.from(String(signature), 'utf8');
+      if (exp.length !== rec.length || !crypto.timingSafeEqual(exp, rec)) {
+        throw new ForbiddenException('Invalid webhook signature');
+      }
+    }
     return this.service.handleGenericWebhook(body);
   }
 
