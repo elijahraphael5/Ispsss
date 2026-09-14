@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { decryptSecret, encryptSecret, maskSecret } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { UpdateTenantSettingsDto } from './dto/tenant-settings.dto';
 
@@ -18,13 +17,11 @@ export class TenantSettingsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
     private readonly audit: AuditService,
   ) {}
 
   private async getTenant() {
-    const tenantId = await this.tenant.resolveTenant();
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = await this.prisma.tenant.findFirst();
     if (!tenant) throw new NotFoundException('Tenant not found');
     return tenant;
   }

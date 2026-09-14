@@ -6,7 +6,7 @@ import { OwnerService } from './owner.service';
 @Module({
   imports: [
     JwtModule.register({
-      secret: process.env.JWT_ACCESS_SECRET ?? 'change-me',
+      secret: process.env.JWT_ACCESS_SECRET ?? (() => { throw new Error('JWT_ACCESS_SECRET not configured') })(),
       signOptions: { expiresIn: '15m' },
     }),
   ],

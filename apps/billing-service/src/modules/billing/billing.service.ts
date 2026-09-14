@@ -2,7 +2,6 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
@@ -23,12 +22,10 @@ export class BillingService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
-    private readonly pdf: PdfService,
-  ) {}
+    private readonly pdf: PdfService) {}
 
   private async nextInvoiceNumber(type: InvoiceType): Promise<string> {
     const year = new Date().getFullYear();
@@ -230,7 +227,7 @@ export class BillingService {
 
   private async ensureNewCustomer(c: { name?: string; email: string; phone?: string; address?: string }): Promise<string> {
     const email = c.email.trim().toLowerCase();
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const existing = await this.prisma.user.findUnique({
       where: { email },
       include: { subscriber: true },
@@ -523,8 +520,7 @@ export class BillingService {
 
   private async sendInvoicePdf(
     invoice: { id: string; invoiceNumber: string; amountKobo: number; dueAt: Date | null; status: string; type: string; issuedAt: Date | null; paidAt: Date | null; subtotalKobo: number; vatKobo: number; discountKobo: number; notes: string | null; lines: { id: string; description: string; amountKobo: number; quantity: number | null }[]; subscriber?: { id: string; user?: { id: string; email: string } } | null },
-    emailOverride?: string,
-  ): Promise<void> {
+    emailOverride?: string): Promise<void> {
     try {
       const email = emailOverride ?? invoice.subscriber?.user?.email;
       if (!email) {

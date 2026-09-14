@@ -9,13 +9,11 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantContext } from '../../common/tenant/tenant-context';
 import { SupportService, AGENT_ROLES } from './support.service';
 
 interface SocketIdentity {
   userId: string;
   email: string;
-  tenantId: string;
   role: 'agent' | 'customer';
   isSuperAdmin: boolean;
   customRoleName: string | null;
@@ -45,8 +43,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   constructor(
     private readonly prisma: PrismaService,
     private readonly support: SupportService,
-    private readonly jwt: JwtService,
-  ) {}
+    private readonly jwt: JwtService) {}
 
   // ─────────────────────────── Connection auth ───────────────────────────
 
@@ -69,9 +66,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
         if (sockets.size === 1) {
           this.server.to('agents').emit('agent:online', { userId: identity.userId, email: identity.email });
         }
-        await TenantContext.run(identity.tenantId, () =>
-          this.support.setPresence(identity.userId, 'ONLINE'),
-        );
+        await this.support.setPresence(identity.userId, 'ONLINE');
       } else {
         client.join('customers');
       }
@@ -95,7 +90,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
       const stripped = String(authToken).replace(/^Bearer\s+/i, '').trim();
       try {
         const payload = await this.jwt.verifyAsync<{ sub: string }>(stripped, {
-          secret: process.env.JWT_ACCESS_SECRET ?? 'change-me',
+          secret: process.env.JWT_ACCESS_SECRET ?? (() => { throw new Error('JWT_ACCESS_SECRET not configured') })(),
         });
         userId = payload.sub;
       } catch {
@@ -111,7 +106,6 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
       select: {
         id: true,
         email: true,
-        tenantId: true,
         isSuperAdmin: true,
         customRole: { select: { name: true } },
       },
@@ -124,7 +118,6 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
       return {
         userId: user.id,
         email: user.email,
-        tenantId: user.tenantId,
         role: 'agent',
         isSuperAdmin: user.isSuperAdmin,
         customRoleName: user.customRole?.name ?? null,
@@ -134,7 +127,6 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     return {
       userId: user.id,
       email: user.email,
-      tenantId: user.tenantId,
       role: 'customer',
       isSuperAdmin: user.isSuperAdmin,
       customRoleName: user.customRole?.name ?? null,
@@ -155,9 +147,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
         this.server.to('agents').emit('agent:offline', { userId: identity.userId });
       }
     }
-    await TenantContext.run(identity.tenantId, () =>
-      this.support.setPresence(identity.userId, 'OFFLINE'),
-    );
+    await this.support.setPresence(identity.userId, 'OFFLINE');
   }
 
   // ─────────────────────────── client events ───────────────────────────
@@ -165,12 +155,10 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   private async canAccessSession(identity: SocketIdentity, sessionId: string): Promise<boolean> {
     const session = await this.prisma.chatSession.findUnique({
       where: { id: sessionId },
-      select: { tenantId: true, subscriberId: true, agentId: true },
+      select: {subscriberId: true, agentId: true },
     });
     if (!session) return false;
-    if (session.tenantId !== identity.tenantId) return false;
-
-    if (identity.role === 'agent') {
+        if (identity.role === 'agent') {
       if (identity.isSuperAdmin) return true;
       const isAgentRole = AGENT_ROLES.includes(identity.customRoleName ?? '');
       const isAssigned = session.agentId === identity.userId || session.agentId === null;
@@ -195,7 +183,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   async handleJoin(client: Socket, sessionId: string) {
     const identity: SocketIdentity = client.data.identity;
     if (!identity) return;
-    const allowed = await TenantContext.run(identity.tenantId, () => this.canAccessSession(identity, sessionId));
+    const allowed = await this.canAccessSession(identity, sessionId);
     if (!allowed) {
       client.emit('chat:error', { message: 'Access denied to session' });
       return;
@@ -212,9 +200,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
   async handleTyping(client: Socket, data: { sessionId: string; isTyping: boolean }) {
     const identity: SocketIdentity = client.data.identity;
     if (!identity) return;
-    const allowed = await TenantContext.run(identity.tenantId, () =>
-      this.canAccessSession(identity, data?.sessionId),
-    );
+    const allowed = await this.canAccessSession(identity, data?.sessionId);
     if (!allowed) return;
     client.to(`session:${data.sessionId}`).emit('chat:typing', {
       sessionId: data.sessionId,
@@ -228,10 +214,14 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const identity: SocketIdentity = client.data.identity;
     if (!identity) return;
     if (!data?.body?.trim()) return;
+    const allowed = await this.canAccessSession(identity, data.sessionId);
+    if (!allowed) {
+      client.emit('chat:error', { message: 'Access denied to session' });
+      return;
+    }
 
     try {
-      const msg = await TenantContext.run(identity.tenantId, () =>
-        this.support.sendMessage({
+      const msg = await this.support.sendMessage({
           sessionId: data.sessionId,
           actor: {
             id: identity.userId,
@@ -242,8 +232,7 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
           senderType: identity.role === 'agent' ? 'AGENT' : 'CUSTOMER',
           body: data.body,
           attachmentIds: Array.isArray(data.attachmentIds) ? data.attachmentIds : undefined,
-        }),
-      );
+        });
       this.broadcastMessage(msg);
     } catch (err) {
       this.logger.error(`chat:message error: ${(err as Error).message}`);
@@ -256,14 +245,12 @@ export class SupportGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const identity: SocketIdentity = client.data.identity;
     if (!identity) return;
     try {
-      const result = await TenantContext.run(identity.tenantId, () =>
-        this.support.markSessionRead(sessionId, {
+      const result = await this.support.markSessionRead(sessionId, {
           id: identity.userId,
           email: identity.email,
           isSuperAdmin: identity.isSuperAdmin,
           customRole: { name: identity.customRoleName ?? '' },
-        }),
-      );
+        });
       if (result.updated > 0) {
         this.broadcastRead(sessionId, result.senderType);
         this.server.to('agents').emit('chat:changed', { sessionId });

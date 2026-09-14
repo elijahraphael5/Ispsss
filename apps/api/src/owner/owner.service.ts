@@ -34,7 +34,7 @@ export class OwnerService implements OnModuleInit, OnModuleDestroy {
 
   async getTenantUsers(tenantId: string) {
     return this.prisma.user.findMany({
-      where: { tenantId },
+      where: {},
       select: { id: true, email: true, isSuperAdmin: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -42,7 +42,7 @@ export class OwnerService implements OnModuleInit, OnModuleDestroy {
 
   async getTenantSubscribers(tenantId: string) {
     return this.prisma.subscriber.findMany({
-      where: { tenantId },
+      where: {},
       include: { user: { select: { email: true } }, subscriptions: { select: { id: true, planId: true, expiresAt: true, suspendedAt: true } } },
       orderBy: { createdAt: 'desc' },
     });

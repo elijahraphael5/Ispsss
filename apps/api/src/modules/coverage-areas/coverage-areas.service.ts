@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { CreateCoverageAreaDto, UpdateCoverageAreaDto } from './dto/coverage-area.dto';
 
@@ -9,22 +8,17 @@ import { CreateCoverageAreaDto, UpdateCoverageAreaDto } from './dto/coverage-are
 export class CoverageAreasService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
-    private readonly audit: AuditService,
-  ) {}
+    private readonly audit: AuditService) {}
 
   async list() {
-    const tenantId = await this.tenant.resolveTenant();
     return this.prisma.coverageArea.findMany({
-      where: { tenantId },
       orderBy: [{ zone: 'asc' }, { name: 'asc' }],
     });
   }
 
   async create(dto: CreateCoverageAreaDto) {
-    const tenantId = await this.tenant.resolveTenant();
     const area = await this.prisma.coverageArea.create({
-      data: { ...dto, tenantId },
+      data: { ...dto } as any,
     });
     await this.audit.log({
       action: 'COVERAGE_AREA_CREATED',

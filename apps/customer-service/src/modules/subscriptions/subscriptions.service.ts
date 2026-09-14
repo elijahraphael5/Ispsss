@@ -2,7 +2,6 @@ import { Injectable, BadRequestException, ConflictException } from '@nestjs/comm
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { softDelete, softDeleteMany } from '@isp/prisma';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -10,10 +9,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 export class SubscriptionsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
     private readonly audit: AuditService,
-    private readonly notifications: NotificationsService,
-  ) {}
+    private readonly notifications: NotificationsService) {}
 
   async findAll(skip = 0, take = 50, search?: string, planFilter?: string) {
     const where: any = { deletedAt: null };
@@ -63,7 +60,7 @@ export class SubscriptionsService {
   }
 
   async create(data: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string }, actorId?: string) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     if (data.pppoeUsername) await this.assertPppoeAvailable(data.pppoeUsername);
     // A soft-deleted subscriber (customer deleted earlier) still holds the
     // unique userId slot — restore it instead of crashing on the constraint.
@@ -197,7 +194,7 @@ export class SubscriptionsService {
   }
 
   async createPlan(data: any) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const plan = await this.prisma.plan.create({ data: { tenantId, ...data } });
     await this.audit.log({ action: 'PLAN_CREATED', entityType: 'Plan', entityId: plan.id, metadata: { name: data.name, priceKobo: data.priceKobo } });
     return plan;
@@ -255,7 +252,7 @@ export class SubscriptionsService {
     if (!typeCol) throw new BadRequestException('Missing "Plan Type" column (radio, fiber, dedicated)');
     if (!levelCol) throw new BadRequestException('Missing "Plan Level" column (bronze, silver, gold)');
 
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
 
     const toKobo = (v: unknown): number | null => {
       if (v == null || v === '') return null;

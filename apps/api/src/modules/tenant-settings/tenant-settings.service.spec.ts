@@ -1,12 +1,11 @@
 import { Test } from '@nestjs/testing';
 import { TenantSettingsService } from './tenant-settings.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 
 describe('TenantSettingsService', () => {
   let service: TenantSettingsService;
-  let prisma: { tenant: { findUnique: jest.Mock; update: jest.Mock } };
+  let prisma: { tenant: { findFirst: jest.Mock; findUnique: jest.Mock; update: jest.Mock } };
   let audit: { log: jest.Mock };
 
   const tenant = { id: 'tenant-1', name: 'Default Tenant', slug: 'default', isActive: true };
@@ -14,6 +13,7 @@ describe('TenantSettingsService', () => {
   beforeEach(async () => {
     prisma = {
       tenant: {
+        findFirst: jest.fn().mockResolvedValue(tenant),
         findUnique: jest.fn().mockResolvedValue(tenant),
         update: jest.fn().mockResolvedValue({ ...tenant, name: 'New Name' }),
       },
@@ -24,7 +24,6 @@ describe('TenantSettingsService', () => {
       providers: [
         TenantSettingsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: TenantService, useValue: { resolveTenant: jest.fn().mockResolvedValue('tenant-1') } },
         { provide: AuditService, useValue: audit },
       ],
     }).compile();
@@ -93,6 +92,15 @@ describe('TenantSettingsService', () => {
     expect(data.smtpPassEnc).not.toContain('brevo-smtp-key-9876');
     expect(data.smtpPort).toBe(465);
 
+    prisma.tenant.findFirst.mockResolvedValue({
+      ...tenant,
+      smtpEnabled: true,
+      smtpHost: 'smtp-relay.brevo.com',
+      smtpPort: 465,
+      smtpUser: 'u@x.co',
+      smtpPassEnc: data.smtpPassEnc,
+      smtpFromEmail: 'noreply@x.co',
+    });
     prisma.tenant.findUnique.mockResolvedValue({
       ...tenant,
       smtpEnabled: true,

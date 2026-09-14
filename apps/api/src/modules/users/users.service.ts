@@ -5,7 +5,6 @@ import * as crypto from 'crypto';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CacheService } from '../../common/cache/cache.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { MailService, LoginDetailsData } from '../mail/mail.service';
 
@@ -164,11 +163,11 @@ export class UsersService {
     }
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(data.password, 12);
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     let result;
     try {
       result = await this.prisma.user.create({
-        data: { tenantId, email, name: data.name, passwordHash, phone, customRoleId: data.customRoleId },
+        data: { email, name: data.name, passwordHash, phone, customRoleId: data.customRoleId },
         select: userSelect,
       });
     } catch (e: any) {
@@ -214,7 +213,7 @@ export class UsersService {
   }
 
   async customers() {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const cacheKey = `users:customers:${tenantId}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
@@ -237,7 +236,7 @@ export class UsersService {
   }
 
   async kycQueue() {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const cacheKey = `users:kyc:${tenantId}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
@@ -255,8 +254,7 @@ export class UsersService {
       orderBy: { createdAt: 'desc' },
     });
     const staffIds = [...new Set(
-      subs.flatMap(s => [s.kycSubmittedById, s.kycApprovedById, s.kycRejectedById].filter((v): v is string => !!v)),
-    )];
+      subs.flatMap(s => [s.kycSubmittedById, s.kycApprovedById, s.kycRejectedById].filter((v): v is string => !!v)))];
     const staff = staffIds.length
       ? await this.prisma.user.findMany({ where: { id: { in: staffIds } }, select: { id: true, name: true, email: true } })
       : [];
@@ -357,12 +355,10 @@ export class UsersService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
-    private readonly cache: CacheService,
-  ) {
+    private readonly cache: CacheService) {
     // Periodically purge finished background jobs so the in-memory maps
     // can't grow unbounded across a long-lived process.
     if (!UsersService.jobsSweeper) {
@@ -375,7 +371,7 @@ export class UsersService {
   }
 
   async launchLogins(body: { testEmail?: string }, actorId: string) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const users = await this.prisma.user.findMany({
       where: { tenantId, deletedAt: null, subscriber: { isNot: null } },
       include: {
@@ -667,7 +663,7 @@ export class UsersService {
    * plans, refresh tokens) so a re-upload of the list always starts clean.
    * Staff users (no subscriber) are preserved.
    */
-  private async clearCustomerData() {    const tenantId = await this.tenant.resolveTenant();
+  private async clearCustomerData() {    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     await this.prisma.$transaction(async (tx) => {
       // Tenant-scoped: never touch other tenants' plans/customers. Raw read so
       // soft-deleted subscribers (deleted customers) are included too — their
@@ -823,7 +819,7 @@ export class UsersService {
       return isNaN(d.getTime()) ? null : d;
     };
 
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
 
     job.stage = 'wiping existing customer data';
     await this.clearCustomerData();
@@ -897,12 +893,11 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
           const bcrypt = await import('bcryptjs');
           const passwordHash = await bcrypt.hash(portalPassword || crypto.randomBytes(8).toString('hex'), 10);
           const user = await tx.user.create({
-            data: { tenantId, email: useEmail, name: name || null, phone: phoneTaken.length ? null : phone || null, passwordHash },
+            data: { email: useEmail, name: name || null, phone: phoneTaken.length ? null : phone || null, passwordHash },
             select: { id: true },
           });
           const subscriber = await tx.subscriber.create({
-            data: {
-              tenantId,
+            data: { tenantId: tenantId!,
               userId: user.id,
               type: 'RESIDENTIAL',
               status: 'ACTIVE',
@@ -917,7 +912,7 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
             let plan = await tx.plan.findFirst({ where: { tenantId, name: { equals: planName, mode: 'insensitive' } }, select: { id: true } });
             if (!plan) {
               plan = await tx.plan.create({
-                data: { tenantId, name: planName, type: technology || 'FIBER', technology: technology || 'FIBER', category: 'HOME', speedMbps: 1, priceKobo: fee ?? 0, installationFeeKobo: fee ?? 0, isActive: true },
+                data: { tenantId: tenantId!, name: planName, type: technology || 'FIBER', technology: technology || 'FIBER', category: 'HOME', speedMbps: 1, priceKobo: fee ?? 0, installationFeeKobo: fee ?? 0, isActive: true },
                 select: { id: true },
               });
             }
@@ -955,8 +950,7 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
                     ...(radiusPassword ? { password: radiusPassword } : {}),
                     ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
                   }),
-                },
-              );
+                });
               const body = r.ok ? ((await r.json()) as { expiry?: string }) : null;
               radiusNote = `${radiusNote ? radiusNote + ' · ' : ''}${body?.expiry ? `radius on · expires ${body.expiry}` : r.ok ? 'radius activated' : `radius activation failed (${r.status})`}`;
             } catch {

@@ -4,7 +4,6 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { MailService } from '../mail/mail.service';
 
 describe('AuthService', () => {
@@ -46,9 +45,8 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         { provide: PrismaService, useValue: prisma },
-        { provide: TenantService, useValue: tenant },
-        { provide: MailService, useValue: mail },
-        { provide: JwtService, useValue: jwt },
+                { provide: MailService, useValue: mail },
+        { provide: JwtService, useValue: jwt } 
       ],
     }).compile();
     service = moduleRef.get(AuthService);

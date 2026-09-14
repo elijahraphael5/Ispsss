@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { decryptSecret } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
-
 const CACHE_TTL_MS = 30_000;
 
 /**
@@ -16,9 +14,7 @@ export class GatewayConfigService {
   private cache: { key: string; at: number } | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
-  ) {}
+    private readonly prisma: PrismaService) {}
 
   private envKey(): string {
     return process.env.PAYSTACK_SECRET_KEY ?? '';
@@ -44,7 +40,7 @@ export class GatewayConfigService {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return this.cache.key;
     let key: string | null = null;
     try {
-      key = await this.decryptTenantKey(await this.tenant.resolveTenant());
+      key = await this.decryptTenantKey((await this.prisma.tenant.findFirst())?.id);
     } catch {
       key = null;
     }

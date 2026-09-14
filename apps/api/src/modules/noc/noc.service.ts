@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CacheService } from '../../common/cache/cache.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { NocGateway } from './gateways/noc.gateway';
 
@@ -11,9 +10,7 @@ export class NocService {
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
     private readonly gateway: NocGateway,
-    private readonly tenant: TenantService,
-    private readonly audit: AuditService,
-  ) {}
+    private readonly audit: AuditService) {}
 
   async getDashboard() {
     const cached = await this.cache.get<any>('noc:dashboard');
@@ -86,8 +83,8 @@ export class NocService {
   }
 
   async createDevice(data: { name: string; type: string; ipAddress: string; vendor?: string }) {
-    const tenantId = await this.tenant.resolveTenant();
-    const device = await this.prisma.networkDevice.create({ data: { tenantId, ...data } });
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const device = await this.prisma.networkDevice.create({ data: { ...data } as any });
     await this.audit.log({ action: 'DEVICE_CREATED', entityType: 'NetworkDevice', entityId: device.id, metadata: { name: data.name, type: data.type, ipAddress: data.ipAddress } });
     return device;
   }

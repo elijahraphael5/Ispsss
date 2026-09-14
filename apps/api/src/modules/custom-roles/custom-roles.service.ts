@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { CreateCustomRoleDto, UpdateCustomRoleDto } from './dto/custom-role.dto';
 
@@ -9,14 +8,10 @@ import { CreateCustomRoleDto, UpdateCustomRoleDto } from './dto/custom-role.dto'
 export class CustomRolesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
-    private readonly audit: AuditService,
-  ) {}
+    private readonly audit: AuditService) {}
 
   async findAll() {
-    const tenantId = await this.tenant.resolveTenant();
     return this.prisma.customRole.findMany({
-      where: { tenantId },
       include: { permissions: true, _count: { select: { users: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -47,7 +42,7 @@ export class CustomRolesService {
   }
 
   async create(dto: CreateCustomRoleDto) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     await this.releaseStaleRoleName(dto.name);
     try {
       return await this.prisma.$transaction(async (tx) => {

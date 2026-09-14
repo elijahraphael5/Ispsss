@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantContext } from '../../common/tenant/tenant-context';
 import { RouterOsService } from './routeros.service';
 import { CacheService } from '../../common/cache/cache.service';
 
@@ -52,17 +51,15 @@ export class RouterSnapshotService implements OnModuleInit {
   }
 
   private async resolveTenantId(): Promise<string | undefined> {
-    return TenantContext.getTenantId() ?? (await this.prisma.tenant.findFirst({ select: { id: true } }))?.id;
+    return (await this.prisma.tenant.findFirst({ select: { id: true } }))?.id;
   }
 
   async snapshotAll() {
     if (this.running) return;
     this.running = true;
     try {
-      const tenantId = await this.resolveTenantId();
-      if (!tenantId) return;
       const device = await this.prisma.networkDevice.findFirst({
-        where: { tenantId, routerosUsername: { not: null } },
+        where: { routerosUsername: { not: null } },
         orderBy: { updatedAt: 'desc' },
       });
       if (!device?.id) return;
@@ -72,11 +69,11 @@ export class RouterSnapshotService implements OnModuleInit {
       } catch (e) {
         const [snapCount, cpeCount] = await Promise.all([
           this.prisma.routerSnapshot.updateMany({
-            where: { tenantId, deviceId: device.id },
+            where: { deviceId: device.id },
             data: { isOnline: false, capturedAt: new Date() },
           }),
           this.prisma.cpe.updateMany({
-            where: { connectionType: 'STATIC_IP', subscriber: { tenantId } },
+            where: { connectionType: 'STATIC_IP' },
             data: { status: 'OFFLINE', lastSeenAt: new Date() },
           }),
         ]);
@@ -84,7 +81,7 @@ export class RouterSnapshotService implements OnModuleInit {
         return;
       }
       const restored = await this.prisma.cpe.updateMany({
-        where: { connectionType: 'STATIC_IP', status: { not: 'ONLINE' }, subscriber: { tenantId } },
+        where: { connectionType: 'STATIC_IP', status: { not: 'ONLINE' } },
         data: { status: 'ONLINE', lastSeenAt: new Date() },
       });
       if (restored.count > 0) this.logger.log(`RouterOK — restored ${restored.count} static connections to ONLINE`);
@@ -122,7 +119,7 @@ export class RouterSnapshotService implements OnModuleInit {
         let prevBytes: bigint | null = null;
         if (queueBytes !== null) {
           const prev = await this.prisma.routerMetric.findFirst({
-            where: { tenantId, username: s.username },
+            where: { username: s.username },
             orderBy: { capturedAt: 'desc' },
             select: { queueBytes: true },
           });
@@ -136,8 +133,8 @@ export class RouterSnapshotService implements OnModuleInit {
           const day = new Date(now);
           day.setUTCHours(0, 0, 0, 0);
           const dayRow = await this.prisma.routerUsageDay.upsert({
-            where: { tenantId_deviceId_username_date: { tenantId, deviceId: device.id, username: s.username, date: day } },
-            create: { tenantId, deviceId: device.id, username: s.username, date: day, usageBytes: delta, peakRateBps: peakRate, peakDownBps: downBps, peakUpBps: upBps },
+            where: { tenantId_deviceId_username_date: { tenantId: (await this.resolveTenantId()) ?? '', deviceId: device.id, username: s.username, date: day } },
+            create: { tenantId: (await this.resolveTenantId()) ?? '', deviceId: device.id, username: s.username, date: day, usageBytes: delta, peakRateBps: peakRate, peakDownBps: downBps, peakUpBps: upBps },
             update: { usageBytes: { increment: delta } },
           });
           if (peakRate > 0n && dayRow.peakRateBps < peakRate) {
@@ -164,13 +161,13 @@ export class RouterSnapshotService implements OnModuleInit {
           capturedAt: now,
         };
         await this.prisma.routerSnapshot.upsert({
-          where: { tenantId_deviceId_username: { tenantId, deviceId: device.id, username: s.username } },
-          create: { tenantId, deviceId: device.id, username: s.username, ...routerData },
+          where: { tenantId_deviceId_username: { tenantId: (await this.resolveTenantId()) ?? '', deviceId: device.id, username: s.username } },
+          create: { tenantId: (await this.resolveTenantId()) ?? '', deviceId: device.id, username: s.username, ...routerData },
           update: routerData,
         });
         await this.prisma.routerMetric.create({
           data: {
-            tenantId,
+            tenantId: (await this.resolveTenantId()) ?? '',
             deviceId: device.id,
             username: s.username,
             isOnline: !!sess,
@@ -193,13 +190,13 @@ export class RouterSnapshotService implements OnModuleInit {
         synced++;
       }
       const cutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-      const pruned = await this.prisma.routerMetric.deleteMany({ where: { tenantId, capturedAt: { lt: cutoff } } });
+      const pruned = await this.prisma.routerMetric.deleteMany({ where: { capturedAt: { lt: cutoff } } });
       let arpChanges = 0;
       try {
         const arp = await this.ros.getArpEntries(device.id);
         const arpIps = new Set(arp.map(e => `ARP-${String(e.address || '')}`));
         const tracked = await this.prisma.routerMetric.findMany({
-          where: { tenantId, username: { startsWith: 'ARP-' } },
+          where: { username: { startsWith: 'ARP-' } },
           distinct: ['username'],
           select: { username: true },
         });
@@ -208,14 +205,14 @@ export class RouterSnapshotService implements OnModuleInit {
           if (!ip) continue;
           const uname = `ARP-${ip}`;
           const last = await this.prisma.routerMetric.findFirst({
-            where: { tenantId, username: uname },
+            where: { username: uname },
             orderBy: { capturedAt: 'desc' },
             select: { isOnline: true },
           });
           if (last?.isOnline) continue;
           await this.prisma.routerMetric.create({
             data: {
-              tenantId,
+              tenantId: (await this.resolveTenantId()) ?? '',
               deviceId: device.id,
               username: uname,
               isOnline: true,
@@ -230,14 +227,14 @@ export class RouterSnapshotService implements OnModuleInit {
         for (const t of tracked) {
           if (arpIps.has(t.username)) continue;
           const last = await this.prisma.routerMetric.findFirst({
-            where: { tenantId, username: t.username },
+            where: { username: t.username },
             orderBy: { capturedAt: 'desc' },
             select: { isOnline: true },
           });
           if (last?.isOnline) {
             await this.prisma.routerMetric.create({
               data: {
-                tenantId,
+                tenantId: (await this.resolveTenantId()) ?? '',
                 deviceId: device.id,
                 username: t.username,
                 isOnline: false,
@@ -260,9 +257,8 @@ export class RouterSnapshotService implements OnModuleInit {
   async listSnapshots() {
     const cached = await this.cache.get<any[]>('routeros:snapshots');
     if (cached) return cached;
-    const tenantId = await this.resolveTenantId();
     const rows = await this.prisma.routerSnapshot.findMany({
-      where: tenantId ? { tenantId } : undefined,
+      where: undefined,
       orderBy: { username: 'asc' },
     });
     const result = rows.map(r => ({
@@ -291,9 +287,8 @@ export class RouterSnapshotService implements OnModuleInit {
   }
 
   async listMetrics(username?: string, ip?: string, limit = 60) {
-    const tenantId = await this.resolveTenantId();
     const rows = await this.prisma.routerMetric.findMany({
-      where: { tenantId, ...(username ? { username } : {}), ...(ip ? { ipAddress: ip } : {}) },
+      where: { ...(username ? { username } : {}), ...(ip ? { ipAddress: ip } : {}) },
       orderBy: { capturedAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 500),
     });
@@ -316,8 +311,7 @@ export class RouterSnapshotService implements OnModuleInit {
   }
 
   async listUsage(username: string, range: string) {
-    const tenantId = await this.resolveTenantId();
-    const where = { tenantId, username };
+    const where = { username };
     const now = new Date();
     if (range === 'daily') {
       const start = new Date(now);
@@ -376,8 +370,7 @@ export class RouterSnapshotService implements OnModuleInit {
   }
 
   async updateProfile(username: string, data: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; plan?: string; dueAt?: string | null }) {
-    const tenantId = await this.resolveTenantId();
-    const row = await this.prisma.routerSnapshot.findFirst({ where: tenantId ? { tenantId, username } : { username } });
+    const row = await this.prisma.routerSnapshot.findFirst({ where: { username } });
     if (!row) throw new NotFoundException(`No snapshot for "${username}"`);
     return this.prisma.routerSnapshot.update({
       where: { id: row.id },
@@ -395,8 +388,7 @@ export class RouterSnapshotService implements OnModuleInit {
 
   /** Removes a single cached snapshot row (e.g. stale PPPoE data after a wipe). */
   async removeSnapshot(id: string) {
-    const tenantId = await this.resolveTenantId();
-    const row = await this.prisma.routerSnapshot.findFirst({ where: tenantId ? { tenantId, id } : { id } });
+    const row = await this.prisma.routerSnapshot.findFirst({ where: { id } });
     if (!row) throw new NotFoundException('Snapshot not found');
     await this.prisma.routerSnapshot.delete({ where: { id: row.id } });
     return { deleted: true, username: row.username };

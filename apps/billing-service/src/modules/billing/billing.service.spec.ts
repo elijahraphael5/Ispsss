@@ -3,7 +3,6 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { PdfService } from './pdf.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
@@ -40,11 +39,10 @@ describe('BillingService', () => {
       providers: [
         BillingService,
         { provide: PrismaService, useValue: prisma },
-        { provide: TenantService, useValue: tenant },
-        { provide: AuditService, useValue: audit },
+                { provide: AuditService, useValue: audit },
         { provide: NotificationsService, useValue: notifications },
         { provide: MailService, useValue: mail },
-        { provide: PdfService, useValue: pdf },
+        { provide: PdfService, useValue: pdf } 
       ],
     }).compile();
     service = moduleRef.get(BillingService);
@@ -148,8 +146,8 @@ describe('BillingService', () => {
           dueAt: new Date(),
           lines: [
             { description: 'Plan', amountKobo: 200000, quantity: 2 },
-            { description: 'Rental', amountKobo: 5000 },
-          ],
+            { description: 'Rental', amountKobo: 5000 } 
+      ],
         },
         'u1',
       );
@@ -303,8 +301,8 @@ describe('BillingService', () => {
         subscriberName: 'Jane Doe',
         items: [
           { description: 'Fibre 20Mbps', quantity: 1, unitPriceKobo: 50000 },
-          { description: 'Router', quantity: 2, unitPriceKobo: 10000 },
-        ],
+          { description: 'Router', quantity: 2, unitPriceKobo: 10000 } 
+      ],
       });
       const data = prisma.quotation.create.mock.calls[0][0].data;
       expect(data.subscriberId).toBe('sub1');

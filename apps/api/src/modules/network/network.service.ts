@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { CacheService } from '../../common/cache/cache.service';
 
@@ -9,10 +8,8 @@ import { CacheService } from '../../common/cache/cache.service';
 export class NetworkService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
     private readonly audit: AuditService,
-    private readonly cache: CacheService,
-  ) {}
+    private readonly cache: CacheService) {}
 
   private async invalidateNetworkCache(): Promise<void> {
     await this.cache.invalidatePattern('network:*');
@@ -58,8 +55,8 @@ export class NetworkService {
   }
 
   async createDevice(data: { name: string; type: string; ipAddress: string; vendor?: string; location?: string; secret?: string }) {
-    const tenantId = await this.tenant.resolveTenant();
-    const device = await this.prisma.networkDevice.create({ data: { tenantId, ...data } });
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const device = await this.prisma.networkDevice.create({ data: { ...data } as any });
     await this.audit.log({ action: 'DEVICE_CREATED', entityType: 'NetworkDevice', entityId: device.id, metadata: { name: data.name, type: data.type, ipAddress: data.ipAddress } });
     await this.invalidateNetworkCache();
     return device;
@@ -215,8 +212,7 @@ export class NetworkService {
 
     const result = {
       connections: [...pppoeConnections, ...staticConnections].sort(
-        (a, b) => new Date(b.lastSeen ?? 0).getTime() - new Date(a.lastSeen ?? 0).getTime(),
-      ),
+        (a, b) => new Date(b.lastSeen ?? 0).getTime() - new Date(a.lastSeen ?? 0).getTime()),
       totalPppoe: pppoeConnections.length,
       totalStatic: staticConnections.length,
     };

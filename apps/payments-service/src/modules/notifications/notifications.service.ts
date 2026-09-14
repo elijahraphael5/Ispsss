@@ -1,16 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
-
 @Injectable()
 export class NotificationsService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
-  ) {}
+    private readonly prisma: PrismaService) {}
 
   async findAll() {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     await this.generateFromSystem(tenantId);
     return this.prisma.notification.findMany({
       where: { tenantId },
@@ -20,7 +16,7 @@ export class NotificationsService {
   }
 
   async create(data: { title: string; message: string; type?: string; subscriberId?: string; link?: string }) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     return this.prisma.notification.create({
       data: { tenantId, title: data.title, message: data.message, type: data.type ?? 'INFO', subscriberId: data.subscriberId, link: data.link },
     });
@@ -31,11 +27,11 @@ export class NotificationsService {
   }
 
   async markAllRead() {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     return this.prisma.notification.updateMany({ where: { tenantId, read: false }, data: { read: true } });
   }
 
-  private async generateFromSystem(tenantId: string) {
+  private async generateFromSystem(tenantId?: string) {
     const existing = await this.prisma.notification.findFirst({ where: { tenantId }, orderBy: { createdAt: 'desc' } });
     const lastRun = existing?.createdAt ?? new Date(0);
     const now = new Date();
@@ -49,7 +45,7 @@ export class NotificationsService {
       this.prisma.invoice.findMany({ where: { status: 'OVERDUE' }, include: { subscriber: { select: { user: { select: { email: true } } } } }, take: 50 }),
     ]);
 
-    const notifications: Array<{ tenantId: string; type: string; title: string; message: string; link?: string }> = [];
+    const notifications: Array<{ tenantId?: string; type: string; title: string; message: string; link?: string }> = [];
 
     for (const sub of newSubs) {
       notifications.push({ tenantId, type: 'INFO', title: 'New Account Created', message: `Customer ${sub.user.email} signed up`, link: `/subscriptions/subscribers` });

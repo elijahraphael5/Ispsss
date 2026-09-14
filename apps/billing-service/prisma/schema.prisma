@@ -144,8 +144,8 @@ model Tenant {
 
 model CoverageArea {
   id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id])
   name      String
   zone      String   @default("IKORODU")
   lga       String?
@@ -164,8 +164,8 @@ model CoverageArea {
 model CustomRole {
   id          String       @id @default(uuid())
   name        String       @unique
-  tenantId    String
-  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  tenantId    String?
+  tenant      Tenant?       @relation(fields: [tenantId], references: [id])
   permissions Permission[]
   users       User[]
   createdAt   DateTime     @default(now())
@@ -191,8 +191,8 @@ model Permission {
 
 model User {
   id            String      @id @default(uuid())
-  tenantId      String
-  tenant        Tenant      @relation(fields: [tenantId], references: [id])
+  tenantId      String?
+  tenant        Tenant?      @relation(fields: [tenantId], references: [id])
   email         String      @unique
   name          String?
   phone         String?     @unique
@@ -218,8 +218,8 @@ model User {
 
 model Subscriber {
   id               String            @id @default(uuid())
-  tenantId         String
-  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  tenantId         String?
+  tenant           Tenant?            @relation(fields: [tenantId], references: [id])
   user             User              @relation(fields: [userId], references: [id])
   userId           String            @unique
   type             SubscriberType
@@ -256,8 +256,8 @@ model Subscriber {
 
 model Plan {
   id                  String         @id @default(uuid())
-  tenantId            String
-  tenant              Tenant         @relation(fields: [tenantId], references: [id])
+  tenantId            String?
+  tenant              Tenant?         @relation(fields: [tenantId], references: [id])
   name                String
   type                PlanType
   technology          String         // RADIO, FIBER, DIA
@@ -521,8 +521,8 @@ model PaymentReconciliation {
 
 model Ticket {
   id                  String           @id @default(uuid())
-  tenantId            String
-  tenant              Tenant           @relation(fields: [tenantId], references: [id])
+  tenantId            String?
+  tenant              Tenant?           @relation(fields: [tenantId], references: [id])
   subscriber          Subscriber       @relation(fields: [subscriberId], references: [id])
   subscriberId        String
   assignedAgentId     String?
@@ -583,8 +583,8 @@ enum MessageSender {
 
 model ChatSession {
   id              String        @id @default(uuid())
-  tenantId        String
-  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  tenantId        String?
+  tenant          Tenant?        @relation(fields: [tenantId], references: [id])
   subscriberId    String?
   subscriber      Subscriber?   @relation(fields: [subscriberId], references: [id])
   agentId         String?
@@ -627,7 +627,7 @@ model ChatMessage {
 
 model FileUpload {
   id              String         @id @default(uuid())
-  tenantId        String
+  tenantId        String?
   sessionId       String?        // chat session the file belongs to
   messageId       String?        // chat message the file is attached to
   ticketId        String?        // ticket the file is for (before comment linking)
@@ -659,8 +659,8 @@ enum AgentPresenceStatus {
 
 model AgentPresence {
   id         String              @id @default(uuid())
-  tenantId   String
-  tenant     Tenant              @relation(fields: [tenantId], references: [id])
+  tenantId   String?
+  tenant     Tenant?              @relation(fields: [tenantId], references: [id])
   userId     String              @unique
   user       User                @relation(fields: [userId], references: [id])
   status     AgentPresenceStatus @default(OFFLINE)
@@ -674,8 +674,8 @@ model AgentPresence {
 
 model CannedResponse {
   id         String   @id @default(uuid())
-  tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  tenantId   String?
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id])
   title      String
   body       String
   category   String?
@@ -706,8 +706,8 @@ model Cpe {
 
 model NetworkDevice {
   id           String   @id @default(uuid())
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id])
   name         String
   type         String   // router | switch | olt | ap | nas
   vendor       String?
@@ -787,7 +787,7 @@ model AuditLog {
 
 model Notification {
   id           String    @id @default(uuid())
-  tenantId     String
+  tenantId     String?
   subscriberId String?
   type         String    // INFO, WARNING, ERROR
   title        String
@@ -815,8 +815,8 @@ model PasswordResetToken {
 
 model ActionQueue {
   id         String    @id @default(uuid())
-  tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  tenantId   String?
+  tenant     Tenant?    @relation(fields: [tenantId], references: [id])
   type       String    // suspend | kick | plan-change
   deviceId   String
   targetId   String    // secretId or cpeId depending on type
@@ -833,8 +833,8 @@ model ActionQueue {
 
 model RouterSnapshot {
   id                   String   @id @default(uuid())
-  tenantId             String
-  tenant               Tenant   @relation(fields: [tenantId], references: [id])
+  tenantId             String?
+  tenant               Tenant?   @relation(fields: [tenantId], references: [id])
   deviceId             String
   device               NetworkDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   username             String
@@ -864,8 +864,8 @@ model RouterSnapshot {
 
 model RouterMetric {
   id            String    @id @default(uuid())
-  tenantId      String
-  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  tenantId      String?
+  tenant        Tenant?    @relation(fields: [tenantId], references: [id])
   deviceId      String
   device        NetworkDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   username      String
@@ -892,8 +892,8 @@ model RouterMetric {
 
 model RouterUsageDay {
   id          String   @id @default(uuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  tenantId    String?
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id])
   deviceId    String
   device      NetworkDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   username    String

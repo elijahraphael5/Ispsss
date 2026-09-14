@@ -1,14 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { decryptSecret } from '@isp/prisma';
 
 @Injectable()
 export class CustomerService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
-  ) {}
+    private readonly prisma: PrismaService) {}
 
   async getDashboard(userId: string) {
     const subscriber = await this.prisma.subscriber.findFirst({
@@ -288,7 +285,7 @@ export class CustomerService {
 private async verifyPaystackPayment(reference: string): Promise<boolean> {
     let secretKey = process.env.PAYSTACK_SECRET_KEY;
     try {
-      const tenantId = await this.tenant.resolveTenant();
+      const tenantId = (await this.prisma.tenant.findFirst())?.id;
       const row = await this.prisma.tenant.findUnique({
         where: { id: tenantId },
         select: { paystackEnabled: true, paystackSecretKeyEnc: true },

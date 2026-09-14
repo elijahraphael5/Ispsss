@@ -2,7 +2,6 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { SupportService } from './support.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -38,9 +37,8 @@ describe('SupportService', () => {
       providers: [
         SupportService,
         { provide: PrismaService, useValue: prisma },
-        { provide: TenantService, useValue: tenant },
-        { provide: AuditService, useValue: audit },
-        { provide: NotificationsService, useValue: notifications },
+                { provide: AuditService, useValue: audit },
+        { provide: NotificationsService, useValue: notifications } 
       ],
     }).compile();
     service = moduleRef.get(SupportService);

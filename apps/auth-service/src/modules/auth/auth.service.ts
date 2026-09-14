@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import * as speakeasy from 'speakeasy';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 
@@ -14,9 +13,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly tenant: TenantService,
-    private readonly mail: MailService,
-  ) {}
+    private readonly mail: MailService) {}
 
   async register(email: string, password: string, phone?: string) {
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
@@ -27,7 +24,7 @@ export class AuthService {
       throw new BadRequestException('Password must be at least 8 characters');
     }
     const passwordHash = await bcrypt.hash(password, 12);
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     return this.prisma.user.create({
       data: { tenantId, email: normalizedEmail, passwordHash, phone },
       select: { id: true, email: true, createdAt: true },
@@ -172,8 +169,7 @@ export class AuthService {
   async issueTokens(userId: string, family?: string) {
     const accessToken = this.jwtService.sign(
       { sub: userId },
-      { secret: process.env.JWT_ACCESS_SECRET ?? 'change-me', expiresIn: '15m' },
-    );
+      { secret: process.env.JWT_ACCESS_SECRET ?? 'change-me', expiresIn: '15m' });
 
     const tokenFamily = family ?? crypto.randomUUID();
     const raw = crypto.randomBytes(48).toString('hex');

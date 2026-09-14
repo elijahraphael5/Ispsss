@@ -13,12 +13,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; impersonatedTenantId?: string }) {
+  async validate(payload: { sub: string }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: { id: true, email: true, isSuperAdmin: true, twoFaEnabled: true, customRoleId: true, customRole: { include: { permissions: true } } },
     });
     if (!user) return null;
-    return { ...user, impersonatedTenantId: payload.impersonatedTenantId };
+    return user;
   }
 }

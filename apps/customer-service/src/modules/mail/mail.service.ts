@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
 import { resolveTenantSmtp } from '@isp/prisma';
 import * as nodemailer from 'nodemailer';
 import * as fs from 'fs';
@@ -56,7 +55,7 @@ export class MailService {
   private tenantTransportSig = '';
   private tenantFrom: string | null = null;
 
-  constructor(private config: ConfigService, private prisma: PrismaService, private tenant: TenantService) {
+  constructor(private config: ConfigService, private prisma: PrismaService) {
     const host = this.config.get<string>('SMTP_HOST');
     const port = this.config.get<number>('SMTP_PORT', 587);
     const user = this.config.get<string>('SMTP_USER');
@@ -79,7 +78,7 @@ export class MailService {
 
   private async resolveTransport(): Promise<nodemailer.Transporter | null> {
     try {
-      const smtp = await resolveTenantSmtp(this.prisma, await this.tenant.resolveTenant());
+      const smtp = await resolveTenantSmtp(this.prisma, (await this.prisma.tenant.findFirst())?.id);
       if (smtp) {
         const sig = smtp.host + ':' + smtp.port + ':' + smtp.user + ':' + smtp.pass.slice(-4);
         if (!this.tenantTransporter || this.tenantTransportSig !== sig) {

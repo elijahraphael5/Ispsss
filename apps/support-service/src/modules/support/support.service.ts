@@ -1,8 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { softDelete } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { TenantService } from '../../common/tenant/tenant.service';
-import { TenantContext } from '../../common/tenant/tenant-context';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as fs from 'fs';
@@ -56,10 +54,8 @@ function sanitizeMimeType(mime: string | null | undefined): string {
 export class SupportService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenant: TenantService,
     private readonly audit: AuditService,
-    private readonly notifications: NotificationsService,
-  ) {}
+    private readonly notifications: NotificationsService) {}
 
   // ─────────────────────────── Chat sessions ───────────────────────────
 
@@ -68,7 +64,7 @@ export class SupportService {
     email: string;
     department?: string;
   }) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const subscriber = await this.prisma.subscriber.findFirst({
       where: { userId: data.userId, deletedAt: null },
       select: { id: true },
@@ -158,8 +154,7 @@ export class SupportService {
             : null,
           unreadCount: unread,
         };
-      }),
-    );
+      }));
     return rows;
   }
 
@@ -413,7 +408,7 @@ export class SupportService {
   // ─────────────────────────── Agents & presence ───────────────────────────
 
   async setPresence(userId: string, status: 'ONLINE' | 'AWAY' | 'OFFLINE') {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     return this.prisma.agentPresence.upsert({
       where: { userId },
       create: { tenantId, userId, status, lastSeenAt: new Date() },
@@ -480,7 +475,7 @@ export class SupportService {
   }
 
   async createCanned(data: { title: string; body: string; category?: string }) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     return this.prisma.cannedResponse.create({ data: { tenantId, ...data } });
   }
 
@@ -549,7 +544,7 @@ export class SupportService {
     priority?: string;
     assignedAgentId?: string;
   }) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const priority = data.priority ?? 'MEDIUM';
     const ticket = await this.prisma.ticket.create({
       data: {
@@ -616,8 +611,7 @@ export class SupportService {
     ticketId: string,
     data: { body: string; internal?: boolean; attachmentIds?: string[] },
     actor: Actor,
-    authorType: 'AGENT' | 'CUSTOMER' = 'AGENT',
-  ) {
+    authorType: 'AGENT' | 'CUSTOMER' = 'AGENT') {
     const ticket = await this.prisma.ticket.findUniqueOrThrow({ where: { id: ticketId } });
     if (data.internal && !isAgentActor(actor)) throw new ForbiddenException('Only agents can post internal notes');
 
@@ -656,7 +650,7 @@ export class SupportService {
   }
 
   private async storeUpload(opts: {
-    tenantId: string;
+    tenantId?: string;
     relativeDir: string;
     uploadedById: string;
     sessionId?: string;
@@ -701,9 +695,9 @@ export class SupportService {
     }
     if (!isAgent && !isOwner) throw new ForbiddenException('Access denied');
 
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const upload = await this.storeUpload({
-      tenantId,
+      tenantId: tenantId ?? undefined,
       relativeDir: `chat/${sessionId}`,
       uploadedById: actor.id,
       sessionId: session.id,
@@ -719,9 +713,9 @@ export class SupportService {
     const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new NotFoundException('Ticket not found');
 
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const upload = await this.storeUpload({
-      tenantId,
+      tenantId: tenantId ?? undefined,
       relativeDir: `ticket/${ticketId}`,
       uploadedById: actor.id,
       ticketId: ticket.id,
@@ -740,13 +734,13 @@ export class SupportService {
     const upload = await this.prisma.fileUpload.findUnique({
       where: { id },
       include: {
-        session: { select: { tenantId: true, subscriberId: true } },
-        ticket: { select: { tenantId: true, subscriberId: true } },
-        ticketComment: { include: { ticket: { select: { tenantId: true, subscriberId: true } } } },
+        session: { select: {subscriberId: true } },
+        ticket: { select: {subscriberId: true } },
+        ticketComment: { include: { ticket: { select: {subscriberId: true } } } },
       },
     });
     if (!upload) throw new NotFoundException('Attachment not found');
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     if (upload.tenantId !== tenantId) throw new ForbiddenException('Access denied');
 
     const isAgent = isAgentActor(actor);
@@ -781,7 +775,7 @@ export class SupportService {
   }
 
   async createTicketForCustomer(userId: string, data: { subject: string; description?: string; category?: string; priority?: string }) {
-    const tenantId = await this.tenant.resolveTenant();
+    const tenantId = (await this.prisma.tenant.findFirst())?.id;
     const subscriber = await this.prisma.subscriber.findFirst({
       where: { userId, deletedAt: null },
       include: { user: { select: { email: true } } },
@@ -926,8 +920,7 @@ export class SupportService {
         ticketsResolved: acc.ticketsResolved + r.ticketsResolved,
         avgCsat: acc.avgCsat + r.avgCsat,
       }),
-      { chatsHandled: 0, closedChats: 0, ticketsResolved: 0, avgCsat: 0 },
-    );
+      { chatsHandled: 0, closedChats: 0, ticketsResolved: 0, avgCsat: 0 });
     totals.avgCsat = rows.length > 0 ? Math.round((totals.avgCsat / rows.length) * 10) / 10 : 0;
 
     return {
