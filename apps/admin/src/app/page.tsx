@@ -225,8 +225,11 @@ export default function Dashboard() {
   const activeStatic = staticConns.filter(c => c.status === 'ACTIVE' || c.status === 'ONLINE').length;
   const totalStatic = staticConns.length;
 
-  const totalConnections = totalPPPoE + totalStatic;
-  const activeConnections = activePPPoE + activeStatic;
+  // Wire to the right place: billing/subscriber counts are the source of truth.
+  // Network "Total Connections" was previously inflated by orphaned PppoeSession rows (59 demo rows with subscriberId=NULL).
+  // Now: prefer Admin stats (totalCustomers/activeSubscriptions) when available, fallback to network counts.
+  const totalConnections = stats ? stats.totalCustomers : (totalPPPoE + totalStatic);
+  const activeConnections = stats ? stats.activeSubscriptions : (activePPPoE + activeStatic);
 
   const rosHealth = routerHealth.find(h => h.deviceId === rosDevice?.id);
   const staleDevice = rosHealth && rosHealth.linkStatus !== 'up' ? rosHealth : null;

@@ -164,9 +164,12 @@ export class NetworkService {
   async getAllConnections() {
     const cached = await this.cache.get<any>('network:connections');
     if (cached) return cached;
+    // Only count sessions that are linked to a real subscriber and recently synced (5 min)
+    // Orphaned PppoeSession rows with subscriberId=NULL (old demo seed) are ignored.
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
     const [pppoeSessions, staticCpes] = await Promise.all([
       this.prisma.pppoeSession.findMany({
-        where: { isActive: true },
+        where: { isActive: true, subscriberId: { not: null }, lastSyncedAt: { gte: fiveMinAgo } },
         orderBy: { lastSyncedAt: 'desc' },
         take: 200,
       }),
