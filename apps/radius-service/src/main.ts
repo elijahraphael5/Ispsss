@@ -15,7 +15,8 @@ async function bootstrap() {
   assertProdEnv([
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
     { name: 'DATABASE_URL', forbidden: 'change_me' },
-    { name: 'WEBHOOK_SERVICE_TOKEN' },
+    { name: 'CREDENTIALS_ENCRYPTION_KEY', forbidden: 'dev-credentials' },
+    { name: 'WEBHOOK_SERVICE_TOKEN', forbidden: 'dev-webhook' },
     { name: 'RADIUS_SHARED_SECRET', forbidden: 'testing123' },
     { name: 'RADIUS_DEFAULT_PASSWORD', forbidden: 'ChangeMe1!' },
     { name: 'RADIUS_DB_PASSWORD', forbidden: 'radiuspw' }

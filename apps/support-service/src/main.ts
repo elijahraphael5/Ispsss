@@ -16,7 +16,9 @@ import Redis from 'ioredis';
 async function bootstrap() {
   assertProdEnv([
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
-    { name: 'DATABASE_URL', forbidden: 'change_me' }
+    { name: 'DATABASE_URL', forbidden: 'change_me' },
+    { name: 'CREDENTIALS_ENCRYPTION_KEY', forbidden: 'dev-credentials' },
+    { name: 'WEBHOOK_SERVICE_TOKEN', forbidden: 'dev-webhook' }
   ]);
   const app = await NestFactory.create(AppModule, {
     cors: {

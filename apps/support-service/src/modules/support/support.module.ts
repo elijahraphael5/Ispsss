@@ -10,7 +10,7 @@ import { SupportGateway } from './support.gateway';
   imports: [
     PrismaModule,
     JwtModule.register({
-      secret: process.env.JWT_ACCESS_SECRET ?? 'change-me',
+      secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })(),
       signOptions: { expiresIn: '15m' },
     }),
   ],

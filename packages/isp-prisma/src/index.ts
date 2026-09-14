@@ -1,10 +1,11 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
-const CREDENTIALS_DEV_FALLBACK = 'isp-dev-credentials-key';
-
 function credentialsKey(): Buffer {
-  const secret = process.env.CREDENTIALS_ENCRYPTION_KEY || CREDENTIALS_DEV_FALLBACK;
+  const secret = process.env.CREDENTIALS_ENCRYPTION_KEY;
+  if (!secret || secret === 'isp-dev-credentials-key' || secret === 'dev-credentials-key') {
+    throw new Error('CREDENTIALS_ENCRYPTION_KEY is required - set a strong random value');
+  }
   return createHash('sha256').update(secret).digest();
 }
 

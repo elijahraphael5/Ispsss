@@ -169,7 +169,7 @@ export class AuthService {
   async issueTokens(userId: string, family?: string) {
     const accessToken = this.jwtService.sign(
       { sub: userId },
-      { secret: process.env.JWT_ACCESS_SECRET ?? 'change-me', expiresIn: '15m' });
+      { secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })(), expiresIn: '15m' });
 
     const tokenFamily = family ?? crypto.randomUUID();
     const raw = crypto.randomBytes(48).toString('hex');

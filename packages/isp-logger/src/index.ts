@@ -51,18 +51,31 @@ export interface ProdEnvRule {
 }
 
 /**
- * Fails fast in production when required env vars are missing or still set to
- * known dev defaults. No-op outside NODE_ENV=production. Call after ConfigModule
- * has loaded the app's .env (i.e. inside bootstrap()).
+ * Fails fast when required env vars are missing or still set to known dev defaults.
+ * For secret-bearing vars (those with `forbidden`), checks in ALL environments — not just production.
+ * For non-secret vars without `forbidden`, still only checks in production to avoid dev friction.
+ * Call after ConfigModule has loaded the app's .env (i.e. inside bootstrap()).
  */
 export function assertProdEnv(rules: ProdEnvRule[]): void {
-  if (process.env.NODE_ENV !== 'production') return;
+  const isProd = process.env.NODE_ENV === 'production';
   const bad: string[] = [];
   for (const { name, forbidden } of rules) {
     const val = process.env[name];
-    if (!val || (forbidden && val.includes(forbidden))) bad.push(name);
+    // Secret vars (with forbidden dev default) are required in all envs
+    if (forbidden) {
+      if (!val || val.includes(forbidden)) bad.push(name);
+    } else if (isProd) {
+      if (!val) bad.push(name);
+    }
   }
   if (bad.length) {
-    throw new Error(`Refusing to start in production — set real values for: ${bad.join(', ')}`);
+    throw new Error(`Refusing to start — set real values for: ${bad.join(', ')}`);
   }
+}
+
+/**
+ * Alias that unconditionally checks required env vars (for secrets).
+ */
+export function assertRequiredEnv(rules: ProdEnvRule[]): void {
+  assertProdEnv(rules);
 }

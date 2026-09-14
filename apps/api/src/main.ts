@@ -69,7 +69,8 @@ async function bootstrap() {
   assertProdEnv([
     { name: 'JWT_ACCESS_SECRET', forbidden: 'change-me' },
     { name: 'DATABASE_URL', forbidden: 'change_me' },
-    { name: 'CREDENTIALS_ENCRYPTION_KEY' }
+    { name: 'CREDENTIALS_ENCRYPTION_KEY', forbidden: 'dev-credentials' },
+    { name: 'WEBHOOK_SERVICE_TOKEN', forbidden: 'dev-webhook' }
   ]);
   if (process.env.SENTRY_DSN) {
     Sentry.init({
@@ -115,7 +116,7 @@ async function bootstrap() {
   );
   // JWT verifier for rate-limit keying — the same secret every backend verifies
   // against, so spoofed `sub` claims can't split buckets.
-  const jwt = new JwtService({ secret: process.env.JWT_ACCESS_SECRET ?? 'change-me' });
+  const jwt = new JwtService({ secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })() });
   const mutationTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_MUTATION_PER_MIN', 120), windowMs: 60_000 });
   const readTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_READ_PER_MIN', 600), windowMs: 60_000 });
   const globalTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_GLOBAL_PER_MIN', 1200), windowMs: 60_000 });
