@@ -22,7 +22,7 @@ x-app: &app
 
 x-common-env: &common-env
   NODE_ENV: production
-  CORS_ORIGINS: ${CORS_ORIGINS}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
   # Customer portal base URL used in email links/buttons (falls back to CUSTOMER_URL).
   APP_URL: ${APP_URL}
   # All backends sit behind the nginx reverse proxy, which sets X-Forwarded-For.

@@ -659,11 +659,13 @@ export class SupportService {
   }): Promise<any> {
     const { file } = opts;
     if (!file.buffer) throw new BadRequestException('Empty file upload');
-    const ext = path.extname(file.originalname).slice(0, 12);
+    // Sanitize extension properly (allow only alphanumeric dot)
+    const rawExt = path.extname(file.originalname).toLowerCase().slice(0, 12);
+    const ext = /^[a-z0-9.]+$/.test(rawExt) ? rawExt : '';
     const storedName = `${randomUUID()}${ext}`;
     const dir = path.join(this.uploadRoot, opts.relativeDir);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, storedName), file.buffer);
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(path.join(dir, storedName), file.buffer);
 
     const upload = await this.prisma.fileUpload.create({
       data: {
@@ -758,6 +760,8 @@ export class SupportService {
 
     if (!accessible) throw new ForbiddenException('Access denied');
 
+    // Defense-in-depth against DB tampering with ../ in storedPath
+    if (upload.storedPath.includes('..') || path.isAbsolute(upload.storedPath)) throw new BadRequestException('Invalid stored path');
     const absPath = path.join(this.uploadRoot, upload.storedPath);
     if (!fs.existsSync(absPath)) throw new NotFoundException('Attachment file missing on disk');
 

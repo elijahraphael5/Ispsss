@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS base
+FROM node:24.11-bookworm-slim AS base
 # openssl CLI so Prisma detects debian-openssl-3.0.x (bookworm ships libssl3;
 # without the CLI Prisma defaults to openssl-1.1.x and the engine fails to load)
 RUN apt-get update && apt-get install -y --no-install-recommends openssl \
