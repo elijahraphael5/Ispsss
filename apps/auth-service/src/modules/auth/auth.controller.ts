@@ -35,17 +35,21 @@ export class AuthController {
   }
 
   @Post('2fa/verify')
-  async verify2fa(@Body() body: { userId: string; token: string }, @Req() req: any, @Res({ passthrough: true }) res: any) {
+  async verify2fa(@Body() body: { userId?: string; tempToken?: string; token: string }, @Req() req: any, @Res({ passthrough: true }) res: any) {
     const ip = req.ip || req.headers?.['x-forwarded-for'] || req.connection?.remoteAddress;
     const ua = req.headers?.['user-agent'];
-    const result = await this.service.verify2fa(body.userId, body.token, ip, ua);
+    const identifier = body.tempToken ?? body.userId;
+    if (!identifier) throw new UnauthorizedException('Missing identifier');
+    const result = await this.service.verify2fa(identifier, body.token, ip, ua);
     this.setRefreshCookie(res, result.refreshToken);
     return { accessToken: result.accessToken };
   }
 
   @Post('2fa/resend')
-  async resend2fa(@Body() body: { userId: string }) {
-    return this.service.resend2fa(body.userId);
+  async resend2fa(@Body() body: { userId?: string; tempToken?: string }) {
+    const identifier = body.tempToken ?? body.userId;
+    if (!identifier) throw new UnauthorizedException('Missing identifier');
+    return this.service.resend2fa(identifier);
   }
 
   @UseGuards(AuthGuard('jwt'))

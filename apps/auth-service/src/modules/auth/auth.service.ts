@@ -5,10 +5,13 @@ import * as speakeasy from 'speakeasy';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
+import { encryptSecret, decryptSecret } from '@isp/prisma';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private otpAttempts = new Map<string, { count: number; lockedUntil?: number }>();
+  private otpResendAt = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -31,29 +34,50 @@ export class AuthService {
     });
   }
 
+  // Dummy hash for timing leak mitigation when user not found (constant-time compare)
+  private static readonly DUMMY_HASH = '$2a$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
   async login(email: string, password: string, ip?: string, userAgent?: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user) {
+      await bcrypt.compare(password, AuthService.DUMMY_HASH).catch(() => {});
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
     if (user.twoFaEnabled) {
       const maskedEmail = await this.sendTwoFaOtp(user);
-      return { twoFaRequired: true, userId: user.id, method: 'email', email: maskedEmail };
+      // Issue short-lived temp token binding the 2FA step to this login attempt (5 min)
+      const tempToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa-temp' },
+        { secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })(), expiresIn: '5m' },
+      );
+      return { twoFaRequired: true, userId: user.id, tempToken, method: 'email', email: maskedEmail };
     }
 
     this.mail.sendLoginAlert(email, ip, userAgent).catch(() => {});
     return this.issueTokens(user.id);
   }
 
-  /** 6-digit email OTP, hashed at rest, valid for 10 minutes. */
+  /** 6-digit email OTP, hashed at rest, valid for 5 minutes. */
   private async sendTwoFaOtp(user: { id: string; email: string }): Promise<string> {
+    // 60s cooldown per user to prevent email bombing
+    const last = this.otpResendAt.get(user.id);
+    if (last && Date.now() - last < 60_000) {
+      throw new BadRequestException('Please wait 60 seconds before requesting another code');
+    }
+    this.otpResendAt.set(user.id, Date.now());
+    // Reset attempt counter on new OTP
+    this.otpAttempts.delete(user.id);
+
     const code = String(crypto.randomInt(100000, 1000000));
     const otpHash = crypto.createHash('sha256').update(code).digest('hex');
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { twoFaOtpHash: otpHash, twoFaOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) },
+      data: { twoFaOtpHash: otpHash, twoFaOtpExpiresAt: new Date(Date.now() + 5 * 60 * 1000) },
     });
     this.mail.enqueue(() => this.mail.send({
       to: user.email,
@@ -62,7 +86,7 @@ export class AuthService {
         <h2>Your login code</h2>
         <p>Use this code to finish signing in:</p>
         <p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>
-        <p>This code expires in 10 minutes. If you did not try to sign in, change your password immediately.</p>
+        <p>This code expires in 5 minutes. If you did not try to sign in, change your password immediately.</p>
       `,
     }));
     return this.maskEmail(user.email);
@@ -75,29 +99,82 @@ export class AuthService {
     return `${visible}${'*'.repeat(Math.max(1, name.length - visible.length))}@${domain}`;
   }
 
-  async resend2fa(userId: string) {
+  private async resolveUserId(input: string): Promise<string> {
+    if (!input) throw new UnauthorizedException('Missing user identifier');
+    // If input looks like a JWT (contains dots), try to verify as temp token
+    if (input.includes('.') && input.split('.').length === 3) {
+      try {
+        const payload = await this.jwtService.verifyAsync<{ sub: string; purpose?: string }>(input, {
+          secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })(),
+        });
+        if (payload.purpose === '2fa-temp' && payload.sub) return payload.sub;
+      } catch {
+        // not a valid temp token, treat as plain userId
+      }
+    }
+    return input;
+  }
+
+  async resend2fa(userIdOrTemp: string) {
+    const userId = await this.resolveUserId(userIdOrTemp);
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!user.twoFaEnabled) throw new UnauthorizedException('2FA is not enabled');
     const maskedEmail = await this.sendTwoFaOtp(user);
-    return { twoFaRequired: true, userId: user.id, method: 'email', email: maskedEmail };
+    // Issue new temp token for the resent attempt as well
+    const tempToken = this.jwtService.sign(
+      { sub: user.id, purpose: '2fa-temp' },
+      { secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })(), expiresIn: '5m' },
+    );
+    return { twoFaRequired: true, userId: user.id, tempToken, method: 'email', email: maskedEmail };
   }
 
-  async verify2fa(userId: string, token: string, ip?: string, userAgent?: string) {
+  async verify2fa(userIdOrTemp: string, token: string, ip?: string, userAgent?: string) {
+    const userId = await this.resolveUserId(userIdOrTemp);
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const code = String(token ?? '').trim();
 
+    // Check lockout
+    const attempt = this.otpAttempts.get(userId);
+    if (attempt?.lockedUntil && attempt.lockedUntil > Date.now()) {
+      const secs = Math.ceil((attempt.lockedUntil - Date.now()) / 1000);
+      throw new BadRequestException(`Too many failed attempts. Try again in ${secs}s`);
+    }
+
     let verified = false;
-    // Email OTP (primary)
+    // Email OTP (primary) - use timingSafeEqual
     if (user.twoFaOtpHash && user.twoFaOtpExpiresAt && user.twoFaOtpExpiresAt > new Date()) {
       const hash = crypto.createHash('sha256').update(code).digest('hex');
-      verified = hash === user.twoFaOtpHash;
+      try {
+        const a = Buffer.from(hash, 'hex');
+        const b = Buffer.from(user.twoFaOtpHash, 'hex');
+        if (a.length === b.length) {
+          verified = crypto.timingSafeEqual(a, b);
+        }
+      } catch {
+        verified = false;
+      }
     }
     // TOTP fallback for accounts that still have an authenticator secret
     if (!verified && user.twoFaSecret) {
-      verified = speakeasy.totp.verify({ secret: user.twoFaSecret, encoding: 'base32', token: code, window: 1 });
+      const secret = decryptSecret(user.twoFaSecret) ?? user.twoFaSecret; // fallback for plaintext legacy
+      verified = speakeasy.totp.verify({ secret, encoding: 'base32', token: code, window: 1 });
     }
-    if (!verified) throw new UnauthorizedException('Invalid or expired 2FA code');
+    if (!verified) {
+      const cur = this.otpAttempts.get(userId) ?? { count: 0 };
+      cur.count += 1;
+      if (cur.count >= 5) {
+        cur.lockedUntil = Date.now() + 15 * 60 * 1000;
+        // Invalidate OTP after lock
+        await this.prisma.user.update({ where: { id: userId }, data: { twoFaOtpHash: null, twoFaOtpExpiresAt: null } }).catch(() => {});
+        this.otpAttempts.set(userId, cur);
+        throw new BadRequestException('Too many failed attempts. OTP invalidated. Request a new code.');
+      }
+      this.otpAttempts.set(userId, cur);
+      throw new UnauthorizedException('Invalid or expired 2FA code');
+    }
 
+    // Success - clear attempts and OTP
+    this.otpAttempts.delete(userId);
     await this.prisma.user.update({
       where: { id: userId },
       data: { twoFaOtpHash: null, twoFaOtpExpiresAt: null },
@@ -125,24 +202,26 @@ export class AuthService {
 
   async setup2fa(userId: string) {
     const secret = speakeasy.generateSecret({ name: `Hikonnect:${userId}` });
+    const encrypted = encryptSecret(secret.base32);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { twoFaSecret: secret.base32 },
+      data: { twoFaSecret: encrypted },
     });
     return { secret: secret.base32, otpauthUrl: secret.otpauth_url };
   }
 
   async verify2faSetup(userId: string, token: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    if (!user.twoFaSecret) throw new Error('2FA not initialized');
+    if (!user.twoFaSecret) throw new BadRequestException('2FA not initialized');
 
+    const secret = decryptSecret(user.twoFaSecret) ?? user.twoFaSecret;
     const verified = speakeasy.totp.verify({
-      secret: user.twoFaSecret,
+      secret,
       encoding: 'base32',
       token,
       window: 1,
     });
-    if (!verified) throw new Error('Invalid 2FA token');
+    if (!verified) throw new BadRequestException('Invalid 2FA token');
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -255,7 +334,8 @@ export class AuthService {
   }
 
   async forgotPassword(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) {
       return { message: 'If that email exists, a reset link has been sent.' };
     }
@@ -289,6 +369,9 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
+    if (!newPassword || String(newPassword).length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters');
+    }
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
     const stored = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash } });
@@ -308,6 +391,12 @@ export class AuthService {
         data: { passwordHash },
       }),
     ]);
+
+    // Revoke all existing refresh families so stolen sessions can't persist
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: stored.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
 
     return { message: 'Password updated successfully.' };
   }
