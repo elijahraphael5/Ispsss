@@ -33,7 +33,7 @@ describe('filterDeletedAt', () => {
 
 describe('model coverage', () => {
   it('registers soft-delete filtering for every model in the schema', () => {
-    expect(SOFT_DELETE_MODELS).toHaveLength(40);
+    expect(SOFT_DELETE_MODELS).toHaveLength(41);
     for (const model of ['tenant', 'permission', 'chatMessage', 'refreshToken', 'pppoeSession', 'auditLog']) {
       expect(SOFT_DELETE_MODELS).toContain(model);
     }
