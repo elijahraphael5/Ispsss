@@ -163,11 +163,13 @@ export class UsersService {
     }
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(data.password, 12);
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenant = await this.prisma.tenant.findFirst();
+    if (!tenant) throw new NotFoundException('Default tenant not found — seed the database');
+    const tenantId = tenant.id;
     let result;
     try {
       result = await this.prisma.user.create({
-        data: { email, name: data.name, passwordHash, phone, customRoleId: data.customRoleId },
+        data: { tenantId, email, name: data.name, passwordHash, phone, customRoleId: data.customRoleId },
         select: userSelect,
       });
     } catch (e: any) {
