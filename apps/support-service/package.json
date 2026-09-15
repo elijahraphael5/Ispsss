@@ -6,7 +6,7 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start:prod": "node dist/main",
-    "lint": "eslint \"src/**/*.ts\"",
+    "lint": "node ../../node_modules/eslint/bin/eslint.js --config ../../eslint.config.mjs \"src/**/*.ts\"",
     "test": "jest",
     "prisma:generate": "prisma generate"
   },

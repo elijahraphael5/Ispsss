@@ -13,7 +13,13 @@
   },
   "devDependencies": {
     "turbo": "^2.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.6.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "typescript-eslint": "^8.0.0"
   },
   "packageManager": "pnpm@9.0.0"
 }

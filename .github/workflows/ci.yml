@@ -4,10 +4,48 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: isp_user
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: isp_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U isp_user -d isp_platform"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://isp_user:change_me@localhost:5432/isp_platform?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-test-access-secret-32chars-long-for-ci
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-32chars-long-for-ci
+      CREDENTIALS_ENCRYPTION_KEY: 12345678901234567890123456789012
+      WEBHOOK_SERVICE_TOKEN: ci-webhook-token-for-tests
+
     steps:
       - uses: actions/checkout@v4
 
@@ -20,14 +58,28 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma schema
+        run: pnpm --filter api exec prisma validate
 
       - name: Generate Prisma client
         run: pnpm prisma:generate
 
       - name: Check Prisma schema drift
         run: node scripts/check-prisma-identical.mjs
+
+      - name: Lint
+        run: pnpm lint
 
       - name: Build backend apps
         run: |
