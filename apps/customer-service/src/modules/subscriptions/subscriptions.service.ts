@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { softDelete, softDeleteMany } from '@isp/prisma';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 
 @Injectable()
 export class SubscriptionsService {
@@ -193,16 +194,28 @@ export class SubscriptionsService {
     return this.prisma.plan.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
-  async createPlan(data: any) {
+  private pickPlanData(dto: CreatePlanDto | UpdatePlanDto): Record<string, unknown> {
+    const allowed = ['name','type','technology','category','level','speedMbps','speedLabel','targetUsers','dataCapGb','fairUsageGb','priceKobo','installationFeeKobo','contentionRatio','staticIp','sla','routerIncluded','contractDuration','description','features','isActive'] as const;
+    const out: Record<string, unknown> = {};
+    for (const k of allowed) {
+      const v = (dto as any)[k];
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+
+  async createPlan(data: CreatePlanDto) {
     const tenantId = (await this.prisma.tenant?.findFirst())?.id;
-    const plan = await this.prisma.plan.create({ data: { tenantId, ...data } });
-    await this.audit.log({ action: 'PLAN_CREATED', entityType: 'Plan', entityId: plan.id, metadata: { name: data.name, priceKobo: data.priceKobo } });
+    const safe = this.pickPlanData(data);
+    const plan = await this.prisma.plan.create({ data: { tenantId, ...safe } as any });
+    await this.audit.log({ action: 'PLAN_CREATED', entityType: 'Plan', entityId: plan.id, metadata: { name: (data as any).name, priceKobo: (data as any).priceKobo } });
     return plan;
   }
 
-  async updatePlan(id: string, data: any) {
-    const plan = await this.prisma.plan.update({ where: { id }, data });
-    await this.audit.log({ action: 'PLAN_UPDATED', entityType: 'Plan', entityId: id, metadata: data as any });
+  async updatePlan(id: string, data: UpdatePlanDto) {
+    const safe = this.pickPlanData(data);
+    const plan = await this.prisma.plan.update({ where: { id }, data: safe as any });
+    await this.audit.log({ action: 'PLAN_UPDATED', entityType: 'Plan', entityId: id, metadata: safe as any });
     return plan;
   }
 

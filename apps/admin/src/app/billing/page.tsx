@@ -270,8 +270,10 @@ async function fetchSubs() {
 
   const downloadPdf = async (id: string, invoiceNumber: string) => {
     try {
+      const raw = localStorage.getItem('accessToken') ?? '';
+      const hdr = raw.startsWith('Bearer ') ? raw : raw ? `Bearer ${raw}` : '';
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/billing/${id}/pdf`, {
-        headers: { Authorization: localStorage.getItem('accessToken') ?? '' },
+        headers: { Authorization: hdr },
       });
       if (!res.ok) throw new Error();
       const blob = await res.blob();

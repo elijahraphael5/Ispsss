@@ -262,15 +262,15 @@ export default function Dashboard() {
 
       <div className="grid-5">
         {[
-          { label: 'Total Connections', value: totalConnections || '—', color: '#2563EB', stale: !!staleDevice, icon: '<path d="M4 20h16M4 4h16v12H4z"/>' },
-          { label: 'Active Connections', value: activeConnections, color: '#16A34A', stale: !!staleDevice, icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
-          { label: 'Due Amount', value: stats ? formatNaira(stats.dueKobo) : '—', color: '#DC2626', stale: false, icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
-          { label: 'Fiber', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', color: '#F15925', stale: !!staleDevice, icon: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>' },
-          { label: 'Radio', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', color: '#8B5CF6', stale: false, icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>' },
+          { label: 'Total Connections', value: totalConnections || '—', color: '#2563EB', stale: !!staleDevice, icon: (<><path d="M4 20h16M4 4h16v12H4z"/></>) },
+          { label: 'Active Connections', value: activeConnections, color: '#16A34A', stale: !!staleDevice, icon: (<><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></>) },
+          { label: 'Due Amount', value: stats ? formatNaira(stats.dueKobo) : '—', color: '#DC2626', stale: false, icon: (<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>) },
+          { label: 'Fiber', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', color: '#F15925', stale: !!staleDevice, icon: (<><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></>) },
+          { label: 'Radio', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', color: '#8B5CF6', stale: false, icon: (<><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></>) },
         ].map((card) => (
           <div key={card.label} className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, background: `${card.color}14`, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: card.icon }} />
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{card.icon}</svg>
             </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{card.label}</div>

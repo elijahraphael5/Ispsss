@@ -6,13 +6,13 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@isp/shared';
 import { useInstallationGate } from './InstallationGate';
 
-const navItems = [
-  { label: 'Dashboard', href: '/', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>' },
-  { label: 'Subscription', href: '/subscription', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>' },
-  { label: 'Coverage', href: '/coverage', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' },
-  { label: 'Billing & Payments', href: '/billing', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>' },
-  { label: 'Support', href: '/support', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' },
-  { label: 'Account', href: '/account', icon: '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
+const navItems: Array<{ label: string; href: string; icon: React.ReactNode }> = [
+  { label: 'Dashboard', href: '/', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> },
+  { label: 'Subscription', href: '/subscription', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> },
+  { label: 'Coverage', href: '/coverage', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> },
+  { label: 'Billing & Payments', href: '/billing', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> },
+  { label: 'Support', href: '/support', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+  { label: 'Account', href: '/account', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
 ];
 
 const authPaths = ['/login', '/login/2fa'];
@@ -70,8 +70,10 @@ export default function CustomerSidebar({ children }: { children: React.ReactNod
                         color: 'var(--text-light-muted)', opacity: 0.4, cursor: 'not-allowed',
                         fontWeight: 500, fontSize: '0.95rem', borderRadius: 20,
                       }}
-                      dangerouslySetInnerHTML={{ __html: item.icon + '<span>' + item.label + '</span>' }}
-                    />
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </span>
                   ) : (
                     <Link
                       href={item.href}
@@ -81,8 +83,10 @@ export default function CustomerSidebar({ children }: { children: React.ReactNod
                         textDecoration: 'none', fontWeight: active ? 600 : 500, fontSize: '0.95rem',
                         borderRadius: 20, backgroundColor: active ? '#fff' : 'transparent',
                       }}
-                      dangerouslySetInnerHTML={{ __html: item.icon + '<span>' + item.label + '</span>' }}
-                    />
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </Link>
                   )}
                 </li>
               );

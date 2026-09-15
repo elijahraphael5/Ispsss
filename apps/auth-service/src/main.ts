@@ -10,7 +10,7 @@ import { PrismaService } from './common/prisma/prisma.service';
 import { createLogger, withRequestId, assertProdEnv } from '@isp/logger';
 import { makeMetricsMiddleware, recordHttpRequest } from '@isp/metrics';
 import { HealthService, makeLivenessHandler, makeReadinessHandler } from '@isp/health';
-import { SlidingWindowRateLimiter, MemoryRateLimitStore, RateLimitRule, envLimit } from '@isp/rate-limit';
+import { SlidingWindowRateLimiter, MemoryRateLimitStore, RedisRateLimitStore, RateLimitRule, envLimit } from '@isp/rate-limit';
 import { CacheService, NoopCacheClient, RedisCacheClient } from '@isp/cache';
 import Redis from 'ioredis';
 
@@ -52,7 +52,8 @@ async function bootstrap() {
     redisUrl === 'none' ? new NoopCacheClient() : new RedisCacheClient(new Redis(redisUrl)),
   );
 
-  const limiter = new SlidingWindowRateLimiter(new MemoryRateLimitStore());
+  const _limiterRedis = redisUrl === 'none' ? null : new Redis(redisUrl);
+  const limiter = new SlidingWindowRateLimiter(_limiterRedis ? new RedisRateLimitStore(_limiterRedis as any) : new MemoryRateLimitStore());
   const tierFor = (req: Request): RateLimitRule => {
     const path = req.path;
     if (path === '/api/v1/auth/login' || path === '/api/v1/auth/2fa/verify' || path === '/api/v1/auth/2fa/resend') {

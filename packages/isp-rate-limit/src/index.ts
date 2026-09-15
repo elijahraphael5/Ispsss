@@ -71,6 +71,38 @@ export class RedisRateLimitStore implements RateLimitStore {
     for (let i = 0; i < raw.length; i += 2) out.push({ value: raw[i], score: Number(raw[i + 1]) });
     return out;
   }
+
+  /**
+   * Atomic Lua: zremrangebyscore + zcard + zadd + pexpire in one round trip.
+   * Returns { allowed, count, oldestScore }
+   */
+  async evalConsume(key: string, nowMs: number, windowStart: number, limit: number, windowMs: number): Promise<{ allowed: boolean; count: number; oldest: number | null }> {
+    const lua = `
+      local k = KEYS[1]
+      local nowMs = tonumber(ARGV[1])
+      local windowStart = tonumber(ARGV[2])
+      local limit = tonumber(ARGV[3])
+      local windowMs = tonumber(ARGV[4])
+      local member = ARGV[5]
+      redis.call('ZREMRANGEBYSCORE', k, 0, windowStart)
+      local count = redis.call('ZCARD', k)
+      if count >= limit then
+        local oldest = redis.call('ZRANGE', k, 0, 0, 'WITHSCORES')
+        local oldestScore = oldest[2]
+        redis.call('PEXPIRE', k, windowMs)
+        return {0, count, oldestScore or 0}
+      end
+      redis.call('ZADD', k, nowMs, member)
+      redis.call('PEXPIRE', k, windowMs)
+      return {1, count, 0}
+    `;
+    const member = `${nowMs}:${Math.random().toString(36).slice(2, 8)}`;
+    const res: any = await (this.redis as any).eval(lua, 1, this.key(key), String(nowMs), String(windowStart), String(limit), String(windowMs), member);
+    const allowed = Number(res[0]) === 1;
+    const count = Number(res[1]);
+    const oldest = res[2] ? Number(res[2]) : null;
+    return { allowed, count, oldest };
+  }
 }
 
 export interface ConsumeResult {
@@ -99,6 +131,18 @@ export class SlidingWindowRateLimiter {
   async consume(key: string, rule: RateLimitRule): Promise<ConsumeResult> {
     const nowMs = this.now();
     const windowStart = nowMs - rule.windowMs;
+
+    // Use atomic Lua when available (Redis) to avoid race across replicas
+    const redisStore: any = this.store as any;
+    if (typeof redisStore.evalConsume === 'function') {
+      const r = await redisStore.evalConsume(key, nowMs, windowStart, rule.limit, rule.windowMs);
+      if (!r.allowed) {
+        const oldestTs = r.oldest ?? nowMs;
+        const retryAfterMs = Math.max(0, oldestTs + rule.windowMs - nowMs);
+        return { allowed: false, retryAfterMs, remaining: 0 };
+      }
+      return { allowed: true, retryAfterMs: 0, remaining: rule.limit - r.count - 1 };
+    }
 
     await this.store.zremrangebyscore(key, 0, windowStart);
     const count = await this.store.zcard(key);

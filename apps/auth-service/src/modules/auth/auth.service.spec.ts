@@ -100,7 +100,7 @@ describe('AuthService', () => {
       prisma.user.findUnique.mockResolvedValue(user);
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
       const result = (await service.login('a@b.co', 'pass123', '1.2.3.4', 'UA')) as { accessToken: string; refreshToken: string };
-      expect(result.accessToken).toBe('Bearer signed.jwt.token');
+      expect(result.accessToken).toBe('signed.jwt.token');
       expect(result.refreshToken).toEqual(expect.any(String));
       expect(mail.sendLoginAlert).toHaveBeenCalledWith('a@b.co', '1.2.3.4', 'UA');
       expect(prisma.refreshToken.create).toHaveBeenCalledWith({
@@ -128,7 +128,7 @@ describe('AuthService', () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue({ id: 'u1', email: 'a@b.co', twoFaSecret: secret });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
       const result = await service.verify2fa('u1', token);
-      expect(result.accessToken).toBe('Bearer signed.jwt.token');
+      expect(result.accessToken).toBe('signed.jwt.token');
     });
 
     it('login with 2FA enabled emails a 6-digit code and returns a masked email', async () => {
@@ -157,7 +157,7 @@ describe('AuthService', () => {
       prisma.user.update.mockResolvedValue({});
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
       const result = await service.verify2fa('u1', code);
-      expect(result.accessToken).toBe('Bearer signed.jwt.token');
+      expect(result.accessToken).toBe('signed.jwt.token');
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
         data: { twoFaOtpHash: null, twoFaOtpExpiresAt: null },

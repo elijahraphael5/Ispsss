@@ -7,6 +7,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SubscriptionsService } from './subscriptions.service';
 import { MailService, WelcomeData } from '../mail/mail.service';
+import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 
 @ApiTags('subscriptions')
 @Controller('subscriptions')
@@ -31,7 +32,7 @@ export class SubscriptionsController {
 
   @Post('plans')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  createPlan(@Body() body: any) {
+  createPlan(@Body() body: CreatePlanDto) {
     return this.service.createPlan(body);
   }
 
@@ -44,7 +45,7 @@ export class SubscriptionsController {
 
   @Patch('plans/:id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  updatePlan(@Param('id') id: string, @Body() body: any) {
+  updatePlan(@Param('id') id: string, @Body() body: UpdatePlanDto) {
     return this.service.updatePlan(id, body);
   }
 

@@ -9,7 +9,8 @@ import { PrismaService } from './common/prisma/prisma.service';
 import { createLogger, withRequestId, assertProdEnv } from '@isp/logger';
 import { makeMetricsMiddleware, recordHttpRequest } from '@isp/metrics';
 import { HealthService, makeLivenessHandler, makeReadinessHandler } from '@isp/health';
-import { SlidingWindowRateLimiter, MemoryRateLimitStore, RateLimitRule, envLimit } from '@isp/rate-limit';
+import Redis from 'ioredis';
+import { SlidingWindowRateLimiter, MemoryRateLimitStore, RedisRateLimitStore, RateLimitRule, envLimit } from '@isp/rate-limit';
 
 async function bootstrap() {
   if (process.env.TRUST_PROXY === 'true') { /* will set after app creation */ }
@@ -49,7 +50,8 @@ async function bootstrap() {
   ]);
   const redisUrl = process.env.REDIS_URL ?? 'none';
 
-  const limiter = new SlidingWindowRateLimiter(new MemoryRateLimitStore());
+  const _limiterRedis = redisUrl === 'none' ? null : new Redis(redisUrl);
+  const limiter = new SlidingWindowRateLimiter(_limiterRedis ? new RedisRateLimitStore(_limiterRedis as any) : new MemoryRateLimitStore());
   const tierFor = (req: Request): RateLimitRule => {
     if (req.method !== 'GET') return { limit: envLimit('RATE_LIMIT_MUTATION_PER_MIN', 60), windowMs: 60_000 };
     return { limit: envLimit('RATE_LIMIT_READ_PER_MIN', 300), windowMs: 60_000 };

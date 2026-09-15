@@ -6,6 +6,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RouterOsService } from './routeros.service';
 import { RouterSnapshotService } from './router-snapshot.service';
 import { ActionQueueService } from './action-queue.service';
+import { UpdatePppSecretDto } from './dto/routeros.dto';
 
 @ApiTags('routeros')
 @Controller('routeros')
@@ -167,10 +168,10 @@ export class RouterOsController {
 
   @Patch('devices/:deviceId/subscribers/:secretId')
   @Roles('NOC_ENGINEER', 'SUPER_ADMIN', 'SALES_AGENT')
-  updatePppSecret(@Param('deviceId') deviceId: string, @Param('secretId') secretId: string, @Body() body: any) {
+  updatePppSecret(@Param('deviceId') deviceId: string, @Param('secretId') secretId: string, @Body() body: UpdatePppSecretDto) {
     if (body.disabled === 'yes') return this.actionQueue.suspend(deviceId, secretId);
     if (body.profile) return this.actionQueue.planChange(deviceId, secretId, body.profile);
-    return this.service.updatePppSecret(deviceId, secretId, body);
+    return this.service.updatePppSecret(deviceId, secretId, body as any);
   }
 
   @Delete('devices/:deviceId/subscribers/:secretId')

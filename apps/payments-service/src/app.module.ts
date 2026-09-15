@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { JwtAuthModule } from './common/auth/jwt-auth.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -14,7 +13,6 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     PrismaModule,
     JwtAuthModule,
     ConfigModule.forRoot({ isGlobal: true, envFilePath: require('path').resolve(__dirname, '../.env') }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     AuditLogsModule,
     NotificationsModule,
     MailModule,

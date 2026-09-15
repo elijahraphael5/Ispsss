@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -33,9 +32,6 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
     JwtAuthModule,
     ...(redisUrl === 'none' ? [] : [BullModule.forRoot({ connection: { url: redisUrl } })]),
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([
-      { ttl: Number(process.env.THROTTLE_TTL_MS ?? 60000), limit: Number(process.env.THROTTLE_LIMIT ?? 100) },
-    ]),
     UsersModule,
     NetworkModule,
     RouterOsModule,

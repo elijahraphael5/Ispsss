@@ -36,6 +36,11 @@ function getAccessToken(): string | null {
   return localStorage.getItem('accessToken');
 }
 
+function authHeader(token: string | null): string | null {
+  if (!token) return null;
+  return token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+}
+
 async function errorMessage(res: Response): Promise<string> {
   let text: string;
   try { text = await res.text(); } catch { return res.statusText; }
@@ -56,15 +61,17 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
 
   if (!skipAuth) {
     const token = getAccessToken();
-    if (token) headers['Authorization'] = token;
+    const h = authHeader(token);
+    if (h) headers['Authorization'] = h;
   }
 
   const res = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers, credentials: 'include' });
 
   if (res.status === 401 && !skipAuth) {
     const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = newToken;
+    const newHeader = authHeader(newToken);
+    if (newHeader) {
+      headers['Authorization'] = newHeader;
       const retryRes = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers, credentials: 'include' });
       if (!retryRes.ok) throw new ApiError(retryRes.status, await errorMessage(retryRes));
       return retryRes.json();
@@ -87,7 +94,8 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   form.append('file', file);
   const send = (token: string | null) => {
     const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = token;
+    const h = authHeader(token);
+    if (h) headers['Authorization'] = h;
     return fetch(`${API_BASE}${path}`, { method: 'POST', body: form, headers, credentials: 'include' });
   };
 
@@ -113,7 +121,8 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
 export async function apiFileUrl(uploadId: string): Promise<string> {
   const send = (token: string | null) => {
     const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = token;
+    const h = authHeader(token);
+    if (h) headers['Authorization'] = h;
     return fetch(`${API_BASE}/chat/attachments/${uploadId}`, { headers, credentials: 'include' });
   };
 

@@ -264,7 +264,7 @@ export class AuthService {
       },
     });
 
-    return { accessToken: `Bearer ${accessToken}`, refreshToken: raw };
+    return { accessToken, refreshToken: raw };
   }
 
   /** Sliding idle window: how long a session may stay untouched before it dies. */
