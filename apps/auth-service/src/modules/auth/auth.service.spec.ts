@@ -11,6 +11,7 @@ describe('AuthService', () => {
   const prisma = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -78,17 +79,17 @@ describe('AuthService', () => {
     });
 
     it('rejects unknown email', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
       await expect(service.login('x@y.z', 'pass123')).rejects.toThrow(UnauthorizedException);
     });
 
     it('rejects wrong password', async () => {
-      prisma.user.findUnique.mockResolvedValue(user);
+      prisma.user.findFirst.mockResolvedValue(user);
       await expect(service.login('a@b.co', 'wrong')).rejects.toThrow(UnauthorizedException);
     });
 
     it('requests 2FA when enabled and does not issue tokens', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...user, twoFaEnabled: true });
+      prisma.user.findFirst.mockResolvedValue({ ...user, twoFaEnabled: true });
       const result = await service.login('a@b.co', 'pass123');
       expect(result).toEqual(expect.objectContaining({ twoFaRequired: true, userId: 'u1', method: 'email' }));
       // Temp 2FA token is issued (purpose 2fa-temp, 5m), but no refresh/access token family
@@ -97,7 +98,7 @@ describe('AuthService', () => {
     });
 
     it('issues tokens and dispatches login alert on success', async () => {
-      prisma.user.findUnique.mockResolvedValue(user);
+      prisma.user.findFirst.mockResolvedValue(user);
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
       const result = (await service.login('a@b.co', 'pass123', '1.2.3.4', 'UA')) as { accessToken: string; refreshToken: string };
       expect(result.accessToken).toBe('signed.jwt.token');
@@ -132,7 +133,7 @@ describe('AuthService', () => {
     });
 
     it('login with 2FA enabled emails a 6-digit code and returns a masked email', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1', email: 'customer@x.co', passwordHash: bcrypt.hashSync('pass123', 4), twoFaEnabled: true });
+      prisma.user.findFirst.mockResolvedValue({ id: 'u1', email: 'customer@x.co', passwordHash: bcrypt.hashSync('pass123', 4), twoFaEnabled: true });
       prisma.user.update.mockResolvedValue({});
       const res: any = await service.login('customer@x.co', 'pass123');
       expect(res.twoFaRequired).toBe(true);
@@ -282,13 +283,13 @@ describe('AuthService', () => {
 
   describe('password reset', () => {
     it('forgotPassword answers generically to avoid enumeration', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
       const res = await service.forgotPassword('ghost@x.co');
       expect(res.message).toContain('If that email exists');
     });
 
     it('forgotPassword stores a hashed token and emails a reset link', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1', email: 'a@b.co' });
+      prisma.user.findFirst.mockResolvedValue({ id: 'u1', email: 'a@b.co' });
       prisma.passwordResetToken.create.mockResolvedValue({ id: 'prt1' });
       await service.forgotPassword('a@b.co');
       expect(prisma.passwordResetToken.create).toHaveBeenCalledWith({

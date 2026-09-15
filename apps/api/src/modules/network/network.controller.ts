@@ -26,8 +26,8 @@ export class NetworkController {
 
   @Get('devices')
   @Roles(...NETWORK_READ_ROLES)
-  findAllDevices() {
-    return this.service.findAllDevices();
+  findAllDevices(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.findAllDevices({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('devices/:id')
@@ -80,8 +80,8 @@ export class NetworkController {
 
   @Get()
   @Roles(...NETWORK_READ_ROLES)
-  findAll() {
-    return this.service.findAllDevices();
+  findAll(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.findAllDevices({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get(':id')

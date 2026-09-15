@@ -19,8 +19,8 @@ describe('SupportService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
-    chatMessage: { create: jest.fn(), count: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
-    ticket: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), count: jest.fn() },
+    chatMessage: { create: jest.fn(), count: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn(), groupBy: jest.fn().mockResolvedValue([]) },
+    ticket: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), count: jest.fn(), groupBy: jest.fn().mockResolvedValue([]) },
     ticketComment: { create: jest.fn(), findUnique: jest.fn() },
     cannedResponse: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     agentPresence: { upsert: jest.fn() },
@@ -325,10 +325,10 @@ describe('SupportService', () => {
       prisma.user.findMany.mockResolvedValue([{ id: 'a1', email: 'one@x.co', customRole: { name: 'SUPPORT_AGENT' }, agentPresence: { status: 'ONLINE', lastSeenAt: new Date() } }]);
       const now = Date.now();
       prisma.chatSession.findMany.mockResolvedValue([
-        { id: 'c1', status: 'CLOSED', createdAt: new Date(now - 600000), firstResponseAt: new Date(now - 580000), closedAt: new Date(now - 300000), csat: 5 },
-        { id: 'c2', status: 'ACTIVE', createdAt: new Date(now - 100000), firstResponseAt: null, closedAt: null, csat: null },
+        { id: 'c1', status: 'CLOSED', createdAt: new Date(now - 600000), firstResponseAt: new Date(now - 580000), closedAt: new Date(now - 300000), csat: 5, agentId: 'a1' },
+        { id: 'c2', status: 'ACTIVE', createdAt: new Date(now - 100000), firstResponseAt: null, closedAt: null, csat: null, agentId: 'a1' },
       ]);
-      prisma.ticket.count.mockResolvedValue(2);
+      prisma.ticket.groupBy.mockResolvedValue([{ assignedAgentId: 'a1', _count: { id: 2 } }]);
       const report = await service.performance('today');
       expect(report.agents).toHaveLength(1);
       const row = report.agents[0];
@@ -359,7 +359,7 @@ describe('SupportService', () => {
       expect(where.OR).toEqual(expect.any(Array));
       expect(where.createdAt.gte).toEqual(new Date('2026-01-01'));
       expect(where.createdAt.lte).toEqual(new Date('2026-08-01'));
-      expect(call[0].take).toBe(200);
+      expect(call[0].take).toBe(50);
     });
   });
 });

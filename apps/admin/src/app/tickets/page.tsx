@@ -4,6 +4,42 @@ import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'reac
 import { io, Socket } from 'socket.io-client';
 import { api, apiUpload, apiFileUrl, useAuthStore, timeAgo, formatNaira } from '@isp/shared';
 import { useToast, ToastContainer } from '../../components/Toast';
+import {
+  MessageCircle,
+  MessagesSquare,
+  MessageSquare,
+  Ticket as TicketIconLucide,
+  Zap,
+  BarChart3,
+  Clock,
+  User,
+  UserCheck,
+  CheckCircle,
+  CheckCircle2,
+  Check,
+  CheckCheck,
+  Inbox,
+  Search,
+  X,
+  Send,
+  Paperclip,
+  Package,
+  HardDrive,
+  Receipt,
+  FileText,
+  Star as StarLucide,
+  Mail,
+  Phone,
+  MapPin,
+  ChevronDown,
+  ChevronLeft,
+  ArrowRight,
+  Sparkles,
+  Users,
+  Activity,
+  ShieldCheck,
+  Plus,
+} from 'lucide-react';
 
 // ─────────────────────────── types ───────────────────────────
 
@@ -204,16 +240,16 @@ function Pill({ status, map }: { status: string; map: Record<string, { bg: strin
 }
 
 function Star({ filled }: { filled: boolean }) {
-  return <span style={{ color: filled ? '#F59E0B' : '#d1d5db', fontSize: '1.1rem' }}>★</span>;
+  return <StarLucide size={16} strokeWidth={filled ? 2 : 1.8} fill={filled ? '#F59E0B' : 'none'} color={filled ? '#F59E0B' : '#D1D5DB'} style={{ flexShrink: 0 }} />;
 }
 
 function TickIcon({ status }: { status: string }) {
-  const color = status === 'READ' ? '#3b82f6' : '#94a3b8';
-  return <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: 4, verticalAlign: 'middle' }}><path d="M2 7.5l2.5 3 4-5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M7 7.5l2.5 3 4-5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  const color = status === 'READ' ? '#3B82F6' : '#94A3B8';
+  return <CheckCheck size={14} strokeWidth={2} color={color} style={{ marginLeft: 4, flexShrink: 0, verticalAlign: 'middle' }} />;
 }
 
 function PaperclipIcon() {
-  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>;
+  return <Paperclip size={13} strokeWidth={2} style={{ flexShrink: 0 }} />;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -268,10 +304,10 @@ export default function SupportHub() {
   }, [tabMenuOpen]);
 
   const HUB_TABS: { key: HubTab; label: string; desc: string; icon: React.ReactNode }[] = [
-    { key: 'chat', label: 'Live Chat', desc: 'Real-time customer conversations', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-    { key: 'tickets', label: 'Tickets', desc: 'Track and resolve support tickets', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> },
-    { key: 'canned', label: 'Canned Replies', desc: 'Saved response templates', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> },
-    { key: 'analytics', label: 'Performance', desc: 'Agent and SLA statistics', icon: <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+    { key: 'chat', label: 'Live Chat', desc: 'Real-time customer conversations', icon: <MessageCircle size={16} strokeWidth={2} /> },
+    { key: 'tickets', label: 'Tickets', desc: 'Track and resolve support tickets', icon: <TicketIconLucide size={16} strokeWidth={2} /> },
+    { key: 'canned', label: 'Canned Replies', desc: 'Saved response templates', icon: <Zap size={16} strokeWidth={2} /> },
+    { key: 'analytics', label: 'Performance', desc: 'Agent and SLA statistics', icon: <BarChart3 size={16} strokeWidth={2} /> },
   ];
   const activeTab = HUB_TABS.find(t => t.key === tab) ?? HUB_TABS[0];
 
@@ -286,10 +322,7 @@ export default function SupportHub() {
         <button className="hub-tab-btn" onClick={() => setTabMenuOpen(o => !o)} aria-expanded={tabMenuOpen}>
           <span style={{ color: 'var(--primary)', display: 'flex' }}>{activeTab.icon}</span>
           {activeTab.label}
-          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-            style={{ transition: 'transform 0.2s', transform: tabMenuOpen ? 'rotate(180deg)' : 'none', color: 'var(--text-muted)' }}>
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
+          <ChevronDown size={14} strokeWidth={2} style={{ transition: 'transform 0.2s', transform: tabMenuOpen ? 'rotate(180deg)' : 'none', color: 'var(--text-muted)' }} />
         </button>
 
         {tabMenuOpen && (
@@ -303,7 +336,7 @@ export default function SupportHub() {
                   <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 1 }}>{t.desc}</span>
                 </span>
                 {tab === t.key && (
-                  <svg width="15" height="15" fill="none" stroke="var(--primary)" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginLeft: 'auto', flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+                  <Check size={15} strokeWidth={2.5} color="var(--primary)" style={{ marginLeft: 'auto', flexShrink: 0 }} />
                 )}
               </button>
             ))}
@@ -320,6 +353,7 @@ export default function SupportHub() {
 }
 
 // ─────────────────────────── LIVE CHAT ───────────────────────────
+
 
 function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgentsOnline, socket, setSocket, toast, toasts, setToasts }: {
   user: any;
@@ -349,6 +383,7 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
   const endRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const [listSearch, setListSearch] = useState('');
 
   function showPane(index: number) {
     const board = boardRef.current;
@@ -493,274 +528,538 @@ function ChatTab({ user, accessToken, agents, setAgents, agentsOnline, setAgents
 
   const waitingCount = rows.filter(r => r.status === 'WAITING' && !r.agentId).length;
   const mineCount = rows.filter(r => r.agentId === user?.id).length;
+  const closedCount = rows.filter(r => r.status === 'CLOSED').length;
+  const filteredRows = rows.filter(r => {
+    if (!listSearch.trim()) return true;
+    const q = listSearch.toLowerCase();
+    return (r.customerName ?? '').toLowerCase().includes(q) || r.customerEmail.toLowerCase().includes(q) || (r.lastMessage?.body ?? '').toLowerCase().includes(q);
+  });
+
+  const scopeTabs: { key: 'queue' | 'assigned' | 'closed'; label: string; count: number; icon: React.ReactNode; desc: string }[] = [
+    { key: 'queue', label: 'Queue', count: waitingCount, desc: 'Waiting', icon: <Clock size={14} strokeWidth={2} /> },
+    { key: 'assigned', label: 'Mine', count: mineCount, desc: 'Assigned to you', icon: <UserCheck size={14} strokeWidth={2} /> },
+    { key: 'closed', label: 'Closed', count: closedCount, desc: 'Resolved', icon: <CheckCircle size={14} strokeWidth={2} /> },
+  ];
 
   return (
-    <div className="tickets-board" ref={boardRef}>
-      {/* session list */}
-      <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div className="badge-tabs" style={{ flex: '1 1 auto', minWidth: 0, padding: 3, gap: 2 }}>
-            {(['queue', 'assigned', 'closed'] as const).map(s => (
-              <button key={s} onClick={() => setScope(s)}
-                className={`tab-item${scope === s ? ' active' : ''}`}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600, whiteSpace: 'nowrap', padding: '4px 10px', fontSize: '0.72rem' }}>
-                {s === 'queue' ? `Queue (${waitingCount})` : s === 'assigned' ? `Mine (${mineCount})` : 'Closed'}
-              </button>
-            ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* sweet header bar */}
+      <div className="data-card live-gradient-header" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', border: '1px solid #FFE7D6' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 220px', minWidth: 0 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 14, background: 'linear-gradient(135deg,#F15925 0%, #FF8A4C 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: '0 6px 16px rgba(241,89,37,0.3)', flexShrink: 0 }}>
+            <MessagesSquare size={20} strokeWidth={2} />
           </div>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: agentsOnline > 0 ? '#16A34A' : '#94A3B8' }} />
-            {agentsOnline} online
-          </span>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {loading ? (
-            <p style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading…</p>
-          ) : rows.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 32, color: 'var(--text-muted)' }}>
-              <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <span style={{ fontSize: '0.82rem' }}>No {scope} sessions</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-dark)', letterSpacing: '-0.2px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              Live Chat HQ
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #FFE7D6', borderRadius: 20, padding: '3px 9px', fontSize: '0.68rem', fontWeight: 700, color: agentsOnline > 0 ? '#16A34A' : '#94A3B8' }}>
+                <span className={agentsOnline > 0 ? 'live-dot-pulse' : ''} style={{ width: 7, height: 7, borderRadius: '50%', background: agentsOnline > 0 ? '#16A34A' : '#94A3B8', display: 'inline-block' }} />
+                {agentsOnline} online
+              </span>
             </div>
-          ) : rows.map(r => {
-            const displayName = r.customerName || r.customerEmail.split('@')[0];
-            const active = session?.id === r.id;
-            return (
-              <div key={r.id} onClick={() => openSession(r)}
-                style={{ display: 'flex', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', background: active ? 'var(--primary-light)' : 'transparent', alignItems: 'center' }}>
-                <Avatar name={displayName} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', flexShrink: 0 }}>{timeAgo(r.updatedAt)}</span>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {r.lastMessage ? `${r.lastMessage.senderType === 'AGENT' ? 'You: ' : ''}${r.lastMessage.body}` : '(no messages)'}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: chatStatusColors[r.status] ?? '#94A3B8', flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>{r.status}</span>
-                    {r.agentId && r.agentId !== user?.id && (
-                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {agents.find(a => a.id === r.agentId)?.name ?? 'other'}</span>
-                    )}
-                    {r.unreadCount > 0 && (
-                      <span style={{ marginLeft: 'auto', background: '#DC2626', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: '0.66rem', fontWeight: 700 }}>{r.unreadCount}</span>
-                    )}
-                  </div>
-                </div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 1, fontWeight: 500 }}>Delight customers in seconds — fast, warm, human.</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {[
+            { label: 'Queue', value: waitingCount, bg: '#FFF7ED', color: '#C2410C', Icon: Clock },
+            { label: 'Mine', value: mineCount, bg: '#EFF6FF', color: '#1D4ED8', Icon: UserCheck },
+            { label: 'Closed', value: closedCount, bg: '#F0FDF4', color: '#15803D', Icon: CheckCircle2 },
+          ].map(card => (
+            <div key={card.label} style={{ background: card.bg, border: '1px solid rgba(0,0,0,0.04)', borderRadius: 16, padding: '10px 14px', minWidth: 86, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 10, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', color: card.color }}><card.Icon size={16} strokeWidth={2} /></div>
+              <div>
+                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{card.label}</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: card.color, lineHeight: 1 }}>{card.value}</div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* thread */}
-      <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {!session ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--text-muted)', padding: 24 }}>
-            <svg width="34" height="34" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Select a session</span>
-            <span style={{ fontSize: '0.78rem' }}>Pick a conversation from the list to start replying</span>
-          </div>
-        ) : (
-          <>
-            <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                <button className="chat-back-btn" onClick={() => showPane(0)} title="Back to sessions" aria-label="Back to sessions">
-                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <Avatar name={session.customerName || session.customerEmail.split('@')[0] || 'Customer'} size={34} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {session.customerName || session.customerEmail.split('@')[0] || 'Customer'}
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: chatStatusColors[session.status], flexShrink: 0 }} />
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.customerEmail} · started {timeAgo(session.createdAt)}</div>
-                </div>
+      <div className="tickets-board" ref={boardRef} style={{ gap: 16 }}>
+        {/* ── LEFT: inbox ── */}
+        <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 4px 20px rgba(15,23,42,0.06)' }}>
+          <div style={{ padding: '14px 14px 12px', borderBottom: '1px solid #F1F5F9', background: '#FFFFFF' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+              <div style={{ fontWeight: 800, fontSize: '0.88rem', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 28, height: 28, borderRadius: 9, background: '#FFF7ED', color: '#F15925', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Inbox size={15} strokeWidth={2} />
+                </span>
+                Inbox
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <select value={session.agentId ?? ''} onChange={e => e.target.value && transferTo(e.target.value)} style={{ ...inputStyle, width: 130, padding: '6px 10px', fontSize: '0.75rem' }}>
-                  <option value="">{session.agentId ? 'Assigned' : 'Unassigned'}</option>
-                  {transferTargets.map(a => <option key={a.id} value={a.id}>{a.name}{a.presence === 'ONLINE' ? ' ●' : ''}</option>)}
-                </select>
-                <button onClick={() => setConvertOpen(true)} className="btn-sm-outline">Convert to Ticket</button>
-                <button onClick={closeCurrent} className="btn-sm-outline" style={{ color: session.status === 'CLOSED' ? 'var(--text-muted)' : '#DC2626', borderColor: '#FECACA' }}>
-                  {session.status === 'CLOSED' ? 'Closed' : 'End Chat'}
-                </button>
-              </div>
+              <span style={{ fontSize: '0.66rem', fontWeight: 700, color: '#94A3B8', background: '#F8FAFC', border: '1px solid #F1F5F9', padding: '4px 8px', borderRadius: 20 }}>{filteredRows.length} chats</span>
             </div>
 
-            <div ref={endRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {session.messages.map(m => {
-                const mine = m.senderType === 'AGENT';
-                return (
-                  <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-                    <div style={{ maxWidth: '72%' }}>
-                      <div style={{
-                        padding: '9px 14px', borderRadius: 16, fontSize: '0.85rem', lineHeight: 1.45,
-                        background: mine ? 'var(--primary)' : '#F1F5F9', color: mine ? '#fff' : 'var(--text-dark)',
-                        borderBottomRightRadius: mine ? 4 : 16, borderBottomLeftRadius: mine ? 16 : 4,
-                      }}>
-                        {m.body}
-                        {m.attachments?.length > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: m.body ? 8 : 0 }}>
-                            {m.attachments.map(a => (
-                              <div key={a.id} onClick={() => openFile(a)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.75rem', background: 'rgba(255,255,255,0.18)', borderRadius: 8, padding: '5px 9px', textDecoration: 'underline' }}>
-                                <PaperclipIcon /> <span style={{ fontWeight: 600 }}>{a.fileName}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-                        {fmtTime(m.createdAt)}
-                        {mine && <TickIcon status={m.status} />}
-                      </div>
+            <div className="badge-tabs" style={{ display: 'flex', padding: 3, gap: 2, background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 20 }}>
+              {scopeTabs.map(t => (
+                <button key={t.key} onClick={() => setScope(t.key)}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '7px 8px', borderRadius: 16, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.72rem',
+                    background: scope === t.key ? '#FFFFFF' : 'transparent',
+                    color: scope === t.key ? (t.key === 'queue' ? '#C2410C' : t.key === 'assigned' ? '#1D4ED8' : '#15803D') : 'var(--text-muted)',
+                    boxShadow: scope === t.key ? '0 1px 6px rgba(15,23,42,0.08)' : 'none',
+                    transition: 'all 0.18s ease',
+                    whiteSpace: 'nowrap',
+                  }}>
+                  <span style={{ opacity: scope === t.key ? 1 : 0.7, display: 'flex' }}>{t.icon}</span>
+                  {t.label}
+                  <span style={{
+                    background: scope === t.key ? (t.key === 'queue' ? '#FFEDD5' : t.key === 'assigned' ? '#DBEAFE' : '#DCFCE7') : '#FFFFFF',
+                    color: scope === t.key ? (t.key === 'queue' ? '#9A3412' : t.key === 'assigned' ? '#1E40AF' : '#166534') : 'var(--text-muted)',
+                    borderRadius: 10, padding: '1px 6px', fontSize: '0.65rem', fontWeight: 800, border: '1px solid rgba(0,0,0,0.04)'
+                  }}>{t.count}</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 10, position: 'relative' }}>
+              <Search size={14} strokeWidth={2} color="#94A3B8" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                value={listSearch}
+                onChange={e => setListSearch(e.target.value)}
+                placeholder="Search by name, email, message…"
+                style={{ width: '100%', padding: '9px 12px 9px 32px', borderRadius: 12, border: '1px solid #E2E8F0', background: '#F8FAFC', fontSize: '0.78rem', outline: 'none', color: 'var(--text-dark)', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
+
+          <div className="live-scroll" style={{ flex: 1, overflowY: 'auto', background: '#FFFFFF' }}>
+            {loading ? (
+              <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[1,2,3].map(i => (
+                  <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(90deg,#F1F5F9 25%,#E2E8F0 50%,#F1F5F9 75%)', backgroundSize: '200% 100%', animation: 'shimmer-live 1.4s infinite' }} />
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ height: 10, borderRadius: 6, background: '#F1F5F9', width: '60%' }} />
+                      <div style={{ height: 8, borderRadius: 6, background: '#F8FAFC', width: '85%' }} />
                     </div>
                   </div>
-                );
-              })}
-              {typing && typing.sessionId === session.id && (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Typing…</div>
-              )}
-            </div>
-
-            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)' }}>
-              <textarea
-                value={composer}
-                onChange={e => {
-                  setComposer(e.target.value);
-                  if (socket?.connected) socket.emit('chat:typing', { sessionId: session.id, isTyping: e.target.value.length > 0 });
-                }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder="Type a message…"
-                rows={2}
-                style={{ ...inputStyle, resize: 'none', maxHeight: 90 }}
-              />
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                <button onClick={() => setCannedOpen(o => !o)} className="btn-sm-outline">Canned</button>
-                <button onClick={() => fileInputRef.current?.click()} className="btn-sm-outline" title="Attach a file">Attach</button>
-                <button onClick={sendMessage} disabled={!composer.trim() && pendingFiles.length === 0} className="btn-sm" style={{ marginLeft: 'auto', minWidth: 72 }}>Send</button>
+                ))}
+                <p style={{ textAlign: 'center', paddingTop: 8, color: 'var(--text-muted)', fontSize: '0.78rem' }}>Waking up your inbox…</p>
               </div>
-              {pendingFiles.length > 0 && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {pendingFiles.map(f => (
-                    <span key={f.id} style={{ background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: 12, padding: '3px 10px', fontSize: '0.72rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <PaperclipIcon /> {f.fileName}
-                      <button onClick={() => setPendingFiles(files => files.filter(x => x.id !== f.id))} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700, padding: 0 }}>×</button>
-                    </span>
-                  ))}
+            ) : filteredRows.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '28px 18px', textAlign: 'center' }}>
+                <div className="live-float" style={{ width: 72, height: 72, borderRadius: 22, background: 'linear-gradient(135deg,#FFF7ED 0%, #FFEDD5 100%)', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F15925' }}>
+                  <Inbox size={32} strokeWidth={1.6} />
                 </div>
-              )}
-              <input ref={fileInputRef} type="file" hidden onChange={attachFile} />
-              {cannedOpen && (
-                <div style={{ marginTop: 10, border: '1px solid var(--border-color)', borderRadius: 12, maxHeight: 180, overflowY: 'auto', background: '#FAFAFA' }}>
-                  <div style={{ padding: '8px 12px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Canned responses</div>
-                  {canned.length === 0 && <p style={{ padding: '8px 12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>None yet</p>}
-                  {canned.map(c => (
-                    <button key={c.id}
-                      onClick={() => { setComposer(prev => prev ? prev + ' ' : '' + c.body + '\n'); setCannedOpen(false); }}
-                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', borderTop: '1px solid var(--border-color)', fontSize: '0.82rem' }}>
-                      <strong>{c.title}</strong>
-                      <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: 2 }}>{c.body.slice(0, 90)}{c.body.length > 90 ? '…' : ''}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* context panel */}
-      <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        {!session ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', padding: 20 }}>Customer context appears here</p>
-        ) : (
-          <>
-            <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-color)' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Customer Context</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{session.customerEmail}</div>
-            </div>
-            {session.subscriber ? (
-              <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
-                  <div style={labelStyle}>Subscription</div>
-                  {session.subscriber.subscriptions[0] ? (
-                    <>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{session.subscriber.subscriptions[0].plan.name}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{session.subscriber.subscriptions[0].plan.speedMbps} Mbps · {fmtKobo(session.subscriber.subscriptions[0].plan.priceKobo)}/mo</div>
-                    </>
-                  ) : <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No active plan</div>}
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
-                    Status: <b style={{ color: session.subscriber.status === 'ACTIVE' ? '#16A34A' : '#DC2626' }}>{session.subscriber.status}</b>
+                  <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-dark)' }}>{scope === 'queue' ? 'All caught up! 🎉' : scope === 'assigned' ? 'Nothing assigned yet' : 'No closed chats'}</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>{scope === 'queue' ? 'No one is waiting. New chats will pop in instantly.' : scope === 'assigned' ? 'Chats assigned to you will appear here. Stay tuned!' : 'Closed conversations will live here for review.'}</div>
+                </div>
+                {listSearch && <div style={{ fontSize: '0.72rem', color: '#94A3B8', background: '#F8FAFC', padding: '6px 10px', borderRadius: 20, border: '1px solid #F1F5F9' }}>No match for “{listSearch}” • <button onClick={() => setListSearch('')} style={{ background: 'none', border: 'none', color: '#F15925', fontWeight: 700, cursor: 'pointer', fontSize: '0.72rem' }}>Clear</button></div>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                  <span style={{ fontSize: '0.66rem', fontWeight: 600, color: '#94A3B8', background: '#F8FAFC', border: '1px dashed #E2E8F0', padding: '5px 10px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} strokeWidth={2} /> Tip: Try “Closed” to see history</span>
+                </div>
+              </div>
+            ) : filteredRows.map(r => {
+              const displayName = r.customerName || r.customerEmail.split('@')[0];
+              const active = session?.id === r.id;
+              const isWaiting = r.status === 'WAITING';
+              return (
+                <div key={r.id} onClick={() => openSession(r)}
+                  className={`session-row ${active ? 'active' : ''}`}
+                  style={{ display: 'flex', gap: 12, padding: '13px 14px', borderBottom: '1px solid #F8FAFC', cursor: 'pointer', background: active ? undefined : '#fff', alignItems: 'flex-start' }}>
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <Avatar name={displayName} size={42} />
+                    <span style={{ position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: '50%', background: isWaiting ? '#F59E0B' : r.status === 'ACTIVE' ? '#16A34A' : '#94A3B8', border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.12)' }} />
                   </div>
-                  {session.subscriber.address && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>📍 {session.subscriber.address}</div>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.84rem', color: 'var(--text-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.1px' }}>{displayName}</span>
+                      <span style={{ fontSize: '0.64rem', color: active ? '#F15925' : 'var(--text-muted)', fontWeight: 700, flexShrink: 0, background: active ? '#FFF7ED' : '#F8FAFC', padding: '3px 7px', borderRadius: 10, border: '1px solid ' + (active ? '#FFE7D6' : '#F1F5F9') }}>{timeAgo(r.updatedAt)}</span>
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.customerEmail}</div>
+                    <div style={{ fontSize: '0.76rem', color: r.lastMessage ? '#334155' : '#94A3B8', marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 10, padding: '6px 9px', fontStyle: r.lastMessage ? 'normal' : 'italic' }}>
+                      {r.lastMessage ? `${r.lastMessage.senderType === 'AGENT' ? 'You: ' : ''}${r.lastMessage.body}` : '— no messages yet —'}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', padding: '3px 8px', borderRadius: 20, background: r.status === 'WAITING' ? '#FFFBEB' : r.status === 'ACTIVE' ? '#F0FDF4' : '#F8FAFC', color: r.status === 'WAITING' ? '#B45309' : r.status === 'ACTIVE' ? '#15803D' : '#64748B', border: '1px solid ' + (r.status === 'WAITING' ? '#FDE68A' : r.status === 'ACTIVE' ? '#BBF7D0' : '#E2E8F0') }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.status === 'WAITING' ? '#F59E0B' : r.status === 'ACTIVE' ? '#16A34A' : '#94A3B8' }} />
+                        {r.status}
+                      </span>
+                      {r.agentId && r.agentId !== user?.id && (
+                        <span style={{ fontSize: '0.66rem', color: '#64748B', background: '#F1F5F9', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>↗ {agents.find(a => a.id === r.agentId)?.name ?? 'other agent'}</span>
+                      )}
+                      {r.unreadCount > 0 && (
+                        <span style={{ marginLeft: 'auto', background: 'linear-gradient(135deg,#DC2626 0%, #EF4444 100%)', color: '#fff', borderRadius: 20, padding: '2px 8px', fontSize: '0.66rem', fontWeight: 800, boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}>{r.unreadCount} new</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
+              );
+            })}
+          </div>
+        </div>
 
-                <div>
-                  <div style={labelStyle}>Devices ({session.subscriber.devices.length})</div>
-                  {session.subscriber.devices.length === 0
-                    ? <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>None registered</div>
-                    : session.subscriber.devices.map(d => (
-                      <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border-color)', fontSize: '0.78rem' }}>
-                        <span style={{ fontWeight: 600 }}>{d.name || d.connectionType}</span>
-                        <span style={{ color: 'var(--text-muted)' }}>{d.ipAddress || d.macAddress || d.status}</span>
+        {/* ── CENTER: thread ── */}
+        <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 4px 20px rgba(15,23,42,0.06)', background: '#FFFFFF' }}>
+          {!session ? (
+            <div className="live-gradient-mesh" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '28px 24px', textAlign: 'center' }}>
+              <div className="live-float" style={{ width: 88, height: 88, borderRadius: 28, background: 'linear-gradient(135deg,#FFFFFF 0%, #FFF7ED 100%)', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 30px rgba(241,89,37,0.15)', color: '#F15925' }}>
+                <MessagesSquare size={38} strokeWidth={1.6} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '1.05rem', color: 'var(--text-dark)', letterSpacing: '-0.3px' }}>Select a conversation</div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 6, maxWidth: 360, lineHeight: 1.55 }}>Pick a chat from the left to start replying. You’ll see the full thread, customer context, and quick actions right here.</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10, width: '100%', maxWidth: 420, marginTop: 4 }}>
+                {[
+                  { Icon: Zap, title: 'Instant', desc: 'Real-time replies' },
+                  { Icon: MessageSquare, title: 'Canned', desc: 'One-click answers' },
+                  { Icon: Paperclip, title: 'Files', desc: 'Share & preview' },
+                ].map(f => (
+                  <div key={f.title} className="chat-quick-card" style={{ background: '#fff', border: '1px solid #F1F5F9', borderRadius: 16, padding: '12px 10px', boxShadow: '0 1px 6px rgba(15,23,42,0.04)', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 4 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: '#FFF7ED', color: '#F15925', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><f.Icon size={14} strokeWidth={2} /></div>
+                    <div style={{ fontWeight: 800, fontSize: '0.76rem', color: 'var(--text-dark)', marginTop: 4 }}>{f.title}</div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 1 }}>{f.desc}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <span style={{ fontSize: '0.72rem', color: '#94A3B8', fontWeight: 600 }}>Tip:</span>
+                <span style={{ fontSize: '0.72rem', color: '#64748B', background: '#fff', border: '1px solid #E2E8F0', padding: '6px 10px', borderRadius: 20 }}>Queue shows waiting customers • Mine shows your chats</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: '13px 16px', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'linear-gradient(180deg,#FFFFFF 0%, #FFFBF8 100%)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, flex: '1 1 200px' }}>
+                  <button className="chat-back-btn" onClick={() => showPane(0)} title="Back to sessions" aria-label="Back to sessions">
+                    <ChevronLeft size={16} strokeWidth={2} />
+                  </button>
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <Avatar name={session.customerName || session.customerEmail.split('@')[0] || 'Customer'} size={42} />
+                    <span style={{ position: 'absolute', right: -2, bottom: -2, width: 13, height: 13, borderRadius: '50%', background: session.status === 'CLOSED' ? '#94A3B8' : '#16A34A', border: '2px solid #fff', boxShadow: '0 1px 6px rgba(0,0,0,0.12)' }} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 900, fontSize: '0.95rem', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: 7, letterSpacing: '-0.2px' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.customerName || session.customerEmail.split('@')[0] || 'Customer'}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', padding: '2px 7px', borderRadius: 20, background: session.status === 'WAITING' ? '#FFFBEB' : session.status === 'ACTIVE' ? '#F0FDF4' : '#F1F5F9', color: session.status === 'WAITING' ? '#B45309' : session.status === 'ACTIVE' ? '#15803D' : '#64748B', border: '1px solid ' + (session.status === 'WAITING' ? '#FDE68A' : session.status === 'ACTIVE' ? '#BBF7D0' : '#E2E8F0') }}>{session.status}</span>
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{session.customerEmail} • started {timeAgo(session.createdAt)}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 20, padding: '4px 6px 4px 10px' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>Assign</span>
+                    <select value={session.agentId ?? ''} onChange={e => e.target.value && transferTo(e.target.value)} style={{ border: 'none', background: '#fff', borderRadius: 20, padding: '5px 8px', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-dark)', outline: 'none', cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                      <option value="">{session.agentId ? 'Assigned' : 'Unassigned'}</option>
+                      {transferTargets.map(a => <option key={a.id} value={a.id}>{a.name}{a.presence === 'ONLINE' ? ' ●' : ''}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => setConvertOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 20, border: '1px solid #E2E8F0', background: '#fff', fontSize: '0.72rem', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
+                    <TicketIconLucide size={13} strokeWidth={2} />
+                    Ticket
+                  </button>
+                  <button onClick={closeCurrent} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 20, border: '1px solid ' + (session.status === 'CLOSED' ? '#E2E8F0' : '#FECACA'), background: session.status === 'CLOSED' ? '#F8FAFC' : 'linear-gradient(135deg,#FFF1F2 0%, #FFE4E6 100%)', color: session.status === 'CLOSED' ? '#64748B' : '#BE123C', fontSize: '0.72rem', fontWeight: 800, cursor: 'pointer' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: session.status === 'CLOSED' ? '#94A3B8' : '#E11D48' }} />
+                    {session.status === 'CLOSED' ? 'Closed' : 'End Chat'}
+                  </button>
+                </div>
+              </div>
+
+              <div ref={endRef} className="live-scroll" style={{ flex: 1, overflowY: 'auto', padding: '18px 18px 10px', display: 'flex', flexDirection: 'column', gap: 10, background: 'linear-gradient(180deg,#F8FAFC 0%, #FFFFFF 100%)' }}>
+                {session.messages.length === 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 12px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                    <div style={{ width: 52, height: 52, borderRadius: 16, background: '#fff', border: '1px dashed #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8' }}>
+                      <MessageCircle size={22} strokeWidth={1.6} />
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-dark)' }}>No messages yet</div>
+                    <div style={{ fontSize: '0.76rem' }}>Say hello! 👋 Customers love a warm, quick opener.</div>
+                  </div>
+                )}
+                {session.messages.map(m => {
+                  const mine = m.senderType === 'AGENT';
+                  return (
+                    <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                      <div style={{ maxWidth: '76%', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 4 }}>
+                        {!mine && (
+                          <span style={{ fontSize: '0.64rem', fontWeight: 700, color: 'var(--text-muted)', marginLeft: 2 }}>{m.senderName ?? 'Customer'}</span>
+                        )}
+                        <div className={mine ? 'live-bubble-agent' : 'live-bubble-customer'} style={{
+                          padding: '10px 14px', borderRadius: 18, fontSize: '0.84rem', lineHeight: 1.5,
+                          color: mine ? '#fff' : '#1E293B',
+                          borderBottomRightRadius: mine ? 6 : 18, borderBottomLeftRadius: mine ? 18 : 6,
+                          maxWidth: '100%', wordBreak: 'break-word'
+                        }}>
+                          {m.body}
+                          {m.attachments?.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: m.body ? 8 : 0 }}>
+                              {m.attachments.map(a => (
+                                <div key={a.id} onClick={() => openFile(a)} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.74rem', background: mine ? 'rgba(255,255,255,0.18)' : '#F8FAFC', border: mine ? '1px solid rgba(255,255,255,0.18)' : '1px solid #E2E8F0', borderRadius: 10, padding: '6px 10px', textDecoration: 'none', fontWeight: 600, color: mine ? '#fff' : '#334155' }}>
+                                  <PaperclipIcon /> <span>{a.fileName}</span> <span style={{ marginLeft: 'auto', opacity: 0.7, fontSize: '0.68rem' }}>open ↗</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.64rem', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 4, padding: '0 4px', fontWeight: 600 }}>
+                          {fmtTime(m.createdAt)}
+                          {mine && <TickIcon status={m.status} />}
+                        </div>
                       </div>
-                    ))}
-                </div>
-
-                <div>
-                  <div style={labelStyle}>Recent invoices</div>
-                  {session.subscriber.invoices.length === 0
-                    ? <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>None</div>
-                    : session.subscriber.invoices.map(i => (
-                      <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border-color)', fontSize: '0.78rem' }}>
-                        <span>{i.invoiceNumber}</span>
-                        <span style={{ color: 'var(--text-muted)' }}>{fmtKobo(i.amountKobo)}</span>
-                      </div>
-                    ))}
-                </div>
-
-                <div>
-                  <div style={labelStyle}>Related Tickets</div>
-                  {session.tickets.length === 0
-                    ? <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>None</div>
-                    : session.tickets.map(t => (
-                      <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border-color)', fontSize: '0.78rem' }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{t.subject}</span>
-                        <Pill status={t.status} map={statusColors} />
-                      </div>
-                    ))}
-                </div>
-
-                {session.csat !== null && (
-                  <div>
-                    <div style={labelStyle}>Chat rating</div>
-                    <div>{[1, 2, 3, 4, 5].map(n => <Star key={n} filled={n <= session.csat!} />)}</div>
+                    </div>
+                  );
+                })}
+                {typing && typing.sessionId === session.id && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                    <div style={{ background: '#fff', border: '1px solid #F1F5F9', borderRadius: 18, borderBottomLeftRadius: 6, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 10px rgba(15,23,42,0.06)' }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#F59E0B', display: 'inline-block', animation: 'pulse-live 1s infinite' }} />
+                      <span style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600, fontStyle: 'italic' }}>Customer is typing…</span>
+                      <span style={{ display: 'inline-flex', gap: 3, marginLeft: 4 }}>
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1', display: 'inline-block', animation: 'float-gentle 1s infinite' }} />
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1', display: 'inline-block', animation: 'float-gentle 1s 0.15s infinite' }} />
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1', display: 'inline-block', animation: 'float-gentle 1s 0.3s infinite' }} />
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
-            ) : (
-              <p style={{ padding: '16px 18px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>No linked subscriber account</p>
-            )}
-          </>
-        )}
-      </div>
 
-      {/* convert-to-ticket modal */}
-      {convertOpen && session && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => setConvertOpen(false)}>
-          <div className="data-card" style={{ width: 440, maxWidth: '94vw', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem' }}>Convert chat to ticket</h3>
-            <label style={labelStyle}>Subject</label>
-            <input value={convertSubject} onChange={e => setConvertSubject(e.target.value)} placeholder={`Chat: ${session.customerName || 'Support request'}`} style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConvertOpen(false)} className="btn-outline">Cancel</button>
-              <button onClick={convertToTicket} disabled={!convertSubject.trim()} className="btn-primary">Create Ticket</button>
+              <div style={{ padding: '12px 14px 14px', borderTop: '1px solid #F1F5F9', background: '#fff' }}>
+                {pendingFiles.length > 0 && (
+                  <div style={{ marginBottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {pendingFiles.map(f => (
+                      <span key={f.id} style={{ background: '#FFF7ED', color: '#9A3412', border: '1px solid #FFE7D6', borderRadius: 20, padding: '5px 10px', fontSize: '0.72rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <PaperclipIcon /> {f.fileName}
+                        <button onClick={() => setPendingFiles(files => files.filter(x => x.id !== f.id))} style={{ background: '#fff', border: '1px solid #FFE7D6', color: '#9A3412', cursor: 'pointer', fontWeight: 800, width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} strokeWidth={2.5} /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="composer-wrap" style={{ padding: '8px 8px 8px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <textarea
+                    value={composer}
+                    onChange={e => {
+                      setComposer(e.target.value);
+                      if (socket?.connected) socket.emit('chat:typing', { sessionId: session.id, isTyping: e.target.value.length > 0 });
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    placeholder="Type a warm, helpful reply…  (Enter to send • Shift+Enter for new line)"
+                    rows={2}
+                    style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', maxHeight: 90, fontSize: '0.86rem', lineHeight: 1.5, color: 'var(--text-dark)', background: 'transparent', fontFamily: 'inherit' }}
+                  />
+                  <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                    <button onClick={() => setCannedOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', borderRadius: 20, border: '1px solid #E2E8F0', background: cannedOpen ? '#FFF7ED' : '#F8FAFC', color: cannedOpen ? '#9A3412' : '#64748B', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                      <Zap size={13} strokeWidth={2} />
+                      Canned
+                    </button>
+                    <button onClick={() => fileInputRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', borderRadius: 20, border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#64748B', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                      <Paperclip size={13} strokeWidth={2} />
+                      Attach
+                    </button>
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: '0.66rem', color: '#94A3B8', fontWeight: 600, display: composer.length > 100 ? 'inline' : 'none' }}>{composer.length} chars</span>
+                      <button onClick={sendMessage} disabled={!composer.trim() && pendingFiles.length === 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, border: 'none', background: (!composer.trim() && pendingFiles.length === 0) ? '#F1F5F9' : 'linear-gradient(135deg,#F15925 0%, #EA4B1B 100%)', color: (!composer.trim() && pendingFiles.length === 0) ? '#94A3B8' : '#fff', fontWeight: 800, fontSize: '0.78rem', cursor: (!composer.trim() && pendingFiles.length === 0) ? 'not-allowed' : 'pointer', boxShadow: (!composer.trim() && pendingFiles.length === 0) ? 'none' : '0 4px 12px rgba(241,89,37,0.3)', transition: 'all 0.18s ease' }}>
+                        Send
+                        <Send size={14} strokeWidth={2} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <input ref={fileInputRef} type="file" hidden onChange={attachFile} />
+                {cannedOpen && (
+                  <div style={{ marginTop: 10, border: '1px solid #FFE7D6', borderRadius: 16, maxHeight: 200, overflowY: 'auto', background: '#FFFBF5', boxShadow: '0 8px 24px rgba(15,23,42,0.08)' }}>
+                    <div style={{ padding: '10px 14px 8px', fontSize: '0.66rem', fontWeight: 800, color: '#9A3412', textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} strokeWidth={2} /> Quick replies</span>
+                      <button onClick={() => setCannedOpen(false)} style={{ background: '#fff', border: '1px solid #FFE7D6', borderRadius: 20, padding: '2px 8px', fontSize: '0.66rem', fontWeight: 700, color: '#9A3412', cursor: 'pointer' }}>Close</button>
+                    </div>
+                    {canned.length === 0 && <p style={{ padding: '12px 14px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>No templates yet — create some in Canned Replies tab!</p>}
+                    {canned.map(c => (
+                      <button key={c.id}
+                        onClick={() => { setComposer(prev => (prev ? prev + ' ' : '') + c.body); setCannedOpen(false); }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', background: '#fff', cursor: 'pointer', borderTop: '1px solid #FFF7ED', fontSize: '0.82rem', transition: 'background 0.14s' }}>
+                        <strong style={{ color: 'var(--text-dark)' }}>{c.title}</strong>
+                        <span style={{ display: 'block', color: '#64748B', fontSize: '0.73rem', marginTop: 2, lineHeight: 1.4 }}>{c.body.slice(0, 98)}{c.body.length > 98 ? '…' : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── RIGHT: context ── */}
+        <div className="data-card live-scroll" style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', boxShadow: '0 4px 20px rgba(15,23,42,0.06)' }}>
+          {!session ? (
+            <div style={{ padding: '22px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', flex: 1, justifyContent: 'center' }}>
+              <div style={{ width: 64, height: 64, borderRadius: 20, background: 'linear-gradient(135deg,#EFF6FF 0%, #DBEAFE 100%)', border: '1px solid #BFDBFE', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563EB' }}>
+                <Users size={28} strokeWidth={1.6} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '0.92rem', color: 'var(--text-dark)' }}>Customer context</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 5, lineHeight: 1.5 }}>Select a chat to see plan, devices, invoices and tickets — everything you need to help, without asking twice.</div>
+              </div>
+              <div style={{ width: '100%', background: '#F8FAFC', border: '1px dashed #E2E8F0', borderRadius: 16, padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left' }}>
+                {[
+                  { Icon: Package, text: 'Plan & billing at a glance' },
+                  { Icon: HardDrive, text: 'Devices & connection type' },
+                  { Icon: Receipt, text: 'Recent invoices & payments' },
+                ].map(item => (
+                  <div key={item.text} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.76rem', color: '#475569', fontWeight: 600 }}>
+                    <span style={{ width: 26, height: 26, borderRadius: 8, background: '#fff', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B' }}><item.Icon size={14} strokeWidth={2} /></span>
+                    {item.text}
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 600, background: '#fff', border: '1px solid #F1F5F9', padding: '6px 10px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Sparkles size={12} strokeWidth={2} color="#94A3B8" /> Tip: Context loads instantly when you open a chat</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid #F1F5F9', background: 'linear-gradient(135deg,#F8FAFC 0%, #FFFFFF 100%)', position: 'sticky', top: 0, zIndex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg,#F15925 0%, #FF8A4C 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                    <Users size={16} strokeWidth={2} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 900, fontSize: '0.88rem', color: 'var(--text-dark)', letterSpacing: '-0.2px' }}>Customer Context</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{session.customerEmail}</div>
+                  </div>
+                  <span style={{ marginLeft: 'auto', width: 8, height: 8, borderRadius: '50%', background: session.subscriber ? '#16A34A' : '#F59E0B' }} title={session.subscriber ? 'Linked' : 'No subscriber'} />
+                </div>
+              </div>
+              {session.subscriber ? (
+                <div style={{ padding: '16px 16px 18px', display: 'flex', flexDirection: 'column', gap: 14, background: '#fff' }}>
+                  <div style={{ background: 'linear-gradient(135deg,#FFF7ED 0%, #FFFFFF 60%, #EFF6FF 100%)', border: '1px solid #FFE7D6', borderRadius: 16, padding: '14px 14px', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: -18, right: -18, width: 70, height: 70, borderRadius: '50%', background: 'rgba(241,89,37,0.08)' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 7, background: '#fff', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F15925' }}>
+                        <Package size={12} strokeWidth={2} />
+                      </span>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#9A3412' }}>Subscription</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '0.66rem', fontWeight: 800, padding: '3px 8px', borderRadius: 20, background: session.subscriber.status === 'ACTIVE' ? '#DCFCE7' : '#FEE2E2', color: session.subscriber.status === 'ACTIVE' ? '#166534' : '#991B1B', border: '1px solid ' + (session.subscriber.status === 'ACTIVE' ? '#BBF7D0' : '#FECACA') }}>{session.subscriber.status}</span>
+                    </div>
+                    {session.subscriber.subscriptions[0] ? (
+                      <>
+                        <div style={{ fontWeight: 900, fontSize: '0.96rem', color: 'var(--text-dark)', letterSpacing: '-0.2px' }}>{session.subscriber.subscriptions[0].plan.name}</div>
+                        <div style={{ fontSize: '0.74rem', color: '#475569', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ background: '#fff', border: '1px solid #E2E8F0', padding: '3px 8px', borderRadius: 20, fontWeight: 700 }}>{session.subscriber.subscriptions[0].plan.speedMbps ?? '—'} Mbps</span>
+                          <span style={{ background: '#fff', border: '1px solid #E2E8F0', padding: '3px 8px', borderRadius: 20, fontWeight: 700 }}>{fmtKobo(session.subscriber.subscriptions[0].plan.priceKobo)}/mo</span>
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: '#94A3B8', marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: session.subscriber.subscriptions[0].plan.technology ? '#16A34A' : '#94A3B8' }} />
+                          {session.subscriber.subscriptions[0].plan.technology ?? '—'} {session.subscriber.subscriptions[0].plan.staticIp ? '• Static IP' : ''}
+                        </div>
+                      </>
+                    ) : <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No active plan</div>}
+                    {session.subscriber.address && <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: 10, background: '#fff', border: '1px solid #F1F5F9', borderRadius: 10, padding: '7px 9px', display: 'flex', gap: 6, alignItems: 'flex-start' }}><MapPin size={12} strokeWidth={2} style={{ marginTop: 2, flexShrink: 0, color: '#94A3B8' }} /> <span style={{ lineHeight: 1.4 }}>{session.subscriber.address}</span></div>}
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                      <a href={`mailto:${session.customerEmail}`} style={{ flex: 1, textAlign: 'center', padding: '7px 10px', borderRadius: 20, background: '#fff', border: '1px solid #E2E8F0', fontSize: '0.72rem', fontWeight: 700, color: '#334155', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                        <Mail size={12} strokeWidth={2} />
+                        Email
+                      </a>
+                      {session.subscriber.user.phone && <a href={`tel:${session.subscriber.user.phone}`} style={{ flex: 1, textAlign: 'center', padding: '7px 10px', borderRadius: 20, background: 'linear-gradient(135deg,#F15925 0%, #EA4B1B 100%)', border: '1px solid #F15925', fontSize: '0.72rem', fontWeight: 700, color: '#fff', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Phone size={12} strokeWidth={2} /> Call</a>}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#fff', border: '1px solid #F1F5F9', borderRadius: 16, padding: '12px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 7, background: '#EFF6FF', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><HardDrive size={12} strokeWidth={2} /></span>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#1E40AF' }}>Devices ({session.subscriber.devices.length})</span>
+                    </div>
+                    {session.subscriber.devices.length === 0
+                      ? <div style={{ fontSize: '0.76rem', color: '#94A3B8', background: '#F8FAFC', border: '1px dashed #E2E8F0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>No devices yet</div>
+                      : <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                        {session.subscriber.devices.map(d => (
+                          <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 12 }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ width: 7, height: 7, borderRadius: '50%', background: d.status === 'ACTIVE' ? '#16A34A' : '#94A3B8' }} />
+                                {d.name || d.connectionType}
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: 1 }}>{d.connectionType} • {d.status}</div>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: '#334155', fontWeight: 600, background: '#fff', border: '1px solid #E2E8F0', padding: '4px 8px', borderRadius: 20 }}>{d.ipAddress || d.macAddress || '—'}</span>
+                          </div>
+                        ))}
+                      </div>}
+                  </div>
+
+                  <div style={{ background: '#fff', border: '1px solid #F1F5F9', borderRadius: 16, padding: '12px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 7, background: '#F0FDF4', color: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Receipt size={12} strokeWidth={2} /></span>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#15803D' }}>Recent invoices</span>
+                    </div>
+                    {session.subscriber.invoices.length === 0
+                      ? <div style={{ fontSize: '0.76rem', color: '#94A3B8', background: '#F8FAFC', border: '1px dashed #E2E8F0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>No invoices</div>
+                      : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {session.subscriber.invoices.map(i => (
+                          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 12 }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.76rem', color: 'var(--text-dark)' }}>{i.invoiceNumber}</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, background: i.status === 'PAID' ? '#DCFCE7' : i.status === 'OVERDUE' ? '#FEE2E2' : '#F1F5F9', color: i.status === 'PAID' ? '#166534' : i.status === 'OVERDUE' ? '#991B1B' : '#64748B', padding: '2px 7px', borderRadius: 20 }}>{i.status}</span>
+                              <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#334155' }}>{fmtKobo(i.amountKobo)}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>}
+                  </div>
+
+                  <div style={{ background: '#fff', border: '1px solid #F1F5F9', borderRadius: 16, padding: '12px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 7, background: '#FFF7ED', color: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><TicketIconLucide size={12} strokeWidth={2} /></span>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#92400E' }}>Related Tickets</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '0.66rem', fontWeight: 700, color: '#94A3B8', background: '#F8FAFC', padding: '2px 7px', borderRadius: 20, border: '1px solid #F1F5F9' }}>{session.tickets.length}</span>
+                    </div>
+                    {session.tickets.length === 0
+                      ? <div style={{ fontSize: '0.76rem', color: '#94A3B8', background: '#F8FAFC', border: '1px dashed #E2E8F0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>No tickets linked</div>
+                      : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {session.tickets.map(t => (
+                          <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#FFFBEB', border: '1px solid #FFF7ED', borderRadius: 12, gap: 8 }}>
+                            <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.subject}</span>
+                            <Pill status={t.status} map={statusColors} />
+                          </div>
+                        ))}
+                      </div>}
+                  </div>
+
+                  {session.csat !== null && (
+                    <div style={{ background: 'linear-gradient(135deg,#FFFBEB 0%, #FFF7ED 100%)', border: '1px solid #FDE68A', borderRadius: 16, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#92400E' }}>Chat rating</span>
+                      <span style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>{[1, 2, 3, 4, 5].map(n => <Star key={n} filled={n <= session.csat!} />)}</span>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#92400E', background: '#fff', padding: '2px 8px', borderRadius: 20, border: '1px solid #FDE68A' }}>{session.csat}/5</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding: '18px 18px', textAlign: 'center' }}>
+                  <div style={{ background: '#FFFBEB', border: '1px dashed #FDE68A', borderRadius: 16, padding: '16px 14px' }}>
+                    <div style={{ fontWeight: 800, fontSize: '0.84rem', color: '#92400E' }}>No linked subscriber</div>
+                    <div style={{ fontSize: '0.74rem', color: '#B45309', marginTop: 4, lineHeight: 1.5 }}>This chat isn’t tied to a subscriber account yet. Ask for their email or phone to link.</div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* convert-to-ticket modal */}
+        {convertOpen && session && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }} onClick={() => setConvertOpen(false)}>
+            <div className="data-card" style={{ width: 460, maxWidth: '94vw', padding: 22, borderRadius: 20, boxShadow: '0 20px 50px rgba(15,23,42,0.25)', border: '1px solid #FFE7D6' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg,#F15925 0%, #FF8A4C 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                  <TicketIconLucide size={18} strokeWidth={2} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 900, color: 'var(--text-dark)' }}>Convert chat to ticket</h3>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Keep the context — create a trackable ticket</div>
+                </div>
+                <button onClick={() => setConvertOpen(false)} style={{ marginLeft: 'auto', width: 28, height: 28, borderRadius: '50%', border: '1px solid #E2E8F0', background: '#fff', color: '#64748B', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} strokeWidth={2} /></button>
+              </div>
+              <label style={labelStyle}>Subject</label>
+              <input value={convertSubject} onChange={e => setConvertSubject(e.target.value)} placeholder={`Chat: ${session.customerName || 'Support request'}`} style={{ ...inputStyle, marginBottom: 16, borderRadius: 12, padding: '11px 14px', border: '1px solid #E2E8F0' }} autoFocus />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button onClick={() => setConvertOpen(false)} style={{ padding: '9px 16px', borderRadius: 20, border: '1px solid #E2E8F0', background: '#fff', fontSize: '0.82rem', fontWeight: 700, color: '#64748B', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={convertToTicket} disabled={!convertSubject.trim()} style={{ padding: '9px 18px', borderRadius: 20, border: 'none', background: !convertSubject.trim() ? '#F1F5F9' : 'linear-gradient(135deg,#F15925 0%, #EA4B1B 100%)', color: !convertSubject.trim() ? '#94A3B8' : '#fff', fontSize: '0.82rem', fontWeight: 800, cursor: !convertSubject.trim() ? 'not-allowed' : 'pointer', boxShadow: !convertSubject.trim() ? 'none' : '0 4px 14px rgba(241,89,37,0.3)' }}>Create Ticket</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -860,7 +1159,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
       <div className="data-card" style={{ marginBottom: 16 }}>
         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="search-box" style={{ flex: '1 1 220px', width: 'auto' }}>
-            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <Search size={16} strokeWidth={2} color="var(--text-muted)" />
             <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && load()} placeholder="Search subject or email…" />
           </div>
           <select value={status} onChange={e => { setStatus(e.target.value); setTimeout(load, 0); }} style={pillSelect}>
@@ -872,7 +1171,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
             {Object.keys(priorityColors).map(p => <option key={p} value={p}>{p}</option>)}
           </select>
           <button onClick={() => setCreateOpen(true)} className="btn-primary" style={{ marginLeft: 'auto' }}>
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <Plus size={16} strokeWidth={2} />
             New Ticket
           </button>
         </div>
@@ -913,7 +1212,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
                   </div>
                   {detail.sourceChatSession && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>From chat session · {detail.sourceChatSession.status}</div>}
                 </div>
-                <button onClick={() => setDetailId(null)} className="btn-sm-outline">✕</button>
+                <button onClick={() => setDetailId(null)} className="btn-sm-outline" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} strokeWidth={2} /></button>
               </div>
               {detail.description && <p style={{ margin: '10px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{detail.description}</p>}
               <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -974,7 +1273,7 @@ function TicketsTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; s
                   {ticketFiles.map(f => (
                     <span key={f.id} style={{ background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: 12, padding: '3px 10px', fontSize: '0.72rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <PaperclipIcon /> {f.fileName}
-                      <button onClick={() => setTicketFiles(files => files.filter(x => x.id !== f.id))} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700, padding: 0 }}>×</button>
+                      <button onClick={() => setTicketFiles(files => files.filter(x => x.id !== f.id))} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700, padding: 0, display: 'flex', alignItems: 'center' }}><X size={12} strokeWidth={2.5} /></button>
                     </span>
                   ))}
                 </div>
@@ -1089,11 +1388,11 @@ function CannedTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; se
       <div className="data-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="search-box" style={{ flex: '1 1 200px', width: 'auto' }}>
-            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <Search size={16} strokeWidth={2} color="var(--text-muted)" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search templates…" />
           </div>
           <button onClick={() => { resetForm(); setEditId('new'); }} className="btn-primary" style={{ marginLeft: 'auto' }}>
-            <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <Plus size={15} strokeWidth={2} />
             New
           </button>
         </div>
@@ -1103,7 +1402,7 @@ function CannedTab({ toast, toasts, setToasts }: { toast: any; toasts: any[]; se
             <p style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</p>
           ) : filtered.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 40, color: 'var(--text-muted)' }}>
-              <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ opacity: 0.45 }}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <Zap size={28} strokeWidth={1.5} style={{ opacity: 0.45 }} />
               <span style={{ fontSize: '0.85rem' }}>{search ? 'No templates match your search' : 'No canned responses yet'}</span>
             </div>
           ) : filtered.map(c => {
@@ -1177,10 +1476,10 @@ function AnalyticsTab() {
   if (!data) return <p style={{ color: 'var(--text-muted)' }}>No performance data</p>;
 
   const cards = [
-    { label: 'Chats Handled', value: data.totals.chatsHandled, color: '#F15925', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-    { label: 'Closed Chats', value: data.totals.closedChats, color: '#16A34A', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-    { label: 'Tickets Resolved', value: data.totals.ticketsResolved, color: '#2563EB', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> },
-    { label: 'Avg CSAT', value: data.totals.avgCsat ? `${data.totals.avgCsat} ★` : '—', color: '#F59E0B', icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> },
+    { label: 'Chats Handled', value: data.totals.chatsHandled, color: '#F15925', icon: <MessageCircle size={20} strokeWidth={2} /> },
+    { label: 'Closed Chats', value: data.totals.closedChats, color: '#16A34A', icon: <CheckCircle size={20} strokeWidth={2} /> },
+    { label: 'Tickets Resolved', value: data.totals.ticketsResolved, color: '#2563EB', icon: <TicketIconLucide size={20} strokeWidth={2} /> },
+    { label: 'Avg CSAT', value: data.totals.avgCsat ? `${data.totals.avgCsat}` : '—', color: '#F59E0B', icon: <StarLucide size={20} strokeWidth={2} /> },
   ];
 
   const maxHandled = Math.max(...data.agents.map(a => a.chatsHandled), 1);
@@ -1271,7 +1570,7 @@ function AnalyticsTab() {
                   <td>{a.resolutionRate}%</td>
                   <td>{fmtDur(a.avgFirstResponseSec)}</td>
                   <td>{fmtDur(a.avgDurationSec)}</td>
-                  <td>{a.avgCsat > 0 ? `${a.avgCsat} ★` : '—'}</td>
+                  <td>{a.avgCsat > 0 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{a.avgCsat} <StarLucide size={12} strokeWidth={2} fill="#F59E0B" color="#F59E0B" /></span> : '—'}</td>
                   <td>{a.ticketsResolved}</td>
                 </tr>
               ))}

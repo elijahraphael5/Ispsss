@@ -67,12 +67,15 @@ export class NetworkService {
     return out;
   }
 
-  async findAllDevices() {
-    const cached = await this.cache.get<any[]>('network:devices');
+  async findAllDevices(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
+    const cacheKey = `network:devices:${skip}:${take}`;
+    const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
-    const devices = await this.prisma.networkDevice.findMany({ orderBy: { updatedAt: 'desc' } });
+    const devices = await this.prisma.networkDevice.findMany({ orderBy: { updatedAt: 'desc' }, skip, take });
     const safe = devices.map((d: any) => this.toSafeDevice(d));
-    await this.cache.set('network:devices', safe, 30);
+    await this.cache.set(cacheKey, safe, 30);
     return safe;
   }
 

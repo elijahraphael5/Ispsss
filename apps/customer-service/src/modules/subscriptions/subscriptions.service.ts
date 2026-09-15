@@ -60,9 +60,31 @@ export class SubscriptionsService {
     await this.prisma.$queryRaw`UPDATE "Subscriber" SET "pppoeUsername" = NULL WHERE id = ${owner.id}`;
   }
 
-  async create(data: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string }, actorId?: string) {
+  async create(data: {
+    userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string;
+    legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string;
+    staticIpAddress?: string; hikonnectId?: string;
+  }, actorId?: string) {
     const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     if (data.pppoeUsername) await this.assertPppoeAvailable(data.pppoeUsername);
+    // Auto-generate Hikonnect ID if not supplied — matches import sheet logic (Fiber/Radio seq)
+    let hikonnectId: string | null = data.hikonnectId?.trim() || null;
+    if (!hikonnectId && data.networkType) {
+      const isRadio = String(data.networkType).toUpperCase() === 'RADIO';
+      // For manual creation, use legacyId or userId slice as seq
+      const seq = String(Date.now()).slice(-4);
+      hikonnectId = `Hikonnect ${isRadio ? 'Radio' : 'Fiber'}-${seq}`;
+    }
+    const subscriberFields: Record<string, unknown> = {
+      legacyId: data.legacyId?.trim() || null,
+      id2: data.id2?.trim() || null,
+      firstName: data.firstName?.trim() || null,
+      lastName: data.lastName?.trim() || null,
+      companyName: data.companyName?.trim() || null,
+      stationLabel: data.stationLabel?.trim() || null,
+      staticIpAddress: data.staticIpAddress?.trim() || null,
+      hikonnectId,
+    };
     // A soft-deleted subscriber (customer deleted earlier) still holds the
     // unique userId slot — restore it instead of crashing on the constraint.
     const rows: Array<{ id: string }> = await this.prisma.$queryRaw`SELECT id FROM "Subscriber" WHERE "userId" = ${data.userId} LIMIT 1`;
@@ -76,6 +98,7 @@ export class SubscriptionsService {
           ...(data.address !== undefined ? { address: data.address || null } : {}),
           ...(data.pppoeUsername !== undefined ? { pppoeUsername: data.pppoeUsername || null } : {}),
           ...(data.networkType !== undefined ? { networkType: data.networkType || null } : {}),
+          ...subscriberFields,
           // Maker–checker KYC: fresh submission by whoever recreates the account.
           kycSubmittedById: actorId ?? null,
           kycSubmittedAt: actorId ? new Date() : undefined,
@@ -85,7 +108,7 @@ export class SubscriptionsService {
           kycRejectedAt: null,
           kycRejectReason: null,
           deletedAt: null,
-        },
+        } as any,
         include: { user: { select: { id: true, email: true, phone: true } } },
       });
       await this.audit.log({ action: 'SUBSCRIBER_CREATED', entityType: 'Subscriber', entityId: sub.id, metadata: { userId: data.userId, type: data.type, revived: true } });
@@ -102,11 +125,12 @@ export class SubscriptionsService {
           address: data.address,
           pppoeUsername: data.pppoeUsername,
           networkType: data.networkType,
+          ...(subscriberFields as any),
           // Maker–checker KYC: record which admin created the account so the
           // KYC approver (checker) can never be the same person.
           kycSubmittedById: actorId ?? null,
           kycSubmittedAt: actorId ? new Date() : undefined,
-        },
+        } as any,
         include: { user: { select: { id: true, name: true, email: true, phone: true } } },
       });
     } catch (e: any) {
@@ -190,8 +214,10 @@ export class SubscriptionsService {
     });
   }
 
-  async listPlans() {
-    return this.prisma.plan.findMany({ orderBy: { createdAt: 'desc' } });
+  async listPlans(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
+    return this.prisma.plan.findMany({ orderBy: { createdAt: 'desc' }, skip, take });
   }
 
   private pickPlanData(dto: CreatePlanDto | UpdatePlanDto): Record<string, unknown> {
@@ -330,13 +356,14 @@ export class SubscriptionsService {
     return { total: raw.length, created, updated, errors, rows: results };
   }
 
-  async createSubscription(data: { subscriberId: string; planId: string; autoRenew?: boolean; expiresAt: Date; installationFeeKobo?: number; routerProvided?: boolean; routerCostKobo?: number }) {
+  async createSubscription(data: { subscriberId: string; planId: string; autoRenew?: boolean; expiresAt?: Date; startedAt?: Date; installationFeeKobo?: number; routerProvided?: boolean; routerCostKobo?: number }) {
     const sub = await this.prisma.subscription.create({
       data: {
         subscriberId: data.subscriberId,
         planId: data.planId,
         autoRenew: data.autoRenew ?? true,
-        expiresAt: data.expiresAt,
+        startedAt: data.startedAt ?? new Date(),
+        expiresAt: data.expiresAt ?? new Date(Date.now() + 30 * 86400000),
         installationFeeKobo: data.installationFeeKobo,
         routerProvided: data.routerProvided,
         routerCostKobo: data.routerCostKobo,

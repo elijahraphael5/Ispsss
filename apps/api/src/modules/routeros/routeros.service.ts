@@ -189,7 +189,12 @@ export class RouterOsService {
 
   async getQueues(deviceId: string): Promise<RouterOsQueue[]> {
     const device = await this.getDevice(deviceId);
-    return this.fetch<RouterOsQueue[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/queue/simple');
+    try {
+      return await this.fetch<RouterOsQueue[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/queue/simple');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   async createQueue(deviceId: string, data: Record<string, any>): Promise<RouterOsQueue> {
@@ -218,7 +223,13 @@ export class RouterOsService {
   // ─── Bandwidth Stats (aggregate from all queues) ──────────────
 
   async getBandwidthStats(deviceId: string) {
-    const queues = await this.getQueues(deviceId);
+    let queues: RouterOsQueue[] = [];
+    try {
+      queues = await this.getQueues(deviceId);
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) queues = [];
+      else throw e;
+    }
     let totalBytesDown = 0;
     let totalBytesUp = 0;
     let totalRateDown = 0;
@@ -288,7 +299,33 @@ export class RouterOsService {
 
   async getActiveSessions(deviceId: string): Promise<RouterOsSession[]> {
     const device = await this.getDevice(deviceId);
-    return this.fetch<RouterOsSession[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/active');
+    try {
+      return await this.fetch<RouterOsSession[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/active');
+    } catch (e: any) {
+      // Device offline — fall back to last synced DB sessions so NOC keeps working (502 → 200)
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) {
+        const cached = await this.prisma.pppoeSession.findMany({
+          where: { isActive: true, nasIpAddress: device.ipAddress },
+          orderBy: { lastSyncedAt: 'desc' },
+          take: 100,
+        });
+        if (cached.length) {
+          return cached.map((s: any) => ({
+            '.id': s.sessionId,
+            name: s.username,
+            service: s.serviceType || 'pppoe',
+            'caller-id': s.callerId || s.callingStationId || '',
+            address: s.framedIpAddress || '',
+            uptime: String(s.sessionDuration || 0),
+            'session-id': s.sessionId,
+            comment: s.profile || '',
+          })) as any;
+        }
+        // No cached sessions — return empty instead of 502 so admin UI shows degraded, not error
+        return [];
+      }
+      throw e;
+    }
   }
 
   async syncSessions(deviceId: string) {
@@ -353,14 +390,24 @@ export class RouterOsService {
 
   async getDhcpLeases(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/dhcp-server/lease');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/dhcp-server/lease');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   // ─── Firewall Address Lists ─────────────────────────────────
 
   async getAddressLists(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/firewall/address-list');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/firewall/address-list');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   async addAddressListEntry(deviceId: string, data: { address: string; list: string; comment?: string }) {
@@ -383,8 +430,14 @@ export class RouterOsService {
     const device = await this.getDevice(deviceId);
     try {
       return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface/wireless/registration-table');
-    } catch {
-      return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface/wifi/registration-table');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      try {
+        return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface/wifi/registration-table');
+      } catch (e2: any) {
+        if (e2 instanceof ServiceUnavailableException || e2 instanceof BadGatewayException || e2 instanceof RequestTimeoutException) return [];
+        throw e2;
+      }
     }
   }
 
@@ -392,39 +445,65 @@ export class RouterOsService {
 
   async getPppProfiles(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/profile');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/profile');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   async getSystemHealth(deviceId: string) {
     const device = await this.getDevice(deviceId);
     try {
       return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/system/health');
-    } catch {
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
       return [];
     }
   }
 
   async getLogs(deviceId: string, limit = 100) {
     const device = await this.getDevice(deviceId);
-    const logs = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/log');
-    return logs.slice(-limit);
+    try {
+      const logs = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/log');
+      return logs.slice(-limit);
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   // ─── IP Addresses / Routes / Pools ──────────────────────────
 
   async getIpAddresses(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/address');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/address');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   async getRoutes(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/route');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/route');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   async getPools(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/pool');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/pool');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   // ─── Ping ───────────────────────────────────────────────────
@@ -440,20 +519,46 @@ export class RouterOsService {
   // ─── PPP Secrets (subscribers) ──────────────────────────────
   async getPppSecrets(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    const secrets = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/secret');
-    return secrets.map(s => ({
-      id: s['.id'],
-      username: s.name,
-      customer: s.comment || '',
-      plan: s.profile,
-      active: s.disabled === 'false',
-      service: s.service,
-      lastCallerId: s['last-caller-id'] || null,
-      lastDisconnectReason: s['last-disconnect-reason'] || null,
-      lastLoggedOut: s['last-logged-out'] || null,
-      limitBytesIn: s['limit-bytes-in'] || '0',
-      limitBytesOut: s['limit-bytes-out'] || '0',
-    }));
+    try {
+      const secrets = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/secret');
+      return secrets.map(s => ({
+        id: s['.id'],
+        username: s.name,
+        customer: s.comment || '',
+        plan: s.profile,
+        active: s.disabled === 'false',
+        service: s.service,
+        lastCallerId: s['last-caller-id'] || null,
+        lastDisconnectReason: s['last-disconnect-reason'] || null,
+        lastLoggedOut: s['last-logged-out'] || null,
+        limitBytesIn: s['limit-bytes-in'] || '0',
+        limitBytesOut: s['limit-bytes-out'] || '0',
+      }));
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) {
+        // Fall back to cached snapshots so admin Users table keeps working when router is offline (NOC degraded, not 502)
+        try {
+          const snaps = await this.prisma.routerSnapshot.findMany({ where: { deviceId, tenantId: (device as any).tenantId ?? undefined } as any, take: 500 });
+          if (snaps.length) {
+            return snaps.map(s => ({
+              id: (s as any).secretId || s.id,
+              username: (s as any).username,
+              customer: (s as any).comment || (s as any).customer || '',
+              plan: (s as any).profile || (s as any).plan || '',
+              active: !(s as any).disabled,
+              service: 'pppoe',
+              lastCallerId: (s as any).lastCallerId || null,
+              lastDisconnectReason: (s as any).lastDisconnectReason || null,
+              lastLoggedOut: (s as any).lastLoggedOut || null,
+              limitBytesIn: '0',
+              limitBytesOut: '0',
+            }));
+          }
+        } catch {}
+        return [];
+      }
+      throw e;
+    }
   }
 
   async createPppSecret(deviceId: string, data: { name: string; password: string; profile: string; comment?: string; service?: string }) {
@@ -496,12 +601,25 @@ export class RouterOsService {
 
   async getSystemResource(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/system/resource');
+    try {
+      return await this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/system/resource');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) {
+        // Return null so admin dashboard falls back to netDash / shows "—" instead of crashing formatUptime on null
+        return null as any;
+      }
+      throw e;
+    }
   }
 
   async getInterfaces(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface');
+    try {
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface');
+    } catch (e: any) {
+      if (e instanceof ServiceUnavailableException || e instanceof BadGatewayException || e instanceof RequestTimeoutException) return [];
+      throw e;
+    }
   }
 
   // ─── Static IP / ARP Sync ─────────────────────────────────────
@@ -575,17 +693,18 @@ export class RouterOsService {
 
       const email = `static-${ip.replace(/\./g, '-')}@lan`;
       const passwordHash = await bcrypt.hash(Math.random().toString(36).slice(2), 10);
-      const user = await this.prisma.user.upsert({
-        where: { email },
-        update: {},
-        create: {
-          email,
-          passwordHash,
-          tenantId,
-          isSuperAdmin: false,
-          customRoleId: customerRole?.id ?? undefined,
-        },
-      });
+      let user = await this.prisma.user.findFirst({ where: { email } });
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: {
+            email,
+            passwordHash,
+            tenantId,
+            isSuperAdmin: false,
+            customRoleId: customerRole?.id ?? undefined,
+          },
+        });
+      }
 
       const subscriber = await this.prisma.subscriber.upsert({
         where: { userId: user.id },

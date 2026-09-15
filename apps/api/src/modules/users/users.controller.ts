@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -20,14 +20,14 @@ export class UsersController {
 
   @Get()
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO')
-  findAll() {
-    return this.service.findAll();
+  findAll(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.findAll({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('customers')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO', 'NOC_ENGINEER', 'FIELD_ENGINEER', 'SALES_AGENT', 'CUSTOMER_SUPPORT', 'SUPPORT_AGENT', 'BILLING_OFFICER', 'FINANCE_MANAGER')
-  customers() {
-    return this.service.customers();
+  customers(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.customers({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('customers/:id')
@@ -38,14 +38,14 @@ export class UsersController {
 
   @Patch('customers/:id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO', 'FIELD_ENGINEER')
-  updateCustomer(@Param('id') id: string, @Body() body: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string }, @CurrentUser('id') actorId: string) {
+  updateCustomer(@Param('id') id: string, @Body() body: { name?: string; email?: string; phone?: string; secondaryPhone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string; ipAddress?: string; staticIpAddress?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string }, @CurrentUser('id') actorId: string) {
     return this.service.updateCustomer(id, body, actorId);
   }
 
   @Get('kyc')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO', 'NOC_ENGINEER', 'FIELD_ENGINEER', 'SALES_AGENT', 'CUSTOMER_SUPPORT', 'SUPPORT_AGENT', 'BILLING_OFFICER', 'FINANCE_MANAGER')
-  kycQueue() {
-    return this.service.kycQueue();
+  kycQueue(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.kycQueue({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Post('kyc/:id/approve')
@@ -99,7 +99,7 @@ export class UsersController {
 
   @Post()
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  create(@Body() body: { email: string; password: string; name?: string; phone?: string; customRoleId?: string }, @CurrentUser('id') actorId: string) {
+  create(@Body() body: { email: string; password: string; name?: string; phone?: string; secondaryPhone?: string; customRoleId?: string }, @CurrentUser('id') actorId: string) {
     return this.service.create(body, actorId);
   }
 
@@ -107,7 +107,7 @@ export class UsersController {
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
   update(
     @Param('id') id: string,
-    @Body() body: { email?: string; phone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean },
+    @Body() body: { email?: string; name?: string; phone?: string; secondaryPhone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean },
     @CurrentUser('id') actorId: string,
     @CurrentUser('isSuperAdmin') actorIsSuperAdmin: boolean,
   ) {

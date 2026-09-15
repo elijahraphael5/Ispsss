@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Inject, Optional } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -7,6 +7,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
 import { PdfService } from './pdf.service';
 import { InvoiceStatus, InvoiceType } from '@prisma/client';
+import { CacheService } from '../../common/cache/cache.service';
 
 const TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
   DRAFT: ['ISSUED', 'VOID'],
@@ -25,7 +26,8 @@ export class BillingService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
-    private readonly pdf: PdfService) {}
+    private readonly pdf: PdfService,
+    @Optional() private readonly cache?: CacheService) {}
 
   private async nextInvoiceNumber(type: InvoiceType): Promise<string> {
     const year = new Date().getFullYear();
@@ -65,6 +67,12 @@ export class BillingService {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
+    // Cache the 5-aggregate dashboard for 30s to avoid hammering payment/invoice tables
+    const cacheKey = 'billing:dashboard';
+    // Use any existing cache if available (CacheService may be noop without Redis)
+    const cached = (this as any).cache?.get ? await (this as any).cache.get(cacheKey) : null;
+    if (cached) return cached;
+
     const [revenueToday, revenueMonth, revenueYear, invoices, totals] = await Promise.all([
       this.prisma.payment.aggregate({
         where: { status: 'SUCCESSFUL', paidAt: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) } },
@@ -97,10 +105,10 @@ export class BillingService {
       };
     }
 
-    const totalOutstanding = (totals._sum.amountKobo ?? 0)
+     const totalOutstanding = (totals._sum.amountKobo ?? 0)
       - (statusMap.PAID?.amount ?? 0);
 
-    return {
+    const result = {
       revenueToday: revenueToday._sum.amountKobo ?? 0,
       revenueThisMonth: revenueMonth._sum.amountKobo ?? 0,
       revenueThisYear: revenueYear._sum.amountKobo ?? 0,
@@ -118,11 +126,13 @@ export class BillingService {
           : 0,
       },
     };
+    if (this.cache) await this.cache.set(cacheKey, result, 30).catch(() => {});
+    return result;
   }
 
   // ── Invoices ───────────────────────────────────────────────
 
-  async findAll(filters?: { status?: string; type?: string; search?: string }) {
+  async findAll(filters?: { status?: string; type?: string; search?: string; skip?: number; take?: number }) {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
     if (filters?.type) where.type = filters.type;
@@ -132,6 +142,8 @@ export class BillingService {
         { subscriber: { user: { email: { contains: filters.search, mode: 'insensitive' } } } },
       ];
     }
+    const take = Math.min(Math.max(filters?.take ?? 50, 1), 100);
+    const skip = Math.max(filters?.skip ?? 0, 0);
     return this.prisma.invoice.findMany({
       where,
       include: {
@@ -143,6 +155,8 @@ export class BillingService {
         _count: { select: { payments: true, receipts: true } },
       },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
@@ -228,7 +242,7 @@ export class BillingService {
   private async ensureNewCustomer(c: { name?: string; email: string; phone?: string; address?: string }): Promise<string> {
     const email = c.email.trim().toLowerCase();
     const tenantId = (await this.prisma.tenant?.findFirst())?.id;
-    const existing = await this.prisma.user.findUnique({
+    const existing = await this.prisma.user.findFirst({
       where: { email },
       include: { subscriber: true },
     });
@@ -379,13 +393,17 @@ export class BillingService {
 
   // ── Quotations ─────────────────────────────────────────────
 
-  async listQuotations(filters?: { status?: string }) {
+  async listQuotations(filters?: { status?: string; skip?: number; take?: number }) {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
+    const take = Math.min(Math.max(filters?.take ?? 50, 1), 100);
+    const skip = Math.max(filters?.skip ?? 0, 0);
     return this.prisma.quotation.findMany({
       where,
       include: { items: true },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
@@ -600,25 +618,33 @@ export class BillingService {
 
   // ── Receipts ───────────────────────────────────────────────
 
-  async listReceipts(invoiceId?: string) {
+  async listReceipts(invoiceId?: string, pagination?: { skip?: number; take?: number }) {
     const where: any = {};
     if (invoiceId) where.invoiceId = invoiceId;
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     return this.prisma.receipt.findMany({
       where,
       include: { invoice: { select: { invoiceNumber: true, subscriber: { select: { user: { select: { email: true } } } } } } },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
   // ── Payments ───────────────────────────────────────────────
 
-  async listPayments(filters?: { status?: string }) {
+  async listPayments(filters?: { status?: string; skip?: number; take?: number }) {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
+    const take = Math.min(Math.max(filters?.take ?? 50, 1), 100);
+    const skip = Math.max(filters?.skip ?? 0, 0);
     return this.prisma.payment.findMany({
       where,
       include: { invoice: { select: { invoiceNumber: true, subscriber: { select: { user: { select: { email: true } } } } } }, refunds: true },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
@@ -641,10 +667,14 @@ export class BillingService {
   // ── Monthly Revenue Series (for charts) ────────────────────
 
   async monthlyRevenue() {
+    const cacheKey = `billing:monthlyRevenue:${new Date().getFullYear()}`;
+    const cached = this.cache ? await this.cache.get<any>(cacheKey).catch(() => null) : null;
+    if (cached) return cached;
     const year = new Date().getFullYear();
     const data = await this.prisma.payment.findMany({
       where: { status: 'SUCCESSFUL', paidAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } },
       select: { amountKobo: true, paidAt: true },
+      take: 5000,
     });
     const months = Array.from({ length: 12 }, (_, i) => ({
       name: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i],
@@ -658,7 +688,9 @@ export class BillingService {
         months[m].collected += p.amountKobo;
       }
     }
-    return months.map(m => ({ ...m, revenue: Math.round(m.revenue / 100), collected: Math.round(m.collected / 100) }));
+    const result = months.map(m => ({ ...m, revenue: Math.round(m.revenue / 100), collected: Math.round(m.collected / 100) }));
+    if (this.cache) await this.cache.set(cacheKey, result, 60).catch(() => {});
+    return result;
   }
 
   private assertTransition(current: InvoiceStatus, target: InvoiceStatus) {

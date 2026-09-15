@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -15,8 +15,8 @@ export class CustomRolesController {
 
   @Get()
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
-  findAll() {
-    return this.service.findAll();
+  findAll(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.findAll({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get(':id')

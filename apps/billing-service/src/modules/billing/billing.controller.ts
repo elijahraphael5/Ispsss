@@ -32,8 +32,8 @@ export class BillingController {
 
   @Get()
   @Roles('BILLING_OFFICER', 'CEO', 'OPERATIONS_MANAGER', 'CUSTOMER_SUPPORT', 'SUPER_ADMIN')
-  findAll(@Query('status') status?: string, @Query('type') type?: string, @Query('search') search?: string) {
-    return this.service.findAll({ status, type, search });
+  findAll(@Query('status') status?: string, @Query('type') type?: string, @Query('search') search?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.findAll({ status, type, search, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Post()
@@ -105,8 +105,8 @@ export class BillingController {
 
   @Get('quotations')
   @Roles('BILLING_OFFICER', 'SALES_AGENT', 'CEO', 'SUPER_ADMIN')
-  listQuotations(@Query('status') status?: string) {
-    return this.service.listQuotations({ status });
+  listQuotations(@Query('status') status?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listQuotations({ status, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('quotations/:id')
@@ -144,16 +144,16 @@ export class BillingController {
 
   @Get('receipts')
   @Roles('BILLING_OFFICER', 'CEO', 'CUSTOMER_SUPPORT', 'SUPER_ADMIN')
-  listReceipts(@Query('invoiceId') invoiceId?: string) {
-    return this.service.listReceipts(invoiceId);
+  listReceipts(@Query('invoiceId') invoiceId?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listReceipts(invoiceId, { skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   // ── Payments ───────────────────────────────────────────────
 
   @Get('payments')
   @Roles('BILLING_OFFICER', 'CEO', 'OPERATIONS_MANAGER', 'SUPER_ADMIN')
-  listPayments(@Query('status') status?: string) {
-    return this.service.listPayments({ status });
+  listPayments(@Query('status') status?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listPayments({ status, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   // ── Credit Notes ───────────────────────────────────────────

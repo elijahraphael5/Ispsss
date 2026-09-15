@@ -26,8 +26,8 @@ export class SubscriptionsController {
 
   @Roles('BILLING_OFFICER', 'CEO', 'SUPER_ADMIN')
   @Get('plans')
-  listPlans() {
-    return this.service.listPlans();
+  listPlans(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listPlans({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Post('plans')
@@ -57,7 +57,7 @@ export class SubscriptionsController {
 
   @Post()
   @Roles('SUPER_ADMIN', 'SALES_AGENT')
-  create(@Body() body: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string }, @CurrentUser('id') actorId: string) {
+  create(@Body() body: { userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string; staticIpAddress?: string; hikonnectId?: string }, @CurrentUser('id') actorId: string) {
     return this.service.create(body, actorId);
   }
 
@@ -87,7 +87,7 @@ export class SubscriptionsController {
 
   @Post(':id/subscriptions')
   @Roles('SUPER_ADMIN', 'SALES_AGENT')
-  createSubscription(@Param('id') id: string, @Body() body: { planId: string; autoRenew?: boolean; expiresAt: Date; installationFeeKobo?: number; routerProvided?: boolean; routerCostKobo?: number }) {
+  createSubscription(@Param('id') id: string, @Body() body: { planId: string; autoRenew?: boolean; expiresAt?: Date; startedAt?: Date; installationFeeKobo?: number; routerProvided?: boolean; routerCostKobo?: number }) {
     return this.service.createSubscription({ subscriberId: id, ...body });
   }
 

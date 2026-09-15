@@ -4,6 +4,29 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, timeAgo, notifyCustomersChanged } from '@isp/shared';
 import { useAuthStore } from '@isp/shared';
 import { useToast, ToastContainer } from '../../components/Toast';
+import {
+  ShieldCheck,
+  ShieldAlert,
+  Clock,
+  Search,
+  RefreshCw,
+  X,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Users,
+  UserCheck,
+  Mail,
+  Phone,
+  MapPin,
+  Layers,
+  Wifi,
+  Globe,
+  Calendar,
+  UserX,
+  Eye,
+  Edit3,
+} from 'lucide-react';
 import { SkeletonTable } from '../../components/Skeleton';
 
 interface KycItem {
@@ -34,7 +57,20 @@ interface KycItem {
 }
 
 function badge(label: string, color: string) {
-  return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: color + '18', color }}>{label}</span>;
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 700, backgroundColor: color + '14', color, border: `1px solid ${color}18`, letterSpacing: 0.2 }}>{label}</span>;
+}
+
+const avatarPalette = ['#F15925', '#2563EB', '#16A34A', '#8B5CF6', '#F59E0B', '#0EA5E9', '#EC4899', '#14B8A6'];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return avatarPalette[h % avatarPalette.length];
+}
+function initialsOf(name: string | null, fallback: string) {
+  const src = (name && name.trim()) || fallback;
+  const parts = src.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2)).toUpperCase();
 }
 
 export default function KycPage() {
@@ -162,86 +198,154 @@ export default function KycPage() {
   const inp = { width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 12, fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' as const };
   const lbl = { display: 'block', marginBottom: 6, fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' } as const;
 
+  const pendingItems = items.filter(k => !k.kycRejectedAt);
+  const rejectedItems = items.filter(k => !!k.kycRejectedAt);
+
   return (
     <>
-      <div className="page-title-row">
-        <div>
-          <h1 className="page-title">KYC Approvals</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
-            Accounts awaiting approval. Maker–checker: the creator can&apos;t approve — another admin must.
-          </p>
+      <ToastContainer toasts={toasts} />
+
+      {/* header */}
+      <div className="page-title-row" style={{ alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg,#FFF7ED 0%, #FFEDD5 100%)', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F15925', flexShrink: 0 }}>
+            <ShieldCheck size={22} strokeWidth={2} />
+          </div>
+          <div>
+            <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: 1.1 }}>KYC Approvals <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, background: pendingCount > 0 ? '#FFFBEB' : '#F0FDF4', color: pendingCount > 0 ? '#B45309' : '#15803D', border: `1px solid ${pendingCount > 0 ? '#FDE68A' : '#BBF7D0'}`, fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3 }}>{pendingCount} pending</span></h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 6, maxWidth: 560, lineHeight: 1.5 }}>
+              Accounts awaiting approval • <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, color: '#92400E', background: '#FEF3C7', padding: '1px 6px', borderRadius: 8, fontSize: '0.72rem' }}><AlertCircle size={11} strokeWidth={2} /> maker–checker</span> the creator can’t approve — another admin must.
+            </p>
+          </div>
         </div>
-        <button className="btn-outline" onClick={load} disabled={loading}>
+        <button className="btn-outline" onClick={load} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, marginTop: 4 }}>
+          <RefreshCw size={14} strokeWidth={2} style={{ animation: loading ? 'spin 1s linear infinite' : undefined }} />
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
 
+      {/* stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <div className="data-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg,#FFFBEB 0%, #FFFFFF 65%)', border: '1px solid #FDE68A' }}>
+          <div style={{ width: 36, height: 36, borderRadius: 11, background: '#fff', border: '1px solid #FDE68A', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D97706' }}><Clock size={16} strokeWidth={2} /></div>
+          <div>
+            <div style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#92400E' }}>Pending</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#92400E', lineHeight: 1 }}>{pendingCount}</div>
+            <div style={{ fontSize: '0.68rem', color: '#B45309', fontWeight: 600 }}>awaiting review</div>
+          </div>
+          <div style={{ marginLeft: 'auto', width: 32, height: 32, borderRadius: 10, background: '#FFFBEB', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D97706', opacity: 0.9 }}><Eye size={14} strokeWidth={2} /></div>
+        </div>
+        <div className="data-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg,#FEF2F2 0%, #FFFFFF 65%)', border: '1px solid #FECACA' }}>
+          <div style={{ width: 36, height: 36, borderRadius: 11, background: '#fff', border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DC2626' }}><XCircle size={16} strokeWidth={2} /></div>
+          <div>
+            <div style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#991B1B' }}>Rejected</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#991B1B', lineHeight: 1 }}>{rejectedCount}</div>
+            <div style={{ fontSize: '0.68rem', color: '#DC2626', fontWeight: 600 }}>needs attention</div>
+          </div>
+          <div style={{ marginLeft: 'auto', width: 32, height: 32, borderRadius: 10, background: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DC2626', opacity: 0.9 }}><UserX size={14} strokeWidth={2} /></div>
+        </div>
+        <div className="data-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg,#F0FDF4 0%, #FFFFFF 65%)', border: '1px solid #BBF7D0' }}>
+          <div style={{ width: 36, height: 36, borderRadius: 11, background: '#fff', border: '1px solid #BBF7D0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16A34A' }}><Users size={16} strokeWidth={2} /></div>
+          <div>
+            <div style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#166534' }}>Total queue</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#166534', lineHeight: 1 }}>{items.length}</div>
+            <div style={{ fontSize: '0.68rem', color: '#15803D', fontWeight: 600 }}>{filtered.length} shown</div>
+          </div>
+          <div style={{ marginLeft: 'auto', width: 32, height: 32, borderRadius: 10, background: '#F0FDF4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16A34A', opacity: 0.9 }}><ShieldAlert size={14} strokeWidth={2} /></div>
+        </div>
+      </div>
+
       {error && (
-        <div style={{ background: '#fee2e2', border: '1px solid #f87171', borderRadius: 12, padding: '12px 16px', marginBottom: 16, color: '#991b1b', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{error}</span>
-          <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 14, padding: '12px 14px', marginBottom: 16, color: '#991B1B', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <AlertCircle size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{error}</span>
+          <button onClick={() => setError('')} style={{ background: '#fff', border: '1px solid #FECACA', color: '#991B1B', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} strokeWidth={2} /></button>
         </div>
       )}
 
-      <div className="data-card">
-        <div className="filter-bar">
-          <div className="search-box">
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <div className="data-card" style={{ overflow: 'hidden', boxShadow: '0 1px 8px rgba(15,23,42,0.04)' }}>
+        <div className="filter-bar" style={{ background: 'linear-gradient(180deg,#FFFFFF 0%, #F8FAFC 100%)', borderBottom: '1px solid #F1F5F9' }}>
+          <div className="search-box" style={{ flex: '1 1 280px', maxWidth: 420, background: '#fff', border: '1px solid #E2E8F0', boxShadow: '0 1px 4px rgba(15,23,42,0.04)' }}>
+            <Search size={15} strokeWidth={2} color="#94A3B8" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name, email, phone, username…"
+              style={{ flex: 1 }}
             />
+            {search && <button onClick={() => setSearch('')} style={{ background: '#F1F5F9', border: '1px solid #E2E8F0', width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748B' }}><X size={12} strokeWidth={2} /></button>}
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {badge(`${pendingCount} pending`, '#D97706')}
-            {badge(`${rejectedCount} rejected`, '#DC2626')}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 20, background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E', fontSize: '0.7rem', fontWeight: 800, letterSpacing: 0.2 }}><Clock size={12} strokeWidth={2} /> {pendingCount} pending</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 20, background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: '0.7rem', fontWeight: 800, letterSpacing: 0.2 }}><XCircle size={12} strokeWidth={2} /> {rejectedCount} rejected</span>
+            <span style={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 600, background: '#F8FAFC', border: '1px solid #F1F5F9', padding: '4px 8px', borderRadius: 20 }}>{filtered.length} results</span>
           </div>
         </div>
+
         <div className="table-container">
-          <div className="table-scroll" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 330px)', minHeight: 300 }}>
+          <div className="table-scroll" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 380px)', minHeight: 300 }}>
             {loading ? (
               <div style={{ padding: 24 }}><SkeletonTable rows={6} cols={8} /></div>
             ) : filtered.length === 0 ? (
-              <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
-                {items.length === 0 ? 'No accounts pending KYC approval' : 'No accounts match your search'}
+              <div style={{ padding: 48, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 72, height: 72, borderRadius: 20, background: 'linear-gradient(135deg,#FFF7ED 0%, #FFEDD5 100%)', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B' }}>
+                  <ShieldCheck size={30} strokeWidth={1.7} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: '0.98rem', color: 'var(--text-dark)' }}>{items.length === 0 ? 'All clear! No pending KYC' : 'No matches'}</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4, maxWidth: 420, lineHeight: 1.5 }}>{items.length === 0 ? 'No accounts pending KYC approval — new sign-ups will appear here for your review.' : `No accounts match “${search}” — try a different name, email or username.`}</div>
+                </div>
+                {items.length === 0 ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', fontWeight: 700, color: '#94A3B8', background: '#F8FAFC', border: '1px dashed #E2E8F0', padding: '6px 10px', borderRadius: 20 }}><CheckCircle size={12} strokeWidth={2} /> You’re up to date</div>
+                ) : (
+                  <button onClick={() => setSearch('')} style={{ padding: '7px 14px', borderRadius: 20, border: '1px solid #E2E8F0', background: '#fff', color: '#334155', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}><X size={13} strokeWidth={2} /> Clear search</button>
+                )}
               </div>
             ) : (
               <table>
-                <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: '#fff' }}>
                   <tr>
-                    <th>NAME</th>
-                    <th>EMAIL / PHONE</th>
-                    <th>NETWORK</th>
-                    <th>PLAN</th>
-                    <th>USERNAME</th>
-                    <th>MAKER (CREATED BY)</th>
-                    <th>WHEN</th>
-                    <th>STATUS</th>
-                    <th style={{ width: 40 }}></th>
+                    <th style={{ fontSize: '0.66rem', letterSpacing: 0.5 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users size={11} strokeWidth={2} /> Customer</span></th>
+                    <th style={{ fontSize: '0.66rem', letterSpacing: 0.5 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Mail size={11} strokeWidth={2} /> Contact</span></th>
+                    <th style={{ fontSize: '0.66rem', letterSpacing: 0.5 }}>Network</th>
+                    <th>Plan</th>
+                    <th style={{ fontSize: '0.66rem', letterSpacing: 0.5 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Layers size={11} strokeWidth={2} /> Username</span></th>
+                    <th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><UserCheck size={11} strokeWidth={2} /> Maker</span></th>
+                    <th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={11} strokeWidth={2} /> When</span></th>
+                    <th>Status</th>
+                    <th style={{ width: 36 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(k => {
                     const mine = !canSelfApprove && user?.id === k.kycSubmittedById;
                     const rejected = !!k.kycRejectedAt;
+                    const displayName = k.name || (k.email ? k.email.split('@')[0] : '—');
                     return (
-                      <tr key={k.id} onClick={() => { setShowReject(false); setRejectReason(''); setEditing(false); setSelectedId(k.id); }} style={{ cursor: 'pointer' }}>
-                        <td style={{ fontWeight: 600 }}>{k.name || '—'}</td>
+                      <tr key={k.id} onClick={() => { setShowReject(false); setRejectReason(''); setEditing(false); setSelectedId(k.id); }} style={{ cursor: 'pointer', transition: 'background 0.14s' }}>
                         <td>
-                          <div>{k.email || '—'}</div>
-                          {k.phone && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{k.phone}</div>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatarColor(displayName), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{initialsOf(k.name, k.email || '?')}</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 800, fontSize: '0.84rem', color: 'var(--text-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>{k.name || '—'}</div>
+                              {mine && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.6rem', fontWeight: 800, color: '#B45309', background: '#FFFBEB', border: '1px solid #FDE68A', padding: '1px 5px', borderRadius: 8, marginTop: 2 }}><AlertCircle size={10} strokeWidth={2} /> you</span>}
+                            </div>
+                          </div>
                         </td>
-                        <td>{k.networkType ? badge(k.networkType, '#2563EB') : '—'}</td>
-                        <td>{k.plan || '—'}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{k.pppoeUsername || '—'}</td>
                         <td>
-                          <div>{k.kycSubmittedByName || '—'}</div>
-                          {mine && <div style={{ fontSize: '0.68rem', color: '#B45309', fontWeight: 600 }}>you (maker)</div>}
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{k.email || '—'}</div>
+                          {k.phone && <div style={{ color: 'var(--text-muted)', fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Phone size={10} strokeWidth={2} />{k.phone}</div>}
                         </td>
-                        <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{k.kycSubmittedAt ? timeAgo(k.kycSubmittedAt) : timeAgo(k.createdAt)}</td>
-                        <td>{rejected ? badge('Rejected', '#DC2626') : badge('Pending', '#D97706')}</td>
-                        <td><span style={{ color: 'var(--primary)' }}>→</span></td>
+                        <td>{k.networkType ? badge(k.networkType, '#2563EB') : <span style={{ color: '#94A3B8' }}>—</span>}</td>
+                        <td><span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dark)' }}>{k.plan || '—'}</span>{k.speedMbps && <span style={{ fontSize: '0.68rem', color: '#64748B', marginLeft: 4, fontWeight: 600 }}>{k.speedMbps} Mbps</span>}</td>
+                        <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.76rem', fontWeight: 600, color: '#475569' }}>{k.pppoeUsername || '—'}</td>
+                        <td>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dark)' }}>{k.kycSubmittedByName || '—'}</div>
+                          <div style={{ fontSize: '0.68rem', color: mine ? '#B45309' : 'var(--text-muted)', fontWeight: mine ? 700 : 500 }}>{mine ? 'you (maker)' : ''}</div>
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap', fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: 500 }}>{k.kycSubmittedAt ? timeAgo(k.kycSubmittedAt) : timeAgo(k.createdAt)}</td>
+                        <td>{rejected ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA', fontSize: '0.68rem', fontWeight: 800 }}><XCircle size={11} strokeWidth={2} /> Rejected</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A', fontSize: '0.68rem', fontWeight: 800 }}><Clock size={11} strokeWidth={2} /> Pending</span>}</td>
+                        <td><span style={{ width: 26, height: 26, borderRadius: 8, background: '#FFF7ED', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F15925' }}><Eye size={13} strokeWidth={2} /></span></td>
                       </tr>
                     );
                   })}
@@ -253,44 +357,52 @@ export default function KycPage() {
       </div>
 
       {selected && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(6px)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
           onClick={() => setSelectedId(null)}>
-          <div style={{ background: 'white', padding: 32, width: 480, maxWidth: '95vw', height: '100vh', overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,0.1)' }}
+          <div style={{ background: 'white', padding: 0, width: 500, maxWidth: '95vw', height: '100vh', overflowY: 'auto', boxShadow: '-8px 0 30px rgba(15,23,42,0.18)', display: 'flex', flexDirection: 'column' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>KYC Review</h2>
-              <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setSelectedId(null)}>
-                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </span>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid #F1F5F9', background: 'linear-gradient(180deg,#FFFFFF 0%, #FFFBF7 100%)', position: 'sticky', top: 0, zIndex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: '50%', background: avatarColor(selected.name || selected.email || '?'), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{initialsOf(selected.name, selected.email || '?')}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <h2 style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-dark)', margin: 0, lineHeight: 1.2 }}>{selected.name || '—'}</h2>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Mail size={11} strokeWidth={2} />{selected.email || '—'}</span>
+                      {selected.phone && <><span style={{ width: 2, height: 2, borderRadius: '50%', background: '#CBD5E1' }} /><span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Phone size={11} strokeWidth={2} />{selected.phone}</span></>}
+                    </div>
+                    <div style={{ marginTop: 6 }}>{selected.kycRejectedAt ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA', fontSize: '0.66rem', fontWeight: 800 }}><XCircle size={11} strokeWidth={2} /> Rejected</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A', fontSize: '0.66rem', fontWeight: 800 }}><Clock size={11} strokeWidth={2} /> Pending review</span>}</div>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedId(null)} style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid #E2E8F0', background: '#fff', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                  <X size={16} strokeWidth={2} />
+                </button>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: '1rem' }}>{selected.name || '—'}</span>
-                {selected.kycRejectedAt ? badge('Rejected', '#DC2626') : badge('Pending', '#D97706')}
-              </div>
-
+            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
               {editing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#FFF7ED', border: '1px solid #FFE7D6', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, color: '#92400E' }}><Edit3 size={13} strokeWidth={2} /> Editing details</div>
                   <div>
                     <label style={lbl}>Full name</label>
-                    <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={inp} />
+                    <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={inp} placeholder="Customer name" />
                   </div>
                   <div>
                     <label style={lbl}>Email</label>
-                    <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inp} />
+                    <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inp} placeholder="email@example.com" />
                   </div>
                   <div>
                     <label style={lbl}>Phone</label>
-                    <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={inp} />
+                    <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={inp} placeholder="+234..." />
                   </div>
                   <div>
                     <label style={lbl}>Address</label>
-                    <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} style={inp} />
+                    <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} style={inp} placeholder="Address" />
                   </div>
                   <div>
                     <label style={lbl}>Network type</label>
-                    <input value={form.networkType} onChange={e => setForm({ ...form, networkType: e.target.value })} placeholder="e.g. FIBER, RADIO, DIA" style={inp} />
+                    <input value={form.networkType} onChange={e => setForm({ ...form, networkType: e.target.value })} placeholder="FIBER / RADIO / DIA" style={inp} />
                   </div>
                   <div>
                     <label style={lbl}>PPPoE / RADIUS username</label>
@@ -304,82 +416,93 @@ export default function KycPage() {
                       {form.planName && !plans.some(p => p.name === form.planName) && <option value={form.planName}>{form.planName}</option>}
                     </select>
                   </div>
-                  <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-                    <button className="btn-outline" onClick={() => setEditing(false)}>Cancel</button>
-                    <button className="btn-primary" disabled={savingEdit} onClick={saveEdit}>
-                      {savingEdit ? 'Saving…' : 'Save Details'}
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                    <button className="btn-outline" onClick={() => setEditing(false)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><X size={13} strokeWidth={2} /> Cancel</button>
+                    <button className="btn-primary" disabled={savingEdit} onClick={saveEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      {savingEdit ? 'Saving…' : <><CheckCircle size={13} strokeWidth={2} /> Save</>}
                     </button>
                   </div>
                 </div>
               ) : (
                 <>
-                  {[
-                    ['Email', selected.email || '—'],
-                    ['Phone', selected.phone || '—'],
-                    ['Address', selected.address || '—'],
-                    ['Network', selected.networkType || '—'],
-                    ['Plan', selected.plan || '—'],
-                    ['PPPoE / RADIUS username', selected.pppoeUsername || '—'],
-                    ['Created by (maker)', selected.kycSubmittedByName || '—'],
-                    ['Submitted', selected.kycSubmittedAt ? new Date(selected.kycSubmittedAt).toLocaleString() : '—'],
-                  ].map(([label, value]) => (
-                    <div key={label} style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 10 }}>
-                      <label style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 2 }}>{label}</label>
-                      <p style={{ fontSize: '0.9rem', fontWeight: 500, margin: 0, wordBreak: 'break-word' }}>{value}</p>
-                    </div>
-                  ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    {[
+                      { icon: Mail, label: 'Email', value: selected.email || '—' },
+                      { icon: Phone, label: 'Phone', value: selected.phone || '—' },
+                      { icon: MapPin, label: 'Address', value: selected.address || '—', full: true },
+                      { icon: Wifi, label: 'Network', value: selected.networkType || '—' },
+                      { icon: Layers, label: 'Plan', value: `${selected.plan || '—'}${selected.speedMbps ? ` • ${selected.speedMbps} Mbps` : ''}` },
+                      { icon: UserCheck, label: 'Username', value: selected.pppoeUsername || '—', mono: true },
+                    ].map(item => {
+                      const Icon = item.icon as any;
+                      return (
+                        <div key={item.label} style={{ background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 12, padding: '10px 12px', gridColumn: (item as any).full ? '1 / -1' : undefined }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: '#94A3B8' }}><Icon size={11} strokeWidth={2} />{item.label}</div>
+                          <div style={{ fontSize: '0.84rem', fontWeight: 600, marginTop: 2, color: 'var(--text-dark)', wordBreak: 'break-word', fontFamily: (item as any).mono ? 'ui-monospace, monospace' : undefined }}>{item.value}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
 
-                  {selected.kycRejectReason && (
-                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 14px' }}>
-                      <label style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase', color: '#DC2626', fontWeight: 700, marginBottom: 2 }}>Rejection reason</label>
-                      <p style={{ fontSize: '0.85rem', margin: 0, color: '#991B1B' }}>{selected.kycRejectReason}</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ background: '#EFF6FF', border: '1px solid #DBEAFE', borderRadius: 12, padding: '10px 12px' }}>
+                      <div style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: '#1E40AF', display: 'flex', alignItems: 'center', gap: 4 }}><UserCheck size={11} strokeWidth={2} /> Maker</div>
+                      <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1E3060', marginTop: 2 }}>{selected.kycSubmittedByName || '—'}</div>
+                      <div style={{ fontSize: '0.68rem', color: '#64748B', fontWeight: 500 }}>{selected.kycSubmittedAt ? new Date(selected.kycSubmittedAt).toLocaleString() : timeAgo(selected.createdAt)}</div>
                     </div>
-                  )}
+                    <div style={{ background: selected.kycRejectedAt ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${selected.kycRejectedAt ? '#FECACA' : '#BBF7D0'}`, borderRadius: 12, padding: '10px 12px' }}>
+                      <div style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: selected.kycRejectedAt ? '#991B1B' : '#166534', display: 'flex', alignItems: 'center', gap: 4 }}>{selected.kycRejectedAt ? <><XCircle size={11} strokeWidth={2} /> Rejected</> : <><Clock size={11} strokeWidth={2} /> Status</>}</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: selected.kycRejectedAt ? '#7F1D1D' : '#14532D', marginTop: 2 }}>{selected.kycRejectedAt ? `Rejected ${timeAgo(selected.kycRejectedAt!)}` : 'Pending approval'}</div>
+                      {selected.kycRejectedAt && selected.kycRejectReason && <div style={{ fontSize: '0.72rem', color: '#991B1B', marginTop: 2 }}>{selected.kycRejectReason}</div>}
+                    </div>
+                  </div>
 
                   {showReject && (
-                    <div>
-                      <label style={lbl}>Reason (optional)</label>
+                    <div style={{ background: '#FFF7ED', border: '1px solid #FFE7D6', borderRadius: 14, padding: '12px 14px' }}>
+                      <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 5 }}><XCircle size={12} strokeWidth={2} color="#92400E" /> Reason (optional)</label>
                       <textarea
                         value={rejectReason}
                         onChange={e => setRejectReason(e.target.value)}
                         rows={3}
                         placeholder="e.g. ID document illegible"
-                        style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 12, fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+                        style={{ width: '100%', padding: '10px 12px', border: '1px solid #FDE68A', borderRadius: 10, fontSize: '0.84rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', background: '#fff' }}
                       />
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4, flexWrap: 'wrap' }}>
                     {showReject ? (
                       <>
-                        <button className="btn-outline" onClick={() => { setShowReject(false); setRejectReason(''); }}>Back</button>
-                        <button className="btn-primary" style={{ backgroundColor: '#DC2626' }} disabled={busyId === selected.id} onClick={() => reject(selected.id)}>
-                          {busyId === selected.id ? 'Rejecting…' : 'Confirm Reject'}
+                        <button className="btn-outline" onClick={() => { setShowReject(false); setRejectReason(''); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><X size={13} strokeWidth={2} /> Back</button>
+                        <button className="btn-primary" style={{ backgroundColor: '#DC2626', display: 'inline-flex', alignItems: 'center', gap: 5 }} disabled={busyId === selected.id} onClick={() => reject(selected.id)}>
+                          {busyId === selected.id ? 'Rejecting…' : <><XCircle size={13} strokeWidth={2} /> Confirm Reject</>}
                         </button>
                       </>
                     ) : (
                       <>
-                        <button className="btn-outline" onClick={() => openEdit(selected)}>Edit Details</button>
-                        <button className="btn-outline" style={{ borderColor: '#DC2626', color: '#DC2626' }} onClick={() => setShowReject(true)}>Reject</button>
+                        <button className="btn-outline" onClick={() => openEdit(selected)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Edit3 size={13} strokeWidth={2} /> Edit</button>
+                        <button className="btn-outline" style={{ borderColor: '#FECACA', color: '#DC2626', display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setShowReject(true)}><XCircle size={13} strokeWidth={2} /> Reject</button>
                         <button
                           className="btn-primary"
-                          style={!canSelfApprove && user?.id === selected.kycSubmittedById ? { background: '#E5E7EB', color: '#9CA3AF', cursor: 'not-allowed' } : { background: '#16A34A' }}
+                          style={!canSelfApprove && user?.id === selected.kycSubmittedById ? { background: '#F1F5F9', color: '#94A3B8', cursor: 'not-allowed', border: '1px solid #E2E8F0', display: 'inline-flex', alignItems: 'center', gap: 5 } : { background: 'linear-gradient(135deg,#16A34A 0%, #15803D 100%)', boxShadow: '0 4px 12px rgba(22,163,74,0.25)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                           disabled={busyId === selected.id || (!canSelfApprove && user?.id === selected.kycSubmittedById)}
-                          title={!canSelfApprove && user?.id === selected.kycSubmittedById ? 'Maker–checker: you created this account, another admin must approve it' : 'Approve this account'}
+                          title={!canSelfApprove && user?.id === selected.kycSubmittedById ? 'Maker–checker: you created this, another admin must approve' : 'Approve this account'}
                           onClick={() => approve(selected.id)}
                         >
-                          {busyId === selected.id ? 'Approving…' : 'Approve'}
+                          {busyId === selected.id ? 'Approving…' : <><CheckCircle size={14} strokeWidth={2} /> Approve</>}
                         </button>
                       </>
                     )}
                   </div>
+                  {!canSelfApprove && user?.id === selected.kycSubmittedById && !showReject && !editing && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, fontSize: '0.72rem', fontWeight: 600, color: '#92400E' }}><ShieldAlert size={12} strokeWidth={2} /> You’re the maker — ask another admin to approve.</div>
+                  )}
                 </>
               )}
             </div>
           </div>
         </div>
       )}
-      <ToastContainer toasts={toasts} />
     </>
   );
 }

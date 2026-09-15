@@ -10,10 +10,14 @@ export class CustomRolesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService) {}
 
-  async findAll() {
+  async findAll(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     return this.prisma.customRole.findMany({
       include: { permissions: true, _count: { select: { users: true } } },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 

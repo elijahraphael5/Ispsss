@@ -2,6 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import { api, useAuthStore } from '@isp/shared';
+import {
+  Users,
+  Shield,
+  Lock,
+  Rocket,
+  Building2,
+  Plug2,
+  Wrench,
+  FileText,
+  CreditCard,
+  Mail,
+  Settings2,
+} from 'lucide-react';
 import { useToast, ToastContainer } from '../../components/Toast';
 
 interface UserItem {
@@ -33,7 +46,7 @@ interface Permission {
 const MODULES = ['Dashboard', 'User Control', 'Customer', 'Package', 'Billing', 'Payments', 'Support', 'NOC', 'Notifications', 'Audit Logs', 'Owner', 'Settings'];
 const PERM_LABELS: Record<string, string> = { canView: 'View', canCreate: 'Create', canEdit: 'Edit', canDelete: 'Delete' };
 
-const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Installation', 'Billing Defaults', 'Payment Gateway', 'Email (Brevo)'];
+const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Integrations'];
 
 const fieldLabel: React.CSSProperties = { display: 'block', marginBottom: 5, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 };
 const fieldInput: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
@@ -70,6 +83,7 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
   const [tab, setTab] = useState('Admin Users');
+  const [integrationTab, setIntegrationTab] = useState<'Installation' | 'Billing Defaults' | 'Payment Gateway' | 'Email'>('Installation');
   const [users, setUsers] = useState<UserItem[]>([]);
   const [roles, setRoles] = useState<CustomRoleFull[]>([]);
   const [loading, setLoading] = useState(true);
@@ -613,138 +627,186 @@ export default function SettingsPage() {
             <strong>Only Company name is stored today</strong> (the <code>Tenant.name</code> column). The logo, contact and address fields have no database column yet — saving them is logged server-side and reported back, pending the deferred schema work.
           </p>
         </div>
-      ) : tab === 'Installation' ? (
-        <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Installation Fees</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>One-off fees charged when a customer is created — Fiber and Radio</div>
+      ) : tab === 'Integrations' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 860 }}>
+          <div className="data-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg,#FFF7ED 0%, #FFFFFF 60%, #EFF6FF 100%)', border: '1px solid #FFE7D6' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg,#F15925 0%, #FF8A4C 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+              <Plug2 size={18} strokeWidth={2} />
             </div>
-            <button className="btn-primary" disabled={savingSettings} onClick={saveInstallation}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: '0.95rem', color: 'var(--text-dark)', letterSpacing: '-0.2px' }}>Integrations</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 500 }}>Configure fees, billing and external services</div>
+            </div>
+            <span style={{ marginLeft: 'auto', fontSize: '0.66rem', fontWeight: 800, color: '#94A3B8', background: '#fff', border: '1px solid #E2E8F0', padding: '4px 9px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Settings2 size={12} strokeWidth={2} /> 4 services</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-            <div>
-              <label style={fieldLabel}>Fiber Installation Fee (₦)</label>
-              <input type="text" inputMode="decimal" value={installationForm.fiberFee} onChange={e => setInstallationForm(f => ({ ...f, fiberFee: e.target.value }))} placeholder="50000" style={fieldInput} />
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Applies when Network type is <b>Fiber</b></div>
-            </div>
-            <div>
-              <label style={fieldLabel}>Radio Installation Fee (₦)</label>
-              <input type="text" inputMode="decimal" value={installationForm.radioFee} onChange={e => setInstallationForm(f => ({ ...f, radioFee: e.target.value }))} placeholder="120000" style={fieldInput} />
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Applies when Network type is <b>Radio</b></div>
-            </div>
+
+          <div className="badge-tabs" style={{ width: 'fit-content', maxWidth: '100%', background: '#F8FAFC', border: '1px solid #F1F5F9', padding: 3 }}>
+            {[
+              { key: 'Installation' as const, label: 'Installation', icon: Wrench },
+              { key: 'Billing Defaults' as const, label: 'Billing', icon: FileText },
+              { key: 'Payment Gateway' as const, label: 'Paystack', icon: CreditCard },
+              { key: 'Email' as const, label: 'Email', icon: Mail },
+            ].map(s => {
+              const Icon = s.icon;
+              const active = integrationTab === s.key;
+              return (
+                <button key={s.key} onClick={() => setIntegrationTab(s.key)} className={`tab-item${active ? ' active' : ''}`} style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 700, fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                  <Icon size={13} strokeWidth={2} style={{ opacity: active ? 1 : 0.6 }} />
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
-          <div style={{ marginTop: 14, padding: '10px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, fontSize: '0.78rem', color: '#166534', lineHeight: 1.5 }}>
-            These fees are used as the default when creating a customer. Selecting <b>Fiber</b> auto-fills <b>₦{installationForm.fiberFee || '50000'}</b>, <b>Radio</b> auto-fills <b>₦{installationForm.radioFee || '120000'}</b> — you can still edit the fee per customer before saving. One-off only, not part of the plan.
-          </div>
-        </div>
-      ) : tab === 'Billing Defaults' ? (
-        <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Billing Defaults</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Applied to new invoices once persistence lands</div>
+
+          {integrationTab === 'Installation' && (
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: '#FFF7ED', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B' }}><Wrench size={16} strokeWidth={2} /></div>
+                  <div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-dark)' }}>Installation Fees</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>One-off fees by network type</div>
+                  </div>
+                </div>
+                <button className="btn-primary" disabled={savingSettings} onClick={saveInstallation}>{savingSettings ? 'Saving…' : 'Save'}</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                <div>
+                  <label style={fieldLabel}>Fiber Installation Fee (₦)</label>
+                  <input type="text" inputMode="decimal" value={installationForm.fiberFee} onChange={e => setInstallationForm(f => ({ ...f, fiberFee: e.target.value }))} placeholder="50000" style={fieldInput} />
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Applies when Network type is <b>Fiber</b></div>
+                </div>
+                <div>
+                  <label style={fieldLabel}>Radio Installation Fee (₦)</label>
+                  <input type="text" inputMode="decimal" value={installationForm.radioFee} onChange={e => setInstallationForm(f => ({ ...f, radioFee: e.target.value }))} placeholder="120000" style={fieldInput} />
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Applies when Network type is <b>Radio</b></div>
+                </div>
+              </div>
+              <div style={{ marginTop: 14, padding: '10px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, fontSize: '0.78rem', color: '#166534', lineHeight: 1.5 }}>
+                These fees are used as the default when creating a customer. Selecting <b>Fiber</b> auto-fills <b>₦{installationForm.fiberFee || '50000'}</b>, <b>Radio</b> auto-fills <b>₦{installationForm.radioFee || '120000'}</b> — you can still edit the fee per customer before saving. One-off only, not part of the plan.
+              </div>
             </div>
-            <button className="btn-primary" disabled={savingSettings} onClick={saveBilling}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-            <div>
-              <label style={fieldLabel}>VAT rate (%) <span style={pendingTag}>not applied</span></label>
-              <input type="number" step="0.5" min="0" max="100" value={billingForm.vatRate} onChange={e => setBillingForm(f => ({ ...f, vatRate: e.target.value }))} style={fieldInput} />
-            </div>
-            <div>
-              <label style={fieldLabel}>Invoice prefix <span style={pendingTag}>not applied</span></label>
-              <input value={billingForm.invoicePrefix} onChange={e => setBillingForm(f => ({ ...f, invoicePrefix: e.target.value }))} placeholder="INV" style={fieldInput} />
-            </div>
-          </div>
-          <p style={pendingNote}>
-            <strong>Not applied yet.</strong> VAT is currently hardcoded at 7.5% in the invoice generators (billing-service, payments-service, api jobs) and invoice numbering uses each service's own sequence. These fields have no <code>Tenant</code> columns yet — values are logged and reported back pending schema work.
-          </p>
-        </div>
-      ) : tab === 'Payment Gateway' ? (
-        <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Paystack</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Used by the payment service and the customer checkout</div>
-            </div>
-            <button className="btn-primary" disabled={savingSettings} onClick={savePaystack}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
-            <input type="checkbox" checked={paystackForm.enabled} onChange={e => setPaystackForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
-            Enable Paystack payments
-          </label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label style={fieldLabel}>Public key</label>
-              <input value={paystackForm.publicKey} onChange={e => setPaystackForm(f => ({ ...f, publicKey: e.target.value }))} placeholder="pk_live_…" style={fieldInput} />
-            </div>
-            <div>
-              <label style={fieldLabel}>
-                Secret key
-                {paystackSecretMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {paystackSecretMasked}</span>}
-              </label>
-              <input type="password" value={paystackForm.secretKey} onChange={e => setPaystackForm(f => ({ ...f, secretKey: e.target.value }))}
-                placeholder={paystackSecretMasked ? 'Leave blank to keep current' : 'sk_live_…'} autoComplete="new-password" style={fieldInput} />
-              <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Write-only: stored encrypted and never shown again after saving.
+          )}
+
+          {integrationTab === 'Billing Defaults' && (
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: '#EFF6FF', border: '1px solid #DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563EB' }}><FileText size={16} strokeWidth={2} /></div>
+                  <div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-dark)' }}>Billing Defaults</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>Applied to new invoices once persistence lands</div>
+                  </div>
+                </div>
+                <button className="btn-primary" disabled={savingSettings} onClick={saveBilling}>{savingSettings ? 'Saving…' : 'Save'}</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                <div>
+                  <label style={fieldLabel}>VAT rate (%) <span style={pendingTag}>not applied</span></label>
+                  <input type="number" step="0.5" min="0" max="100" value={billingForm.vatRate} onChange={e => setBillingForm(f => ({ ...f, vatRate: e.target.value }))} style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>Invoice prefix <span style={pendingTag}>not applied</span></label>
+                  <input value={billingForm.invoicePrefix} onChange={e => setBillingForm(f => ({ ...f, invoicePrefix: e.target.value }))} placeholder="INV" style={fieldInput} />
+                </div>
+              </div>
+              <p style={pendingNote}>
+                <strong>Not applied yet.</strong> VAT is currently hardcoded at 7.5% in the invoice generators (billing-service, payments-service, api jobs) and invoice numbering uses each service's own sequence. These fields have no <code>Tenant</code> columns yet — values are logged and reported back pending schema work.
               </p>
             </div>
-          </div>
-          <p style={{ marginTop: 16, fontSize: '0.78rem', color: '#1D4ED8', background: '#EFF6FF', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 }}>
-            When enabled, these keys replace the <code>PAYSTACK_*</code> environment variables at runtime for the payment service and customer checkout.
-            Production requires a <code>CREDENTIALS_ENCRYPTION_KEY</code> env var to encrypt/decrypt the secret.
-          </p>
-        </div>
-      ) : tab === 'Email (Brevo)' ? (
-        <div className="data-card" style={{ padding: 20, maxWidth: 720 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Brevo SMTP</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Outgoing mail for invoices, receipts and customer notifications</div>
-            </div>
-            <button className="btn-primary" disabled={savingSettings} onClick={saveEmail}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
-            <input type="checkbox" checked={emailForm.enabled} onChange={e => setEmailForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
-            Use these SMTP settings
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-            <div>
-              <label style={fieldLabel}>SMTP host</label>
-              <input value={emailForm.host} onChange={e => setEmailForm(f => ({ ...f, host: e.target.value }))} placeholder="smtp-relay.brevo.com" style={fieldInput} />
-            </div>
-            <div>
-              <label style={fieldLabel}>Port</label>
-              <input type="number" min="1" max="65535" value={emailForm.port} onChange={e => setEmailForm(f => ({ ...f, port: e.target.value }))} placeholder="465" style={fieldInput} />
-            </div>
-            <div>
-              <label style={fieldLabel}>SMTP username</label>
-              <input value={emailForm.user} onChange={e => setEmailForm(f => ({ ...f, user: e.target.value }))} placeholder="you@smtp-brevo.com" style={fieldInput} />
-            </div>
-            <div>
-              <label style={fieldLabel}>
-                SMTP password
-                {emailPassMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {emailPassMasked}</span>}
+          )}
+
+          {integrationTab === 'Payment Gateway' && (
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16A34A' }}><CreditCard size={16} strokeWidth={2} /></div>
+                  <div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-dark)' }}>Paystack</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>Payment service and customer checkout</div>
+                  </div>
+                </div>
+                <button className="btn-primary" disabled={savingSettings} onClick={savePaystack}>{savingSettings ? 'Saving…' : 'Save'}</button>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+                <input type="checkbox" checked={paystackForm.enabled} onChange={e => setPaystackForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                Enable Paystack payments
               </label>
-              <input type="password" value={emailForm.pass} onChange={e => setEmailForm(f => ({ ...f, pass: e.target.value }))}
-                placeholder={emailPassMasked ? 'Leave blank to keep current' : 'Brevo SMTP key'} autoComplete="new-password" style={fieldInput} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={fieldLabel}>Public key</label>
+                  <input value={paystackForm.publicKey} onChange={e => setPaystackForm(f => ({ ...f, publicKey: e.target.value }))} placeholder="pk_live_…" style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>
+                    Secret key
+                    {paystackSecretMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {paystackSecretMasked}</span>}
+                  </label>
+                  <input type="password" value={paystackForm.secretKey} onChange={e => setPaystackForm(f => ({ ...f, secretKey: e.target.value }))}
+                    placeholder={paystackSecretMasked ? 'Leave blank to keep current' : 'sk_live_…'} autoComplete="new-password" style={fieldInput} />
+                  <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Write-only: stored encrypted and never shown again after saving.</p>
+                </div>
+              </div>
+              <p style={{ marginTop: 16, fontSize: '0.78rem', color: '#1D4ED8', background: '#EFF6FF', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 }}>
+                When enabled, these keys replace the <code>PAYSTACK_*</code> environment variables at runtime for the payment service and customer checkout.
+                Production requires a <code>CREDENTIALS_ENCRYPTION_KEY</code> env var to encrypt/decrypt the secret.
+              </p>
             </div>
-            <div>
-              <label style={fieldLabel}>From email</label>
-              <input value={emailForm.fromEmail} onChange={e => setEmailForm(f => ({ ...f, fromEmail: e.target.value }))} placeholder="noreply@example.com" style={fieldInput} />
+          )}
+
+          {integrationTab === 'Email' && (
+            <div className="data-card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: '#FFF7ED', border: '1px solid #FFE7D6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EA580C' }}><Mail size={16} strokeWidth={2} /></div>
+                  <div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-dark)' }}>Brevo SMTP</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>Invoices, receipts and notifications</div>
+                  </div>
+                </div>
+                <button className="btn-primary" disabled={savingSettings} onClick={saveEmail}>{savingSettings ? 'Saving…' : 'Save'}</button>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+                <input type="checkbox" checked={emailForm.enabled} onChange={e => setEmailForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                Use these SMTP settings
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                <div>
+                  <label style={fieldLabel}>SMTP host</label>
+                  <input value={emailForm.host} onChange={e => setEmailForm(f => ({ ...f, host: e.target.value }))} placeholder="smtp-relay.brevo.com" style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>Port</label>
+                  <input type="number" min="1" max="65535" value={emailForm.port} onChange={e => setEmailForm(f => ({ ...f, port: e.target.value }))} placeholder="465" style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>SMTP username</label>
+                  <input value={emailForm.user} onChange={e => setEmailForm(f => ({ ...f, user: e.target.value }))} placeholder="you@smtp-brevo.com" style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>
+                    SMTP password
+                    {emailPassMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {emailPassMasked}</span>}
+                  </label>
+                  <input type="password" value={emailForm.pass} onChange={e => setEmailForm(f => ({ ...f, pass: e.target.value }))}
+                    placeholder={emailPassMasked ? 'Leave blank to keep current' : 'Brevo SMTP key'} autoComplete="new-password" style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>From email</label>
+                  <input value={emailForm.fromEmail} onChange={e => setEmailForm(f => ({ ...f, fromEmail: e.target.value }))} placeholder="noreply@example.com" style={fieldInput} />
+                </div>
+                <div>
+                  <label style={fieldLabel}>From name</label>
+                  <input value={emailForm.fromName} onChange={e => setEmailForm(f => ({ ...f, fromName: e.target.value }))} placeholder="Hi-Konnect Networks" style={fieldInput} />
+                </div>
+              </div>
+              <p style={{ marginTop: 16, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                Password is write-only and stored encrypted. When enabled, these settings override the <code>SMTP_*</code> environment variables for all outgoing mail.
+                Use port <strong>465</strong> (TLS) — port 587 is blocked on the server.
+              </p>
             </div>
-            <div>
-              <label style={fieldLabel}>From name</label>
-              <input value={emailForm.fromName} onChange={e => setEmailForm(f => ({ ...f, fromName: e.target.value }))} placeholder="Hi-Konnect Networks" style={fieldInput} />
-            </div>
-          </div>
-          <p style={{ marginTop: 16, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
-            Password is write-only and stored encrypted. When enabled, these settings override the <code>SMTP_*</code> environment variables for all outgoing mail.
-            Use port <strong>465</strong> (TLS) — port 587 is blocked on the server.
-          </p>
-        </div>
-      ) : (
+          )}
+        </div>      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>
           <div className="data-card" style={{ padding: 20 }}>
             <h3 style={{ fontSize: '0.95rem', marginBottom: 6 }}>Launch Customer Logins</h3>

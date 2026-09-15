@@ -25,6 +25,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",
+    "lucide-react": "^1.46.0",
     "motion": "^12.42.2",
     "next": "15.0.0",
     "react": "^18.3.0",

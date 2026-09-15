@@ -113,7 +113,7 @@ export class SupportService {
     });
   }
 
-  async listSessions(actor: Actor, scope?: string) {
+  async listSessions(actor: Actor, scope?: string, pagination?: { skip?: number; take?: number }) {
     const where: any = {};
     if (scope === 'queue') {
       where.status = 'WAITING';
@@ -126,36 +126,47 @@ export class SupportService {
       where.status = 'CLOSED';
     }
 
+    // Pagination: default 50, max 100
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const sessions = await this.prisma.chatSession.findMany({
       where,
       include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
       orderBy: { updatedAt: 'desc' },
+      skip,
+      take,
     });
 
-    const rows = await Promise.all(
-      sessions.map(async (s) => {
-        const unread = await this.prisma.chatMessage.count({
-          where: { sessionId: s.id, senderType: 'CUSTOMER', readAt: null },
-        });
-        const last = (s as any).messages?.[0] ?? null;
-        return {
-          id: s.id,
-          customerName: s.customerName,
-          customerEmail: s.customerEmail,
-          status: s.status,
-          department: s.department,
-          agentId: s.agentId,
-          csat: s.csat,
-          createdAt: s.createdAt,
-          updatedAt: s.updatedAt,
-          closedAt: s.closedAt,
-          lastMessage: last
-            ? { body: last.body, senderType: last.senderType, createdAt: last.createdAt }
-            : null,
-          unreadCount: unread,
-        };
-      }));
-    return rows;
+    // N+1 fix: single groupBy for unread counts instead of count per session
+    const ids = sessions.map((s) => s.id);
+    const unreadGroups = ids.length
+      ? await this.prisma.chatMessage.groupBy({
+          by: ['sessionId'],
+          where: { sessionId: { in: ids }, senderType: 'CUSTOMER', readAt: null },
+          _count: { id: true },
+        })
+      : [];
+    const unreadMap = new Map<string, number>(unreadGroups.map((g) => [g.sessionId, g._count.id]));
+
+    return sessions.map((s) => {
+      const last = (s as any).messages?.[0] ?? null;
+      return {
+        id: s.id,
+        customerName: s.customerName,
+        customerEmail: s.customerEmail,
+        status: s.status,
+        department: s.department,
+        agentId: s.agentId,
+        csat: s.csat,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        closedAt: s.closedAt,
+        lastMessage: last
+          ? { body: last.body, senderType: last.senderType, createdAt: last.createdAt }
+          : null,
+        unreadCount: unreadMap.get(s.id) ?? 0,
+      };
+    });
   }
 
   async getSession(id: string, actor?: Actor) {
@@ -470,8 +481,10 @@ export class SupportService {
 
   // ─────────────────────────── Canned responses ───────────────────────────
 
-  async listCanned() {
-    return this.prisma.cannedResponse.findMany({ orderBy: { category: 'asc' } });
+  async listCanned(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
+    return this.prisma.cannedResponse.findMany({ orderBy: { category: 'asc' }, skip, take });
   }
 
   async createCanned(data: { title: string; body: string; category?: string }) {
@@ -495,7 +508,7 @@ export class SupportService {
 
   // ─────────────────────────── Tickets ───────────────────────────
 
-  async listTickets(params: { status?: string; priority?: string; search?: string }) {
+  async listTickets(params: { status?: string; priority?: string; search?: string; skip?: number; take?: number }) {
     const where: any = {};
     if (params.status) where.status = params.status;
     if (params.priority) where.priority = params.priority;
@@ -506,6 +519,8 @@ export class SupportService {
         { subscriber: { user: { phone: { contains: params.search, mode: 'insensitive' } } } },
       ];
     }
+    const take = Math.min(Math.max(params.take ?? 50, 1), 100);
+    const skip = Math.max(params.skip ?? 0, 0);
     return this.prisma.ticket.findMany({
       where,
       include: {
@@ -514,6 +529,8 @@ export class SupportService {
         _count: { select: { comments: true } },
       },
       orderBy: { updatedAt: 'desc' },
+      skip,
+      take,
     });
   }
 
@@ -833,7 +850,7 @@ export class SupportService {
 
   // ─────────────────────────── History ───────────────────────────
 
-  async history(params: { search?: string; agentId?: string; status?: string; from?: string; to?: string }) {
+  async history(params: { search?: string; agentId?: string; status?: string; from?: string; to?: string; skip?: number; take?: number }) {
     const where: any = {};
     if (params.agentId) where.agentId = params.agentId;
     if (params.status) where.status = params.status;
@@ -849,6 +866,8 @@ export class SupportService {
         lte: params.to ? new Date(params.to) : undefined,
       };
     }
+    const take = Math.min(Math.max(params.take ?? 50, 1), 100);
+    const skip = Math.max(params.skip ?? 0, 0);
     return this.prisma.chatSession.findMany({
       where,
       include: {
@@ -857,7 +876,8 @@ export class SupportService {
         _count: { select: { messages: true } },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 200,
+      skip,
+      take,
     });
   }
 
@@ -875,13 +895,34 @@ export class SupportService {
     }
 
     const agents = await this.listAgents();
+    const agentIds = agents.map((a) => a.id);
+    // Single fetch for all sessions + one groupBy for tickets instead of N+1 per-agent queries
+    const [allSessions, ticketGroups] = await Promise.all([
+      agentIds.length
+        ? this.prisma.chatSession.findMany({
+            where: { agentId: { in: agentIds }, createdAt: { gte: since } },
+            select: { id: true, status: true, firstResponseAt: true, closedAt: true, createdAt: true, csat: true, agentId: true },
+          })
+        : Promise.resolve([] as any[]),
+      agentIds.length
+        ? this.prisma.ticket.groupBy({
+            by: ['assignedAgentId'],
+            where: { assignedAgentId: { in: agentIds }, status: { in: ['RESOLVED', 'CLOSED'] }, updatedAt: { gte: since } },
+            _count: { id: true },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+    const sessionsByAgent = new Map<string, typeof allSessions>();
+    for (const s of allSessions) {
+      const arr = sessionsByAgent.get(s.agentId) ?? [];
+      arr.push(s);
+      sessionsByAgent.set(s.agentId, arr);
+    }
+    const ticketMap = new Map<string, number>(ticketGroups.map((g: any) => [g.assignedAgentId, g._count.id]));
     const rows = [];
 
     for (const agent of agents) {
-      const sessions = await this.prisma.chatSession.findMany({
-        where: { agentId: agent.id, createdAt: { gte: since } },
-        select: { id: true, status: true, firstResponseAt: true, closedAt: true, createdAt: true, csat: true },
-      });
+      const sessions = sessionsByAgent.get(agent.id) ?? [];
 
       const handled = sessions.length;
       const closed = sessions.filter((s) => s.status === 'CLOSED');
@@ -894,9 +935,7 @@ export class SupportService {
         .map((s) => s.closedAt!.getTime() - s.createdAt.getTime());
       const csats = sessions.filter((s) => s.csat !== null).map((s) => s.csat as number);
 
-      const ticketsResolved = await this.prisma.ticket.count({
-        where: { assignedAgentId: agent.id, status: { in: ['RESOLVED', 'CLOSED'] }, updatedAt: { gte: since } },
-      });
+      const ticketsResolved = ticketMap.get(agent.id) ?? 0;
 
       rows.push({
         agentId: agent.id,

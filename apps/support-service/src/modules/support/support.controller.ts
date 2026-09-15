@@ -33,8 +33,8 @@ export class SupportController {
   ) {}
 
   @Get('sessions')
-  listSessions(@Req() req: any, @Query('scope') scope?: string) {
-    return this.service.listSessions(req.user, scope);
+  listSessions(@Req() req: any, @Query('scope') scope?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listSessions(req.user, scope, { skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('sessions/:id')
@@ -98,8 +98,8 @@ export class SupportController {
   }
 
   @Get('canned')
-  listCanned() {
-    return this.service.listCanned();
+  listCanned(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listCanned({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Post('canned')
@@ -125,8 +125,10 @@ export class SupportController {
     @Query('status') status?: string,
     @Query('priority') priority?: string,
     @Query('search') search?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
   ) {
-    return this.service.listTickets({ status, priority, search });
+    return this.service.listTickets({ status, priority, search, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('tickets/:id')
@@ -179,7 +181,9 @@ export class SupportController {
     @Query('status') status?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
   ) {
-    return this.service.history({ search, agentId, status, from, to });
+    return this.service.history({ search, agentId, status, from, to, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 }

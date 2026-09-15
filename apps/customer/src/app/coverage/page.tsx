@@ -5,14 +5,16 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useAuthStore, api } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from '../components/Skeleton';
-import { CoverageArea, ZONE_LABELS as STATIC_ZONE_LABELS, STATUS_COLORS, STATUS_LABELS, TECH_LABELS, TECH_COLORS } from '../components/coverage-data';
+import { CoverageArea, STATUS_COLORS, STATUS_LABELS, TECH_LABELS, TECH_COLORS } from '../components/coverage-data';
 
 const CoverageMap = dynamic(() => import('../components/CoverageMap'), {
   ssr: false,
   loading: () => <div style={{ height: 460, borderRadius: 16, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading map…</div>,
 });
 
-const FALLBACK_ZONES = ['LAGOS_MAINLAND', 'LAGOS_ISLAND', 'IKORODU', 'OTHER'];
+function formatZoneLabel(slug: string): string {
+  return slug.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
 const STATUSES = ['COVERED', 'IN_PROGRESS', 'PLANNED'];
 const TECHS = ['FIBER', 'RADIO'] as const;
 interface CoverageZone { id: string; slug: string; label: string }
@@ -31,13 +33,12 @@ export default function CoveragePage() {
   const [techFilter, setTechFilter] = useState<(typeof TECHS)[number]>('FIBER');
   const [focus, setFocus] = useState<{ lat: number; lng: number } | null>(null);
   const ZONE_LABELS: Record<string, string> = (() => {
-    const m: Record<string, string> = { ...STATIC_ZONE_LABELS };
+    const m: Record<string, string> = {};
     for (const z of zones) m[z.slug] = z.label;
+    for (const a of areas) if (a.zone && !m[a.zone]) m[a.zone] = formatZoneLabel(a.zone);
     return m;
   })();
-  const ZONES = zones.length
-    ? zones.map((z) => z.slug)
-    : (areas.length ? Array.from(new Set(areas.map((a) => a.zone))).sort((a, b) => (ZONE_LABELS[a] ?? a).localeCompare(ZONE_LABELS[b] ?? b)) : FALLBACK_ZONES);
+  const ZONES = zones.length ? zones.map((z) => z.slug) : Array.from(new Set(areas.map((a) => a.zone).filter(Boolean) as string[])).sort((a, b) => (ZONE_LABELS[a] ?? a).localeCompare(ZONE_LABELS[b] ?? b));
 
   useEffect(() => {
     if (!accessToken) {

@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, ConflictException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { BillingService } from '../billing/billing.service';
 import { AuditService } from '../audit-logs/audit.service';
@@ -6,6 +6,7 @@ import { MailService } from '../mail/mail.service';
 import { PaystackProvider } from './providers/paystack.provider';
 import { GatewayConfigService } from './gateway-config.service';
 import { RadiusClientService } from '../radius/radius-client.service';
+import { CacheService } from '../../common/cache/cache.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class PaymentsService {
     private readonly radius: RadiusClientService,
     private readonly mail: MailService,
     private readonly gatewayKeys: GatewayConfigService,
+    @Optional() private readonly cache?: CacheService,
   ) {}
 
   private async notifyRadiusActivation(invoiceId: string): Promise<void> {
@@ -41,6 +43,9 @@ export class PaymentsService {
   // ── Dashboard ──────────────────────────────────────────────
 
   async getDashboard() {
+    const cacheKey = 'payments:dashboard';
+    const cached = this.cache ? await this.cache.get<any>(cacheKey).catch(() => null) : null;
+    if (cached) return cached;
     const now = new Date();
     const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay());
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -61,7 +66,7 @@ export class PaymentsService {
     const statusMap: Record<string, { count: number; amount: number }> = {};
     for (const row of statusCounts) statusMap[row.status] = { count: row._count.id, amount: row._sum.amountKobo ?? 0 };
 
-    return {
+    const result = {
       revenueToday: revenueToday._sum.amountKobo ?? 0,
       revenueThisWeek: revenueWeek._sum.amountKobo ?? 0,
       revenueThisMonth: revenueMonth._sum.amountKobo ?? 0,
@@ -77,11 +82,13 @@ export class PaymentsService {
         count: g._count.id,
       })),
     };
+    if (this.cache) await this.cache.set(cacheKey, result, 30).catch(() => {});
+    return result;
   }
 
   // ── List / Find ────────────────────────────────────────────
 
-  async findAll(filters?: { status?: string; provider?: string; search?: string; limit?: number }) {
+  async findAll(filters?: { status?: string; provider?: string; search?: string; limit?: number; skip?: number; take?: number }) {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
     if (filters?.provider) where.provider = filters.provider;
@@ -92,6 +99,8 @@ export class PaymentsService {
         { invoice: { invoiceNumber: { contains: filters.search, mode: 'insensitive' } } },
       ];
     }
+    const take = Math.min(Math.max(filters?.take ?? filters?.limit ?? 50, 1), 100);
+    const skip = Math.max(filters?.skip ?? 0, 0);
     return this.prisma.payment.findMany({
       where,
       include: {
@@ -99,7 +108,8 @@ export class PaymentsService {
         refunds: true,
       },
       orderBy: { createdAt: 'desc' },
-      take: filters?.limit,
+      skip,
+      take,
     });
   }
 
@@ -644,13 +654,17 @@ export class PaymentsService {
     return `RFN-${year}-${String(seq).padStart(6, '0')}`;
   }
 
-  async listRefunds(filters?: { status?: string }) {
+  async listRefunds(filters?: { status?: string; skip?: number; take?: number }) {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
+    const take = Math.min(Math.max(filters?.take ?? 50, 1), 100);
+    const skip = Math.max(filters?.skip ?? 0, 0);
     return this.prisma.refund.findMany({
       where,
       include: { payment: { select: { reference: true, amountKobo: true, invoice: { select: { invoiceNumber: true } } } } },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 

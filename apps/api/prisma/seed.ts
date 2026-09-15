@@ -330,9 +330,9 @@ async function main() {
 
   const subscribers: any[] = [];
   for (const c of customers) {
-    const existing = await prisma.user.findUnique({ where: { email: c.email } });
+    const existing = await prisma.user.findFirst({ where: { email: c.email } });
     if (existing) {
-      const sub = await prisma.subscriber.findUnique({ where: { userId: existing.id } });
+      const sub = await prisma.subscriber.findFirst({ where: { userId: existing.id } });
       if (sub) { subscribers.push(sub); continue; }
       const newSub = await prisma.subscriber.create({
         data: {

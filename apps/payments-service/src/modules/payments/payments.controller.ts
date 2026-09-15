@@ -25,16 +25,16 @@ export class PaymentsController {
 
   @Get()
   @Roles('BILLING_OFFICER', 'CEO', 'OPERATIONS_MANAGER', 'CUSTOMER_SUPPORT', 'SUPER_ADMIN')
-  findAll(@Query('status') status?: string, @Query('provider') provider?: string, @Query('search') search?: string, @Query('limit') limit?: string) {
-    return this.service.findAll({ status, provider, search, limit: limit ? parseInt(limit, 10) : undefined });
+  findAll(@Query('status') status?: string, @Query('provider') provider?: string, @Query('search') search?: string, @Query('limit') limit?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.findAll({ status, provider, search, limit: limit ? parseInt(limit, 10) : undefined, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   // ── Refunds ────────────────────────────────────────────────
 
   @Get('refunds')
   @Roles('BILLING_OFFICER', 'CEO', 'FINANCE_MANAGER', 'SUPER_ADMIN')
-  listRefunds(@Query('status') status?: string) {
-    return this.service.listRefunds({ status });
+  listRefunds(@Query('status') status?: string, @Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.service.listRefunds({ status, skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
   @Get('reconciliation')

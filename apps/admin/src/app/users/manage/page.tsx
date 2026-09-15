@@ -25,7 +25,7 @@ interface ImportJob {
   error?: string;
 }
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 30;
 
 interface RosSubscriber {
   id: string;
@@ -87,14 +87,23 @@ interface Customer {
   name: string | null;
   email: string | null;
   phone: string | null;
+  secondaryPhone?: string | null;
   address: string | null;
   status: string | null;
   networkType: string | null;
+  staticIpAddress?: string | null;
+  stationLabel?: string | null;
+  legacyId?: string | null;
+  id2?: string | null;
+  hikonnectId?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  companyName?: string | null;
   plan: string | null;
   dueAt: string | null;
   dueAmountKobo: number | null;
   dueStatus: string | null;
-  cpes: { id: string; name: string | null; ipAddress: string | null; status: string; connectionType: string; installerName: string | null }[];
+  cpes: { id: string; name: string | null; ipAddress: string | null; status: string; connectionType: string; installerName: string | null; needsMacAddress?: boolean; ipConflict?: boolean }[];
   pppoeUsername?: string | null;
 }
 
@@ -201,14 +210,21 @@ export default function CustomerPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [createForm, setCreateForm] = useState({
-    name: '', email: '', phone: '', address: '',
+    // 16 sheet columns mapped
+    legacyId: '', id2: '',
+    firstName: '', lastName: '', companyName: '',
+    name: '', email: '', phone: '', secondaryPhone: '', stationLabel: '', address: '',
     planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '',
-    expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true,
+    startDate: '', expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true,
   });
 
   async function handleCreateCustomer() {
     const f = createForm;
-    if (!f.name.trim() || !f.email.trim()) { setCreateError('Name and email are required'); return; }
+    // Name can be derived from FIRST/LAST/COMPANY if name field is blank — matches sheet logic
+    const derivedName = f.name.trim() || [f.firstName.trim(), f.lastName.trim()].filter(Boolean).join(' ') || f.companyName.trim() || f.legacyId.trim() || f.email.trim().split('@')[0];
+    if (!derivedName || !f.email.trim()) { setCreateError('Name (or First/Last/Company) and email are required'); return; }
+    // USER TYPE from sheet: RADIO, FIBER HOTSPOT, FIBER PPPOE — map admin UI values accordingly
+    const rawUserType = f.networkType === 'FIBER HOTSPOT' || f.networkType === 'FIBER PPPOE' ? f.networkType : f.networkType === 'PPPOE' || f.networkType === 'STATIC_IP' ? undefined : f.networkType;
     setCreating(true);
     setCreateError('');
     setCreateSuccess('');
@@ -216,11 +232,31 @@ export default function CustomerPage() {
       const password = f.portalPassword || Math.random().toString(36).slice(2, 10);
       const user = await api<{ id: string }>('/users', {
         method: 'POST',
-        body: JSON.stringify({ email: f.email.trim().toLowerCase(), password, name: f.name.trim(), phone: f.phone.trim() || undefined }),
+        body: JSON.stringify({
+          email: f.email.trim().toLowerCase(),
+          password,
+          name: derivedName,
+          phone: f.phone.trim() || undefined,
+          secondaryPhone: f.secondaryPhone.trim() || undefined,
+        }),
       });
       const sub = await api<{ id: string }>('/subscriptions', {
         method: 'POST',
-        body: JSON.stringify({ userId: user.id, type: 'RESIDENTIAL', address: f.address.trim() || undefined, pppoeUsername: f.pppoeUsername.trim() || undefined, networkType: f.networkType === 'PPPOE' || f.networkType === 'STATIC_IP' ? undefined : f.networkType }),
+        body: JSON.stringify({
+          userId: user.id,
+          type: 'RESIDENTIAL',
+          address: f.address.trim() || undefined,
+          pppoeUsername: f.pppoeUsername.trim() || undefined,
+          networkType: rawUserType,
+          // 16 sheet columns — full import alignment for manual creation
+          legacyId: f.legacyId.trim() || undefined,
+          id2: f.id2.trim() || undefined,
+          firstName: f.firstName.trim() || undefined,
+          lastName: f.lastName.trim() || undefined,
+          companyName: f.companyName.trim() || undefined,
+          stationLabel: f.stationLabel.trim() || undefined,
+          staticIpAddress: f.ipAddress.trim() || undefined,
+        }),
       });
       if (f.planId) {
         await api(`/subscriptions/${sub.id}/subscriptions`, {
@@ -228,6 +264,7 @@ export default function CustomerPage() {
           body: JSON.stringify({
             planId: f.planId,
             autoRenew: true,
+            ...(f.startDate ? { startedAt: new Date(f.startDate).toISOString() } : {}),
             expiresAt: f.expiry ? new Date(f.expiry).toISOString() : new Date(Date.now() + 30 * 86400000).toISOString(),
             ...(f.includeInstallation && f.fee ? { installationFeeKobo: Math.round(parseFloat(f.fee) * 100) } : {}),
           }),
@@ -267,7 +304,7 @@ export default function CustomerPage() {
       const settled = await Promise.allSettled(followUps.map(x => x.run));
       const failed = settled.flatMap((r, i) => (r.status === 'rejected' ? [followUps[i].label] : []));
       setShowCreate(false);
-      setCreateForm({ name: '', email: '', phone: '', address: '', planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '', expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true });
+      setCreateForm({ legacyId: '', id2: '', firstName: '', lastName: '', companyName: '', name: '', email: '', phone: '', secondaryPhone: '', stationLabel: '', address: '', planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '', startDate: '', expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true });
       setCreateSuccess(
         failed.length
           ? `Customer created, but ${failed.join(' and ')} failed — open the customer from the KYC tab to retry.`
@@ -549,7 +586,7 @@ export default function CustomerPage() {
         .then(c => setStaticConns((c.connections ?? []).filter(x => x.type === 'STATIC_IP')))
         .catch(() => {});
       void api<any[]>('/router-health').then(setRouterHealth).catch(() => {});
-      void api<Customer[]>('/users/customers').then(setCustomers).catch(() => {});
+      void api<Customer[]>('/users/customers?take=1000').then(setCustomers).catch(() => {});
       void api<any[]>('/subscriptions/plans').then(setPlans).catch(() => {});
       void api<any>('/tenant/settings').then(t => {
         if (t?.installation) setInstallFees({ fiber: t.installation.fiberFeeKobo ?? 5000000, radio: t.installation.radioFeeKobo ?? 12000000 });
@@ -674,81 +711,84 @@ export default function CustomerPage() {
 
   return (
     <>
-      <div className="page-title-row">
-        <div>
-          <h1 className="page-title">Customers</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
-            {filteredRows.length} of {allRows.length} shown &middot; {allRows.filter(r => r._type === 'PPPOE' && (r.isOnline || r.active)).length} PPPoE active
-            {cached && (
-              <span style={{ marginLeft: 6, fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 10, backgroundColor: '#F59E0B18', color: '#B45309' }}>
-                cached · {timeAgo(subscribers[0]?.capturedAt)}
-              </span>
-            )}
-            {staleDevice && (
-              <span title={`Last seen ${staleDevice.lastSeenAt}`} style={{ marginLeft: 6, fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 10, backgroundColor: '#F1592518', color: '#B33A1D' }}>
-                stale · {timeAgo(staleDevice.lastSeenAt)}
-              </span>
-            )}
-            &middot; {allRows.filter(r => r._type === 'STATIC_IP' && matchCustomer(r)?.status === 'ACTIVE').length} Static IP active
-          </p>
+      <div className="page-title-row" style={{ alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg, #F15925 0%, #EA580C 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: '0 4px 12px rgba(241,89,37,0.25)', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div>
+            <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>Customers <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '3px 8px', borderRadius: 20, background: '#F1F5F9', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>{allRows.length}</span></h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.84rem', marginTop: 3, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span>{filteredRows.length} of {allRows.length} shown</span>
+              <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1' }} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16A34A' }} />{allRows.filter(r => r._type === 'PPPOE' && (r.isOnline || r.active)).length} PPPoE</span>
+              <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1' }} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: '#F15925' }} />{allRows.filter(r => r._type === 'STATIC_IP' && matchCustomer(r)?.status === 'ACTIVE').length} Static</span>
+              {cached && <span style={{ fontSize: '0.66rem', fontWeight: 700, padding: '2px 8px', borderRadius: 10, backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}>cached · {timeAgo(subscribers[0]?.capturedAt)}</span>}
+              {staleDevice && <span title={`Last seen ${staleDevice.lastSeenAt}`} style={{ fontSize: '0.66rem', fontWeight: 700, padding: '2px 8px', borderRadius: 10, backgroundColor: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA' }}>stale · {timeAgo(staleDevice.lastSeenAt)}</span>}
+            </p>
+          </div>
         </div>
-        <button className="btn-primary" onClick={() => { setCreateError(''); setShowCreate(true); }}>
-          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <button className="btn-primary" onClick={() => { setCreateError(''); setShowCreate(true); }} style={{ boxShadow: '0 4px 12px rgba(241,89,37,0.2)', padding: '10px 18px' }}>
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           New Customer
         </button>
       </div>
 
-      <div className="data-card" style={{ marginBottom: 16 }}>
-        <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div className="badge-tabs">
+      <div className="data-card" style={{ marginBottom: 16, overflow: 'hidden', borderTop: '3px solid #F15925' }}>
+        <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'linear-gradient(180deg, #FFF 0%, #F8FAFC 100%)' }}>
+          <div className="badge-tabs" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
             {(['All', 'Active', 'Non Active'] as const).map(f => (
               <button key={f} onClick={() => { setFilter(f); setPage(0); }}
                 className={`tab-item${filter === f ? ' active' : ''}`}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}>
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 700, transition: 'all 0.15s' }}>
                 {f}
               </button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="btn-sm-outline" onClick={() => load()} disabled={loading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: loading ? '#F1F5F9' : '#fff' }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               {loading ? 'Loading…' : 'Refresh'}
             </button>
             <button className="btn-sm-outline" onClick={() => { setImportResult(null); setImportError(''); setImportFile(null); setShowImport(true); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderColor: '#E2E8F0' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Import Excel
+              Import
             </button>
             <button className="btn-sm-outline" onClick={() => { setPurgeConfirmText(''); setShowPurge(true); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', color: '#DC2626', borderColor: '#FCA5A5' }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', color: '#DC2626', borderColor: '#FECACA', background: '#FFFBFB' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Purge
             </button>
             <button className="btn-sm" onClick={() => setDeleteOpen(true)} disabled={selectedKeys.size === 0}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: selectedKeys.size ? '#DC2626' : '#CBD5E1', cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 0.8 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: selectedKeys.size ? '#DC2626' : '#E2E8F0', cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 0.75, boxShadow: selectedKeys.size ? '0 2px 8px rgba(220,38,38,0.2)' : 'none' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Delete{selectedKeys.size ? ` (${selectedKeys.size})` : ''}
             </button>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, padding: '0 18px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="search-box" style={{ flex: '1 1 260px', width: 'auto' }}>
+        <div style={{ display: 'flex', gap: 10, padding: '14px 18px', flexWrap: 'wrap', alignItems: 'center', background: '#fff', borderTop: '1px solid #F1F5F9' }}>
+          <div className="search-box" style={{ flex: '1 1 280px', width: 'auto', background: '#F8FAFC', borderColor: '#E2E8F0', transition: 'all 0.15s', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)' }}>
             <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input
               value={search}
               onChange={e => { setSearch(e.target.value); }}
               placeholder="Search name, email, phone, username, address…"
+              style={{ background: 'transparent' }}
             />
+            {search && <button onClick={() => setSearch('')} style={{ border: 'none', background: '#E2E8F0', width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}><svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>}
           </div>
           <select
             value={planFilter}
             onChange={e => { setPlanFilter(e.target.value); }}
-            style={{ padding: '8px 14px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer', background: '#fff', maxWidth: 220 }}
+            style={{ padding: '9px 16px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer', background: '#F8FAFC', maxWidth: 220, fontWeight: 600 }}
           >
             <option value="All">All plans</option>
             {filtered.planOptions.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
+          {(search || filter !== 'All' || planFilter !== 'All') && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{filteredRows.length} matches</span>}
         </div>
       </div>
 
@@ -782,90 +822,139 @@ export default function CustomerPage() {
           <SkeletonTable rows={10} cols={9} />
         </div>
       ) : filteredRows.length === 0 ? (
-        <div className="data-card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          {search || filter !== 'All' || planFilter !== 'All'
-            ? 'No customers match your search/filters'
-            : 'No subscribers found'}
+        <div className="data-card" style={{ padding: 48, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 64, height: 64, borderRadius: 20, background: '#F8FAFC', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+            <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>{search || filter !== 'All' || planFilter !== 'All' ? 'No matches found' : 'No customers yet'}</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 4 }}>{search || filter !== 'All' || planFilter !== 'All' ? 'Try adjusting your search or filters' : 'Import your customer list or add a new customer to get started'}</div>
+          </div>
+          {(search || filter !== 'All' || planFilter !== 'All') && <button className="btn-sm-outline" onClick={() => { setSearch(''); setFilter('All'); setPlanFilter('All'); }}>Clear filters</button>}
         </div>
       ) : (
-        <div className="data-card" style={{ padding: 0, overflow: 'hidden', height: 'calc(100vh - 280px)', minHeight: 360 }}>
-          <div className="h-scroll" style={{ height: '100%', overflowY: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
-                  <th style={{ ...cell('8px 12px'), width: 40 }}>
-                    <input type="checkbox" checked={selectableKeys.size > 0 && [...selectableKeys].every(k => selectedKeys.has(k))} onChange={togglePage} title="Select all on this page" style={{ width: 15, height: 15, cursor: 'pointer' }} />
-                  </th>
-                  <th style={cell('8px 12px')}>NAME</th>
-                  <th style={cell('8px 12px')}>EMAIL</th>
-                  <th style={cell('8px 12px')}>PHONE</th>
-                  <th style={cell('8px 12px')}>ADDRESS</th>
-                  <th style={cell('8px 12px')}>NETWORK</th>
-                  <th style={cell('8px 12px')}>PLAN</th>
-                  <th style={cell('8px 12px')}>SPEED ↓/↑</th>
-                  <th style={cell('8px 12px')}>INSTALLER</th>
-                  <th style={cell('8px 12px')}>DUE DATE</th>
-                  <th style={cell('8px 12px')}>STATUS</th>
-                  <th style={cell('8px 12px')}>UNIQUE ID</th>
-                  <th style={cell('8px 12px')}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {paged.map(row => {
-                  const cust = matchCustomer(row);
-                  if (row._type === 'PPPOE') {
-                    const s = row as RosSubscriber & { _type: 'PPPOE' };
+        <>
+          <div className="data-card customer-desktop-table" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="h-scroll customer-table-scroll" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 300px)', minHeight: 420 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: '#F8FAFC', zIndex: 1 }}>
+                    <th style={{ ...cell('12px 14px'), width: 44, background: '#F8FAFC' }}>
+                      <input type="checkbox" checked={selectableKeys.size > 0 && [...selectableKeys].every(k => selectedKeys.has(k))} onChange={togglePage} title="Select all on this page" style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)' }} />
+                    </th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Customer</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Contact</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Location</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Network</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Plan</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Speed</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Due</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>Status</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', fontSize: '0.66rem', letterSpacing: 0.6 }}>ID</th>
+                    <th style={{ ...cell('12px 14px'), background: '#F8FAFC', width: 44 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((row, idx) => {
+                    const cust = matchCustomer(row);
+                    const isPppoe = row._type === 'PPPOE';
+                    const s = isPppoe ? (row as RosSubscriber & { _type: 'PPPOE' }) : null;
+                    const c = !isPppoe ? (row as StaticConn & { _type: 'STATIC_IP' }) : null;
+                    const name = isPppoe ? (cust?.name || s?.name || s?.customer || '—') : (cust?.name || c?.subscriberName || '—');
+                    const email = isPppoe ? (cust?.email || s?.email || '—') : (cust?.email || '—');
+                    const phone = isPppoe ? (cust?.phone || s?.phone || '—') : (cust?.phone || '—');
+                    const address = isPppoe ? (cust?.address || s?.address || '—') : (cust?.address || '—');
+                    const plan = isPppoe ? (s?.plan || cust?.plan || '—') : (cust?.plan || '—');
+                    const network = cust?.networkType || (isPppoe ? 'PPPoE' : 'Static IP');
+                    const due = cust?.dueAt ? new Date(cust.dueAt).toLocaleDateString('en-GB') : '—';
+                    const status = isPppoe ? (s?.dbOnly ? (cust?.status || '—') : s?.cached ? (s?.isOnline ? 'Active' : 'Offline') : (s?.active ? 'Active' : 'Disabled')) : (c?.status === 'ACTIVE' || c?.status === 'ONLINE' ? 'Active' : 'Offline');
+                    const statusColor = status === 'Active' ? '#16A34A' : status === 'Offline' ? '#EA580C' : '#94A3B8';
+                    const uid = isPppoe ? s?.username || '' : c?.ipAddress || c?.id.slice(0,8) || '';
+                    const initials = name !== '—' ? name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase() : '—';
+                    const avatarBg = `hsl(${(name.charCodeAt(0) || 65) * 13 % 360} 72% 92%)`;
+                    const avatarFg = `hsl(${(name.charCodeAt(0) || 65) * 13 % 360} 55% 28%)`;
                     return (
-                      <tr key={s.id} onClick={() => openRow(row)} style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = '#FAFAFA')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                        <td style={cell()} onClick={e => e.stopPropagation()}>
-                          <input type="checkbox" disabled={!rowKey(row)} checked={!!(rowKey(row) && selectedKeys.has(rowKey(row)!))} onChange={() => { const k = rowKey(row); if (k) toggleRow(k); }} title={rowKey(row) ? 'Select for deletion' : 'No customer record in the platform DB'} style={{ width: 15, height: 15, cursor: rowKey(row) ? 'pointer' : 'not-allowed' }} />
+                      <tr key={isPppoe ? s!.id : c!.id} onClick={() => openRow(row)} className="customer-row" style={{ borderBottom: '1px solid #F1F5F9', cursor: 'pointer', animationDelay: `${idx * 18}ms` }}>
+                        <td style={cell('14px 12px')} onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" disabled={!rowKey(row)} checked={!!(rowKey(row) && selectedKeys.has(rowKey(row)!))} onChange={() => { const k = rowKey(row); if (k) toggleRow(k); }} title={rowKey(row) ? 'Select' : 'No DB record'} style={{ width: 16, height: 16, cursor: rowKey(row) ? 'pointer' : 'not-allowed', accentColor: 'var(--primary)' }} />
                         </td>
-                        <td style={{ ...cell(), fontWeight: 600 }}>{cust?.name || s.name || s.customer || '—'}{s.dbOnly && <span title="in the platform DB, not yet seen on RouterOS" style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: 8, backgroundColor: '#F1592518', color: '#B33A1D' }}>DB</span>}{s.cached && <span title={`last synced ${s.capturedAt}`} style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: 8, backgroundColor: '#F59E0B18', color: '#B45309' }}>cached</span>}</td>
-                        <td style={cell()}>{cust?.email || s.email || '—'}</td>
-                        <td style={cell()}>{cust?.phone || s.phone || '—'}</td>
-                        <td style={{ ...cell(), maxWidth: 190, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={(cust?.address || s.address || '')}>{cust?.address || s.address || '—'}</td>
-                        <td style={cell()}>{badge(cust?.networkType || 'PPPoE', '#2563EB')}</td>
-                        <td style={cell()}>{badge(s.plan || cust?.plan || '—', '#6366F1')}</td>
-                        <td style={cell()}>{speedBadge(row)}</td>
-                        <td style={cell()}>{cust?.cpes.find(c => c.name === s.username)?.installerName || s.installerName || '—'}</td>
-                        <td style={cell()}>{cust?.dueAt ? new Date(cust.dueAt).toLocaleDateString() : '—'}</td>
-                        <td style={cell()}>{s.dbOnly
-                          ? badge(cust?.status === 'ACTIVE' ? 'Active' : cust?.status || '—', cust?.status === 'ACTIVE' ? '#16A34A' : '#94A3B8')
-                          : s.cached
-                            ? badge(s.isOnline ? 'Active' : 'Offline', s.isOnline ? '#16A34A' : '#94A3B8')
-                            : badge(s.active ? 'Active' : 'Disabled', s.active ? '#16A34A' : '#94A3B8')}</td>
-                        <td style={{ ...cell(), fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.username}</td>
-                        <td style={cell()}><span style={{ color: 'var(--primary)' }}>→</span></td>
+                        <td style={{ ...cell('14px 12px'), minWidth: 180 }}>
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <div className="customer-avatar" style={{ background: avatarBg, color: avatarFg }}>{initials}</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 800, fontSize: '0.84rem', color: 'var(--text-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{name}</div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{email !== '—' ? email : phone !== '—' ? phone : uid}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={cell('14px 12px')}>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{phone}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{isPppoe ? s?.username?.slice(0,14) : c?.ipAddress || ''}</div>
+                        </td>
+                        <td style={{ ...cell('14px 12px'), maxWidth: 170, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={address}>{address}</td>
+                        <td style={cell('14px 12px')}>{badge(network, network.includes('Static') ? '#F15925' : network === 'PPPoE' ? '#2563EB' : '#7C3AED')}</td>
+                        <td style={cell('14px 12px')}>{badge(plan, '#6366F1')}</td>
+                        <td style={cell('14px 12px')}>{speedBadge(row)}</td>
+                        <td style={{ ...cell('14px 12px'), fontSize: '0.78rem', color: due==='—' ? 'var(--text-muted)' : 'var(--text-dark)', whiteSpace: 'nowrap', fontWeight: due==='—'?400:600 }}>{due}</td>
+                        <td style={cell('14px 12px')}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 20, fontSize: '0.68rem', fontWeight: 800, background: status==='Active' ? '#e6f9ed' : status==='Offline' ? '#FFF7ED' : '#F1F5F9', color: statusColor, border: `1px solid ${status==='Active' ? '#BBF7D0' : status==='Offline' ? '#FDBA74' : '#E2E8F0'}` }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, boxShadow: status==='Active' ? `0 0 6px ${statusColor}60` : 'none' }} />{status}
+                          </span>
+                        </td>
+                        <td style={{ ...cell('14px 12px'), fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{uid.slice(0,12)}</td>
+                        <td style={cell('14px 12px')}>
+                          <span style={{ width: 28, height: 28, borderRadius: 10, background: '#F8FAFC', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', transition: 'all 0.15s' }}>→</span>
+                        </td>
                       </tr>
                     );
-                  }
-                  const c = row as StaticConn & { _type: 'STATIC_IP' };
-                  const isActive = c.status === 'ACTIVE' || c.status === 'ONLINE';
-                  const cpe = cust?.cpes.find(cp => cp.ipAddress === c.ipAddress);
-                  return (
-                    <tr key={c.id} onClick={() => openRow(row)} style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = '#FAFAFA')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <td style={cell()} onClick={e => e.stopPropagation()}>
-                        <input type="checkbox" disabled={!rowKey(row)} checked={!!(rowKey(row) && selectedKeys.has(rowKey(row)!))} onChange={() => { const k = rowKey(row); if (k) toggleRow(k); }} title={rowKey(row) ? 'Select for deletion' : 'No customer record in the platform DB'} style={{ width: 15, height: 15, cursor: rowKey(row) ? 'pointer' : 'not-allowed' }} />
-                      </td>
-                      <td style={{ ...cell(), fontWeight: 600 }}>{cust?.name || c.subscriberName || '—'}</td>
-                      <td style={cell()}>{cust?.email || '—'}</td>
-                      <td style={cell()}>{cust?.phone || '—'}</td>
-                      <td style={{ ...cell(), maxWidth: 190, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={(cust?.address || '')}>{cust?.address || '—'}</td>
-                      <td style={cell()}>{badge(cust?.networkType || 'Static IP', '#F15925')}</td>
-                      <td style={cell()}>{badge(cust?.plan || '—', '#6366F1')}</td>
-                      <td style={cell()}>{speedBadge(row)}</td>
-                      <td style={cell()}>{cpe?.installerName || '—'}</td>
-                      <td style={cell()}>{cust?.dueAt ? new Date(cust.dueAt).toLocaleDateString() : '—'}</td>
-                      <td style={cell()}>{badge(isActive ? 'Active' : 'Offline', isActive ? '#16A34A' : '#94A3B8')}</td>
-                      <td style={{ ...cell(), fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.id.slice(0, 8)}</td>
-                      <td style={cell()}><span style={{ color: 'var(--primary)' }}>→</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+          <div className="customer-mobile-list">
+            {paged.map(row => {
+              const cust = matchCustomer(row);
+              const isPppoe = row._type === 'PPPOE';
+              const s = isPppoe ? (row as RosSubscriber & { _type: 'PPPOE' }) : null;
+              const c = !isPppoe ? (row as StaticConn & { _type: 'STATIC_IP' }) : null;
+              const name = isPppoe ? (cust?.name || s?.name || s?.customer || 'Unknown') : (cust?.name || c?.subscriberName || 'Unknown');
+              const email = isPppoe ? (cust?.email || s?.email || '') : (cust?.email || '');
+              const phone = isPppoe ? (cust?.phone || s?.phone || '') : (cust?.phone || '');
+              const address = isPppoe ? (cust?.address || s?.address || '') : (cust?.address || '');
+              const plan = isPppoe ? (s?.plan || cust?.plan || '—') : (cust?.plan || '—');
+              const network = cust?.networkType || (isPppoe ? 'PPPoE' : 'Static IP');
+              const status = isPppoe ? (s?.dbOnly ? (cust?.status || '—') : s?.cached ? (s?.isOnline ? 'Active' : 'Offline') : (s?.active ? 'Active' : 'Disabled')) : (c?.status === 'ACTIVE' || c?.status === 'ONLINE' ? 'Active' : 'Offline');
+              const uid = isPppoe ? s?.username || '' : c?.ipAddress || c?.id.slice(0,8) || '';
+              const initials = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+              const avatarBg = `hsl(${(name.charCodeAt(0) || 65) * 13 % 360} 72% 92%)`;
+              const avatarFg = `hsl(${(name.charCodeAt(0) || 65) * 13 % 360} 55% 28%)`;
+              return (
+                <div key={isPppoe ? s!.id : c!.id} className="customer-card" onClick={() => openRow(row)}>
+                  <div className="customer-card-header">
+                    <div className="customer-avatar" style={{ background: avatarBg, color: avatarFg }}>{initials}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: '0.92rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email || phone || uid || '—'}</div>
+                    </div>
+                    <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: '0.66rem', fontWeight: 800, background: status==='Active' ? '#e6f9ed' : status==='Offline' ? '#FFF7ED' : '#F1F5F9', color: status==='Active' ? '#16A34A' : status==='Offline' ? '#EA580C' : '#64748B', border: `1px solid ${status==='Active' ? '#BBF7D0' : status==='Offline' ? '#FDBA74' : '#E2E8F0'}` }}>{status}</span>
+                  </div>
+                  <div className="customer-card-meta">
+                    <div><div className="customer-card-meta-label">Phone</div><div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{phone || '—'}</div></div>
+                    <div><div className="customer-card-meta-label">Network</div><div>{badge(network, network.includes('Static') ? '#F15925' : '#2563EB')}</div></div>
+                    <div style={{ gridColumn: '1 / -1' }}><div className="customer-card-meta-label">Address</div><div style={{ fontWeight: 500, fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{address || '—'}</div></div>
+                    <div><div className="customer-card-meta-label">Plan</div><div>{badge(plan, '#6366F1')}</div></div>
+                    <div><div className="customer-card-meta-label">Speed</div><div>{speedBadge(row)}</div></div>
+                  </div>
+                  <div className="customer-card-footer">
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{uid.slice(0,16) || '—'}</span>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4 }}>View <span>→</span></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {filteredRows.length > PAGE_SIZE && (
@@ -895,48 +984,87 @@ export default function CustomerPage() {
             </div>
 
             <div className="grid-2" style={{ gap: 12 }}>
-              <div>
-                <label style={lbl}>Full name *</label>
-                <input value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} style={inp} />
+            {/* 16 sheet columns — sectioned like import help */}
+            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#F15925', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #FFE4D6', paddingBottom: 6 }}>IDs & Names (sheet: ID, ID2, FIRST/LAST/COMPANY)</div>
+            <div>
+                <label style={lbl}>ID (legacy, e.g. HIF-0001)</label>
+                <input value={createForm.legacyId} onChange={e => setCreateForm({ ...createForm, legacyId: e.target.value })} style={inp} placeholder="HIF/HIR" />
               </div>
+              <div>
+                <label style={lbl}>ID2</label>
+                <input value={createForm.id2} onChange={e => setCreateForm({ ...createForm, id2: e.target.value })} style={inp} placeholder="ID2 column" />
+              </div>
+              <div>
+                <label style={lbl}>FIRST NAME</label>
+                <input value={createForm.firstName} onChange={e => setCreateForm({ ...createForm, firstName: e.target.value })} style={inp} placeholder="FIRST NAME" />
+              </div>
+              <div>
+                <label style={lbl}>LAST NAME</label>
+                <input value={createForm.lastName} onChange={e => setCreateForm({ ...createForm, lastName: e.target.value })} style={inp} placeholder="LAST NAME" />
+              </div>
+              <div>
+                <label style={lbl}>COMPANY NAME</label>
+                <input value={createForm.companyName} onChange={e => setCreateForm({ ...createForm, companyName: e.target.value })} style={inp} placeholder="COMPANY NAME" />
+              </div>
+              <div>
+                <label style={lbl}>Full name (fallback) *</label>
+                <input value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} style={inp} placeholder="auto from FIRST+LAST if blank" />
+              </div>
+            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#2563EB', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #DBEAFE', paddingBottom: 6, marginTop: 4 }}>Contact & Email (sheet: CONTACT NUMBER, EMAIL)</div>
               <div>
                 <label style={lbl}>Email *</label>
                 <input value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} style={inp} />
               </div>
               <div>
-                <label style={lbl}>Phone</label>
-                <input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} style={inp} />
+                <label style={lbl}>CONTACT NUMBER</label>
+                <input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} style={inp} placeholder="080... (slash for secondary)" />
               </div>
               <div>
-                <label style={lbl}>Network type</label>
+                <label style={lbl}>Secondary CONTACT</label>
+                <input value={createForm.secondaryPhone} onChange={e => setCreateForm({ ...createForm, secondaryPhone: e.target.value })} style={inp} placeholder="070... (if 2 numbers)" />
+              </div>
+              <div>
+                <label style={lbl}>USER TYPE (sheet)</label>
                 <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(plans, f.planId, nt, installFees) } : {}) })); }} style={inp}>
                   <option value="FIBER">FIBER</option>
                   <option value="RADIO">RADIO</option>
+                  <option value="FIBER HOTSPOT">FIBER HOTSPOT</option>
+                  <option value="FIBER PPPOE">FIBER PPPOE</option>
                   <option value="PPPOE">PPPoE</option>
                   <option value="STATIC_IP">Static IP</option>
                 </select>
               </div>
+            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #D1FAE5', paddingBottom: 6, marginTop: 4 }}>Location & Service (sheet: STATION, ADDRESS, IP ADDRESS, USER TYPE)</div>
+              <div>
+                <label style={lbl}>STATION</label>
+                <input value={createForm.stationLabel} onChange={e => setCreateForm({ ...createForm, stationLabel: e.target.value })} style={inp} placeholder="HOME / FIBER / RADIO / ITA-ELEWA" />
+              </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Home address</label>
+                <label style={lbl}>ADDRESS (sheet)</label>
                 <input value={createForm.address} onChange={e => setCreateForm({ ...createForm, address: e.target.value })} style={inp} />
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Plan</label>
+                <label style={lbl}>Plan (sheet: PLAN)</label>
                 <select value={createForm.planId} onChange={e => { const pid = e.target.value; setCreateForm(f => ({ ...f, planId: pid, ...(f.includeInstallation ? { fee: planFee(plans, pid, f.networkType) } : {}) })); }} style={inp}>
                   <option value="">— No plan —</option>
                   {plans.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.technology ?? p.type})</option>)}
                 </select>
               </div>
               <div>
-                <label style={lbl}>PPPoE / RADIUS username</label>
-                <input value={createForm.pppoeUsername} onChange={e => setCreateForm({ ...createForm, pppoeUsername: e.target.value })} style={inp} placeholder="e.g. HIF-0001" />
+                <label style={lbl}>PPPoE / RADIUS username (ID2 fallback)</label>
+                <input value={createForm.pppoeUsername} onChange={e => setCreateForm({ ...createForm, pppoeUsername: e.target.value })} style={inp} placeholder="e.g. HIF-0001 / ID2" />
               </div>
               <div>
-                <label style={lbl}>Static IP address</label>
+                <label style={lbl}>IP ADDRESS (sheet)</label>
                 <input value={createForm.ipAddress} onChange={e => setCreateForm({ ...createForm, ipAddress: e.target.value })} style={inp} placeholder="e.g. 192.168.1.10" />
               </div>
+            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #EDE9FE', paddingBottom: 6, marginTop: 4 }}>Dates & Fees (sheet: START DATE, EXPIRY DATE, PLAN fee)</div>
               <div>
-                <label style={lbl}>Expiry date</label>
+                <label style={lbl}>START DATE (sheet)</label>
+                <input type="date" value={createForm.startDate} onChange={e => setCreateForm({ ...createForm, startDate: e.target.value })} style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>EXPIRY DATE (sheet)</label>
                 <input type="date" value={createForm.expiry} onChange={e => setCreateForm({ ...createForm, expiry: e.target.value })} style={inp} />
               </div>
               <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>

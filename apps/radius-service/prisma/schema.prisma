@@ -143,6 +143,7 @@ model Tenant {
   radioInstallationFeeKobo Int      @default(12000000)
   deletedAt   DateTime?
   createdAt   DateTime      @default(now())
+  @@index([deletedAt])
 }
 
 model CoverageZone {
@@ -157,6 +158,7 @@ model CoverageZone {
 
   @@unique([tenantId, slug])
   @@index([tenantId])
+  @@index([deletedAt])
 }
 
 model CoverageArea {
@@ -178,6 +180,7 @@ model CoverageArea {
   @@index([tenantId])
   @@index([zone])
   @@index([technology])
+  @@index([deletedAt])
 }
 
 model CustomRole {
@@ -192,6 +195,7 @@ model CustomRole {
   deletedAt   DateTime?
 
   @@index([tenantId])
+  @@index([deletedAt])
 }
 
 model Permission {
@@ -206,16 +210,18 @@ model Permission {
   deletedAt DateTime?
 
   @@unique([roleId, module])
+  @@index([deletedAt])
 }
 
 model User {
-  id            String      @id @default(uuid())
-  tenantId      String?
-  tenant        Tenant?      @relation(fields: [tenantId], references: [id])
-  email         String      @unique
-  name          String?
-  phone         String?     @unique
-  passwordHash  String
+  id             String      @id @default(uuid())
+  tenantId       String?
+  tenant         Tenant?      @relation(fields: [tenantId], references: [id])
+  email          String
+  name           String?
+  phone          String?
+  secondaryPhone String?
+  passwordHash   String
   isSuperAdmin  Boolean     @default(false)
   customRoleId  String?
   customRole    CustomRole? @relation(fields: [customRoleId], references: [id])
@@ -233,6 +239,7 @@ model User {
   auditLogs     AuditLog[]
 
   @@index([tenantId])
+  @@index([deletedAt])
 }
 
 model Subscriber {
@@ -253,11 +260,18 @@ model Subscriber {
   kycRejectedById  String?
   kycRejectedAt    DateTime?
   kycRejectReason  String?
-  pppoeUsername    String?           @unique
-  staticIpAddress  String?           @unique // per-subscriber Framed-IP-Address (fiber static clients)
+  pppoeUsername    String?
+  staticIpAddress  String? // per-subscriber Framed-IP-Address (fiber static clients)
   staticIpNetmask  String?           // optional Framed-IP-Netmask (defaults to /32 when omitted)
   address          String?
   networkType      String?           // RADIO, FIBER, DIA — display override, falls back to plan.technology
+  legacyId         String?           // PHPRadius source ID (HIF/HIR), kept for traceability, not PK, may repeat
+  hikonnectId      String?           @unique // generated Hikonnect Fiber-<seq>/Radio-<seq>
+  stationLabel     String?           // free-text STATION label from source, not a FK
+  companyName      String?           // COMPANY NAME from source (565/566 empty)
+  id2              String?           // secondary ID from source ID2 column
+  firstName        String?           // FIRST NAME from source
+  lastName         String?           // LAST NAME from source
   subscriptions    Subscription[]
   invoices         Invoice[]
   tickets          Ticket[]
@@ -271,6 +285,7 @@ model Subscriber {
 
   @@index([status])
   @@index([tenantId])
+  @@index([deletedAt])
 }
 
 model Plan {
@@ -302,6 +317,7 @@ model Plan {
   deletedAt           DateTime?
 
   @@index([tenantId])
+  @@index([deletedAt])
 }
 
 model Subscription {
@@ -323,6 +339,7 @@ model Subscription {
 
   @@index([subscriberId])
   @@index([expiresAt])
+  @@index([deletedAt])
 }
 
 model Invoice {
@@ -351,6 +368,7 @@ model Invoice {
   @@index([invoiceNumber])
   @@index([subscriberId, status])
   @@index([status, dueAt])
+  @@index([deletedAt])
 }
 
 model InvoiceLine {
@@ -361,6 +379,7 @@ model InvoiceLine {
   amountKobo  Int
   quantity    Int     @default(1)
   deletedAt   DateTime?
+  @@index([deletedAt])
 }
 
 model Payment {
@@ -380,6 +399,7 @@ model Payment {
 
   @@index([status])
   @@index([providerReference])
+  @@index([deletedAt])
 }
 
 model Receipt {
@@ -395,6 +415,7 @@ model Receipt {
   deletedAt          DateTime?
 
   @@index([receiptNumber])
+  @@index([deletedAt])
 }
 
 model Quotation {
@@ -420,6 +441,7 @@ model Quotation {
 
   @@index([quotationNumber])
   @@index([status])
+  @@index([deletedAt])
 }
 
 model QuotationItem {
@@ -431,6 +453,7 @@ model QuotationItem {
   unitPriceKobo Int
   amountKobo    Int
   deletedAt     DateTime?
+  @@index([deletedAt])
 }
 
 model CreditNote {
@@ -444,6 +467,7 @@ model CreditNote {
   deletedAt        DateTime?
 
   @@index([creditNoteNumber])
+  @@index([deletedAt])
 }
 
 model Refund {
@@ -463,6 +487,7 @@ model Refund {
   deletedAt      DateTime?
 
   @@index([status])
+  @@index([deletedAt])
 }
 
 model Wallet {
@@ -476,6 +501,7 @@ model Wallet {
   deletedAt      DateTime?
 
   @@index([subscriberId])
+  @@index([deletedAt])
 }
 
 model WalletTransaction {
@@ -492,6 +518,7 @@ model WalletTransaction {
   deletedAt   DateTime?
 
   @@index([walletId])
+  @@index([deletedAt])
 }
 
 model VirtualAccount {
@@ -507,6 +534,7 @@ model VirtualAccount {
   deletedAt     DateTime?
 
   @@unique([subscriberId, provider])
+  @@index([deletedAt])
 }
 
 model PaymentAttempt {
@@ -520,6 +548,7 @@ model PaymentAttempt {
   deletedAt DateTime?
 
   @@index([paymentId])
+  @@index([deletedAt])
 }
 
 model PaymentReconciliation {
@@ -536,6 +565,7 @@ model PaymentReconciliation {
   deletedAt      DateTime?
 
   @@index([referenceDate])
+  @@index([deletedAt])
 }
 
 model Ticket {
@@ -564,6 +594,7 @@ model Ticket {
   @@index([tenantId, status])
   @@index([tenantId, priority])
   @@index([status, priority])
+  @@index([deletedAt])
 }
 
 model TicketComment {
@@ -580,6 +611,7 @@ model TicketComment {
   attachments FileUpload[]
 
   @@index([ticketId])
+  @@index([deletedAt])
 }
 
 enum ChatStatus {
@@ -624,6 +656,7 @@ model ChatSession {
 
   @@index([tenantId, status])
   @@index([tenantId, agentId])
+  @@index([deletedAt])
 }
 
 model ChatMessage {
@@ -642,6 +675,7 @@ model ChatMessage {
   attachments FileUpload[]
 
   @@index([sessionId, createdAt])
+  @@index([deletedAt])
 }
 
 model FileUpload {
@@ -668,6 +702,7 @@ model FileUpload {
   @@index([messageId])
   @@index([ticketId])
   @@index([ticketCommentId])
+  @@index([deletedAt])
 }
 
 enum AgentPresenceStatus {
@@ -689,6 +724,7 @@ model AgentPresence {
   deletedAt  DateTime?
 
   @@index([tenantId, status])
+  @@index([deletedAt])
 }
 
 model CannedResponse {
@@ -704,23 +740,27 @@ model CannedResponse {
   deletedAt  DateTime?
 
   @@index([tenantId])
+  @@index([deletedAt])
 }
 
 model Cpe {
-  id              String         @id @default(uuid())
-  subscriber      Subscriber     @relation(fields: [subscriberId], references: [id])
-  subscriberId    String
-  name            String?        // location or description (e.g. "Main Office", "Branch 1")
-  macAddress      String?        @unique
-  ipAddress       String?
-  status          DeviceStatus   @default(OFFLINE)
-  connectionType  ConnectionType @default(STATIC_IP)
-  installerName   String?
-  lastSeenAt      DateTime?
-  createdAt       DateTime       @default(now())
-  deletedAt       DateTime?
+  id               String         @id @default(uuid())
+  subscriber       Subscriber     @relation(fields: [subscriberId], references: [id])
+  subscriberId     String
+  name             String?        // location or description (e.g. "Main Office", "Branch 1")
+  macAddress       String?
+  needsMacAddress  Boolean        @default(false) // true when synthetic UNASSIGNED-<legacyId> placeholder used
+  ipAddress        String?
+  ipConflict       Boolean        @default(false) // true when duplicate IP detected post-import
+  status           DeviceStatus   @default(OFFLINE)
+  connectionType   ConnectionType @default(STATIC_IP)
+  installerName    String?
+  lastSeenAt       DateTime?
+  createdAt        DateTime       @default(now())
+  deletedAt        DateTime?
 
   @@index([status])
+  @@index([deletedAt])
 }
 
 model NetworkDevice {
@@ -730,7 +770,7 @@ model NetworkDevice {
   name         String
   type         String   // router | switch | olt | ap | nas
   vendor       String?
-  ipAddress    String   @unique
+  ipAddress    String
   status       String   @default("OFFLINE") // ONLINE, OFFLINE, WARNING
   location     String?
   cpu          Float?
@@ -750,6 +790,7 @@ model NetworkDevice {
 
   @@index([tenantId])
   @@index([status])
+  @@index([deletedAt])
 }
 
 model RouterHealth {
@@ -762,6 +803,7 @@ model RouterHealth {
   lastError   String?
   updatedAt   DateTime      @updatedAt
   deletedAt   DateTime?
+  @@index([deletedAt])
 }
 
 model Contract {
@@ -772,6 +814,7 @@ model Contract {
   signedAt      DateTime?
   createdAt     DateTime   @default(now())
   deletedAt     DateTime?
+  @@index([deletedAt])
 }
 
 model RefreshToken {
@@ -787,6 +830,7 @@ model RefreshToken {
   deletedAt  DateTime?
 
   @@index([userId])
+  @@index([deletedAt])
 }
 
 model AuditLog {
@@ -803,6 +847,7 @@ model AuditLog {
   deletedAt   DateTime?
 
   @@index([entityType, entityId])
+  @@index([deletedAt])
 }
 
 model Notification {
@@ -819,6 +864,7 @@ model Notification {
 
   @@index([tenantId, read])
   @@index([createdAt])
+  @@index([deletedAt])
 }
 
 model PasswordResetToken {
@@ -831,6 +877,7 @@ model PasswordResetToken {
   deletedAt DateTime?
 
   @@index([userId])
+  @@index([deletedAt])
 }
 
 model ActionQueue {
@@ -849,6 +896,7 @@ model ActionQueue {
 
   @@index([tenantId, status])
   @@index([createdAt])
+  @@index([deletedAt])
 }
 
 model RouterSnapshot {
@@ -880,6 +928,7 @@ model RouterSnapshot {
   deletedAt            DateTime?
 
   @@unique([tenantId, deviceId, username])
+  @@index([deletedAt])
 }
 
 model RouterMetric {
@@ -908,6 +957,7 @@ model RouterMetric {
 
   @@index([tenantId, username, capturedAt])
   @@index([capturedAt])
+  @@index([deletedAt])
 }
 
 model RouterUsageDay {
@@ -927,6 +977,7 @@ model RouterUsageDay {
 
   @@unique([tenantId, deviceId, username, date])
   @@index([tenantId, username, date])
+  @@index([deletedAt])
 }
 
 model PppoeSession {
@@ -955,6 +1006,7 @@ model PppoeSession {
   @@index([username])
   @@index([nasIpAddress])
   @@index([isActive])
+  @@index([deletedAt])
 }
 
 // Append-only change log written by the @isp/prisma history extension. Keeps a

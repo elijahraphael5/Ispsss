@@ -82,7 +82,8 @@ const CHART_COLORS = ['#2563EB', '#93C5FD', '#F15925', '#FDBA74'];
 
 type BandwidthRange = 'daily' | 'weekly' | 'monthly';
 
-function formatUptime(u: string): string {
+function formatUptime(u: string | null | undefined): string {
+  if (!u || typeof u !== 'string') return '—';
   const d = u.match(/(\d+)d/)?.[1] || '0';
   const h = u.match(/(\d+)h/)?.[1] || '0';
   const m = u.match(/(\d+)m/)?.[1] || '0';
@@ -215,7 +216,7 @@ export default function Dashboard() {
   const payments = data?.recentTransactions ?? [];
 
   const pppoeConns = (connectionsData?.connections ?? []).filter(c => c.type === 'PPPOE');
-  const totalPPPoE = rosSubscribers.length > 0 ? rosSubscribers.length : (connectionsData?.totalPppoe ?? 0);
+  const totalPPPoE_raw = rosSubscribers.length > 0 ? rosSubscribers.length : (connectionsData?.totalPppoe ?? 0);
   // "Active" means an established session, not just an enabled secret — stays 0
   // until someone actually connects. Live router sessions when available, else DB.
   const activePPPoE = rosDevice
@@ -228,17 +229,25 @@ export default function Dashboard() {
   // Wire to the right place: billing/subscriber counts are the source of truth.
   // Network "Total Connections" was previously inflated by orphaned PppoeSession rows (59 demo rows with subscriberId=NULL).
   // Now: prefer Admin stats (totalCustomers/activeSubscriptions) when available, fallback to network counts.
-  const totalConnections = stats ? stats.totalCustomers : (totalPPPoE + totalStatic);
+  const totalConnections = stats ? stats.totalCustomers : (totalPPPoE_raw + totalStatic);
   const activeConnections = stats ? stats.activeSubscriptions : (activePPPoE + activeStatic);
+
+  // Fiber total: if router reports 0 but we have subscriber counts, derive from
+  // totalCustomers - radio CPEs so Fiber doesn't show "—" when 201 fiber customers exist
+  // but no live PPPoE sessions. This keeps Total = Fiber + Radio visually consistent.
+  const derivedFiberTotal = totalConnections > totalStatic ? totalConnections - totalStatic : totalPPPoE_raw;
+  const totalPPPoE = totalPPPoE_raw > 0 ? totalPPPoE_raw : derivedFiberTotal;
+  const fiberOffline = Math.max(0, totalPPPoE - activePPPoE);
+  const radioOffline = Math.max(0, totalStatic - activeStatic);
 
   const rosHealth = routerHealth.find(h => h.deviceId === rosDevice?.id);
   const staleDevice = rosHealth && rosHealth.linkStatus !== 'up' ? rosHealth : null;
 
   const connDistData = [
     { name: 'Fiber Active', value: activePPPoE },
-    { name: 'Fiber Offline', value: Math.max(0, totalPPPoE - activePPPoE) },
+    { name: 'Fiber Offline', value: fiberOffline },
     { name: 'Radio Active', value: activeStatic },
-    { name: 'Radio Offline', value: totalStatic - activeStatic },
+    { name: 'Radio Offline', value: radioOffline },
   ];
 
   return (
@@ -262,25 +271,75 @@ export default function Dashboard() {
 
       <div className="grid-5">
         {[
-          { label: 'Total Connections', value: totalConnections || '—', color: '#2563EB', stale: !!staleDevice, icon: (<><path d="M4 20h16M4 4h16v12H4z"/></>) },
-          { label: 'Active Connections', value: activeConnections, color: '#16A34A', stale: !!staleDevice, icon: (<><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></>) },
-          { label: 'Due Amount', value: stats ? formatNaira(stats.dueKobo) : '—', color: '#DC2626', stale: false, icon: (<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>) },
-          { label: 'Fiber', value: totalPPPoE ? `${activePPPoE}/${totalPPPoE}` : '—', color: '#F15925', stale: !!staleDevice, icon: (<><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></>) },
-          { label: 'Radio', value: totalStatic ? `${activeStatic}/${totalStatic}` : '—', color: '#8B5CF6', stale: false, icon: (<><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></>) },
-        ].map((card) => (
-          <div key={card.label} className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 12, background: `${card.color}14`, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{card.icon}</svg>
+          {
+            label: 'Total Connections',
+            value: totalConnections || '—',
+            sub: totalConnections ? `${totalPPPoE} Fiber • ${totalStatic} Radio` : undefined,
+            color: '#2563EB',
+            stale: !!staleDevice,
+            icon: (<><path d="M4 20h16M4 4h16v12H4z"/></>),
+          },
+          {
+            label: 'Active Connections',
+            value: activeConnections ?? '—',
+            sub: `${activePPPoE} Fiber • ${activeStatic} Radio`,
+            color: '#16A34A',
+            stale: !!staleDevice,
+            icon: (<><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></>),
+          },
+          {
+            label: 'Due Amount',
+            value: stats ? formatNaira(stats.dueKobo) : '—',
+            sub: stats?.dueKobo === 0 ? 'All clear' : stats?.dueKobo ? `${totalConnections} accounts` : undefined,
+            color: '#DC2626',
+            stale: false,
+            icon: (<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>),
+          },
+          {
+            label: 'Fiber',
+            value: totalPPPoE ? `${activePPPoE} / ${totalPPPoE}` : '—',
+            sub: totalPPPoE ? `${fiberOffline} offline • ${totalPPPoE ? Math.round((activePPPoE / totalPPPoE) * 100) : 0}% up` : derivedFiberTotal ? `${derivedFiberTotal} est.` : undefined,
+            color: '#F15925',
+            stale: !!staleDevice,
+            bar: totalPPPoE ? activePPPoE / totalPPPoE : 0,
+            icon: (<><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></>),
+          },
+          {
+            label: 'Radio',
+            value: totalStatic ? `${activeStatic} / ${totalStatic}` : '—',
+            sub: totalStatic ? `${radioOffline} offline • ${totalStatic ? Math.round((activeStatic / totalStatic) * 100) : 0}% up` : undefined,
+            color: '#8B5CF6',
+            stale: false,
+            bar: totalStatic ? activeStatic / totalStatic : 0,
+            icon: (<><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></>),
+          },
+        ].map((card: any) => (
+          <div key={card.label} className="data-card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 0, borderTop: `3px solid ${card.color}`, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: `${card.color}14`, color: card.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{card.icon}</svg>
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{card.label}</div>
+                <div style={{ fontSize: '1.32rem', fontWeight: 800, color: card.color, whiteSpace: 'nowrap', lineHeight: 1.1 }}>{card.value}</div>
+              </div>
             </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{card.label}</div>
-              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: card.color, whiteSpace: 'nowrap' }}>{card.value}</div>
-              {card.stale && staleDevice && (
-                <span title={`Last seen ${formatTime(staleDevice.lastSeenAt)}`} style={{ display: 'inline-block', marginTop: 2, fontSize: '0.66rem', fontWeight: 600, padding: '1px 8px', borderRadius: 10, backgroundColor: '#F1592518', color: '#B33A1D', whiteSpace: 'nowrap' }}>
-                  stale · {timeAgo(staleDevice.lastSeenAt)}
-                </span>
-              )}
-            </div>
+            {card.sub && (
+              <>
+                <div style={{ height: 1, background: '#F1F5F9', margin: '10px 0 8px 0' }} />
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.sub}</div>
+              </>
+            )}
+            {typeof card.bar === 'number' && (
+              <div style={{ height: 4, borderRadius: 999, background: '#F1F5F9', marginTop: 10, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.round(card.bar * 100)}%`, height: '100%', background: card.color, borderRadius: 999, transition: 'width 0.4s ease' }} />
+              </div>
+            )}
+            {card.stale && staleDevice && (
+              <span title={`Last seen ${formatTime(staleDevice.lastSeenAt)}`} style={{ display: 'inline-block', marginTop: 8, fontSize: '0.66rem', fontWeight: 600, padding: '1px 8px', borderRadius: 10, backgroundColor: '#F1592518', color: '#B33A1D', whiteSpace: 'nowrap', alignSelf: 'flex-start' }}>
+                stale · {timeAgo(staleDevice.lastSeenAt)}
+              </span>
+            )}
           </div>
         ))}
       </div>

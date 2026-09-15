@@ -16,8 +16,8 @@ describe('BillingService', () => {
     receipt: { findFirst: jest.fn(), findMany: jest.fn() },
     payment: { findMany: jest.fn(), aggregate: jest.fn() },
     creditNote: { findFirst: jest.fn(), create: jest.fn() },
-    user: { findUnique: jest.fn(), create: jest.fn() },
-    subscriber: { findUnique: jest.fn(), create: jest.fn() },
+    user: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+    subscriber: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
     tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant1' }) },
     $transaction: jest.fn(),
   };
@@ -96,7 +96,7 @@ describe('BillingService', () => {
     });
 
     it('creates a new customer (user + subscriber) when newCustomer is provided', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({ id: 'newuser1', email: 'new@x.com' });
       prisma.subscriber.create.mockResolvedValue({ id: 'newsub1' });
       prisma.invoice.findFirst.mockResolvedValue(null);
@@ -111,7 +111,7 @@ describe('BillingService', () => {
     });
 
     it('reuses the existing subscriber when newCustomer email already exists (no duplicate)', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'existing', email: 'new@x.com', subscriber: { id: 'sub1' } });
+      prisma.user.findFirst.mockResolvedValue({ id: 'existing', email: 'new@x.com', subscriber: { id: 'sub1' } });
       prisma.invoice.findFirst.mockResolvedValue(null);
       prisma.invoice.create.mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'inv2' }));
       await service.create(
@@ -124,7 +124,7 @@ describe('BillingService', () => {
     });
 
     it('creates a subscriber for an existing user that has none yet', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'existing', email: 'new@x.com', subscriber: null });
+      prisma.user.findFirst.mockResolvedValue({ id: 'existing', email: 'new@x.com', subscriber: null });
       prisma.subscriber.create.mockResolvedValue({ id: 'newsub2' });
       prisma.invoice.findFirst.mockResolvedValue(null);
       prisma.invoice.create.mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'inv3' }));
@@ -321,7 +321,7 @@ describe('BillingService', () => {
 
     it('reuses an existing subscriber when quotation is created with a known email', async () => {
       prisma.quotation.findFirst.mockResolvedValue(null);
-      prisma.user.findUnique.mockResolvedValue({ id: 'existing', email: 'jane@example.com', subscriber: { id: 'sub1' } });
+      prisma.user.findFirst.mockResolvedValue({ id: 'existing', email: 'jane@example.com', subscriber: { id: 'sub1' } });
       prisma.subscriber.findUnique.mockResolvedValue({ id: 'sub1', user: { name: 'Jane Doe', email: 'jane@example.com', phone: '+234' } });
       prisma.quotation.create.mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'q2' }));
       await service.createQuotation({

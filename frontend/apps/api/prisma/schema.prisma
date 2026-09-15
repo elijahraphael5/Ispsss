@@ -275,3 +275,4 @@ model AuditLog {
 
   @@index([entityType, entityId])
 }
+

@@ -21,25 +21,6 @@ export class CoverageZonesService {
   ) {}
 
   async list() {
-    // Ensure defaults exist on first read — idempotent seed for the 4 static zones.
-    // Must check via raw query so soft-deleted zones are not re-seeded (they stay deleted).
-    const tenant = await this.prisma.tenant?.findFirst({ select: { id: true } });
-    if (tenant) {
-      const defaults = [
-        { slug: 'LAGOS_MAINLAND', label: 'Lagos Mainland' },
-        { slug: 'LAGOS_ISLAND', label: 'Lagos Island' },
-        { slug: 'IKORODU', label: 'Ikorodu' },
-        { slug: 'OTHER', label: 'Other' },
-      ];
-      for (const d of defaults) {
-        const rows: Array<{ id: string }> = await this.prisma.$queryRaw`SELECT id FROM "CoverageZone" WHERE "tenantId" = ${tenant.id} AND slug = ${d.slug} LIMIT 1`;
-        if (rows.length === 0) {
-          try {
-            await this.prisma.coverageZone.create({ data: { tenantId: tenant.id, slug: d.slug, label: d.label } as any });
-          } catch {}
-        }
-      }
-    }
     return this.prisma.coverageZone.findMany({ orderBy: [{ label: 'asc' }] } as any);
   }
 

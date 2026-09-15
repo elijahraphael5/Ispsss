@@ -1,9 +1,9 @@
 import { IsString, IsNotEmpty, IsOptional, IsNumber, IsIn, MaxLength, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export const COVERAGE_ZONES = ['LAGOS_MAINLAND', 'LAGOS_ISLAND', 'IKORODU', 'OTHER'];
 export const COVERAGE_STATUSES = ['COVERED', 'IN_PROGRESS', 'PLANNED'];
 export const COVERAGE_TECHNOLOGIES = ['FIBER', 'RADIO'];
+// Zones are fully dynamic via /coverage-zones CRUD — no hardcoded slug list.
 
 export class CreateCoverageAreaDto {
   @IsString()

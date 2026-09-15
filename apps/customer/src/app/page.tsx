@@ -8,9 +8,11 @@ import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from './components/Skeleton';
 import InternetView from './components/InternetView';
 import AnalyticsView from './components/AnalyticsView';
-import { CoverageArea, ZONE_LABELS as STATIC_ZONE_LABELS, STATUS_COLORS, STATUS_LABELS, TECH_LABELS, TECH_COLORS } from './components/coverage-data';
+import { CoverageArea, STATUS_COLORS, STATUS_LABELS, TECH_LABELS, TECH_COLORS } from './components/coverage-data';
 
-const FALLBACK_ZONES = ['LAGOS_MAINLAND', 'LAGOS_ISLAND', 'IKORODU', 'OTHER'];
+function formatZoneLabel(slug: string): string {
+  return slug.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
 interface CoverageZone { id: string; slug: string; label: string }
 
 const CoverageMap = dynamic(() => import('./components/CoverageMap'), {
@@ -26,12 +28,28 @@ const statusColors: Record<string, { bg: string; fg: string }> = {
 };
 
 function fmtK(k: number) { return formatNaira(k); }
+function fmtDate(v: string | null | undefined) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 interface DashboardData {
-  plan?: { name: string; speedMbps: number; priceKobo: number };
+  plan?: { name: string; speedMbps: number; priceKobo: number; technology?: string };
   status: string;
-  subscription?: { id: string; status: string; type: string; address?: string };
-  cpe?: { id: string; model: string; macAddress: string };
+  subscription?: { id: string; status: string; type: string; address?: string; startedAt?: string; expiresAt?: string };
+  subscriber?: { id: string; legacyId: string | null; hikonnectId: string | null; id2: string | null; firstName: string | null; lastName: string | null; companyName: string | null; stationLabel: string | null; staticIpAddress: string | null; address: string | null; networkType: string | null; pppoeUsername: string | null; createdAt: string; startedAt: string | null; expiresAt: string | null };
+  importFields?: {
+    id: string | null; id2: string | null; hikonnectId: string | null; pppoeUsername: string | null;
+    firstName: string | null; lastName: string | null; companyName: string | null;
+    contactNumber: string | null; secondaryContact: string | null; email: string | null; rawEmail: string | null;
+    station: string | null; address: string | null; plan: string | null; planTechnology: string | null; planPriceKobo: number | null;
+    startDate: string | null; expiryDate: string | null; ipAddress: string | null; ipConflict: boolean; needsMacAddress: boolean;
+    userType: string | null; connectionType: string | null;
+  };
+  cpe?: { id: string; model: string; macAddress: string; ipAddress: string | null; status: string; connectionType?: string; needsMacAddress?: boolean; ipConflict?: boolean };
+  user?: { email: string; phone: string | null; secondaryPhone: string | null; name: string | null };
   session?: { username: string; isActive: boolean; framedIpAddress?: string; acctSessionTime?: number; acctStartTime?: string };
   outstandingKobo: number;
   lastPayment?: { amountKobo: number; createdAt: string };
@@ -153,7 +171,8 @@ export default function CustomerDashboard() {
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Current IP</div>
-            <div style={{ fontSize: '1rem', fontWeight: 700, fontFamily: 'monospace' }}>{d?.session?.framedIpAddress ?? '—'}</div>
+            <div style={{ fontSize: '1rem', fontWeight: 700, fontFamily: 'monospace' }}>{(d as any)?.importFields?.ipAddress ?? d?.cpe?.ipAddress ?? d?.session?.framedIpAddress ?? '—'}</div>
+            {(d as any)?.importFields?.ipConflict && <div style={{ fontSize: '0.68rem', color: '#DC2626', fontWeight: 700 }}>⚠ IP conflict flagged — contact support</div>}
           </div>
         </div>
         <div className="data-card" style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -168,14 +187,81 @@ export default function CustomerDashboard() {
         </div>
       </div>
 
+      {/* 16-column import snapshot — exactly as from sheet */}
+      {(d as any)?.importFields && (
+        <div className="data-card" style={{ padding: 20, borderLeft: '4px solid #F15925' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 12, background: '#F1592514', color: '#F15925', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800 }}>My Customer Record <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.78rem' }}>(16 fields from import)</span></div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  ID, ID2, station, plan, dates & IP — exactly as imported from <code>PHP Radius</code> sheet
+                </div>
+              </div>
+            </div>
+            <Link href="/account" style={{ padding: '7px 14px', borderRadius: 20, background: '#F1F5F9', color: 'var(--text-dark)', fontWeight: 700, fontSize: '0.75rem', textDecoration: 'none', border: '1px solid var(--border-color)' }}>
+              View full profile →
+            </Link>
+          </div>
+
+          {(() => {
+            const imp: any = (d as any).importFields;
+            const sub: any = (d as any).subscriber;
+            const expiryTs = imp.expiryDate ? new Date(imp.expiryDate).getTime() : 0;
+            const daysLeft = expiryTs ? Math.ceil((expiryTs - Date.now()) / 86400000) : null;
+            const pill = (label: string, col: string) => <span style={{ fontSize: '0.62rem', padding: '3px 8px', borderRadius: 20, background: col, color: '#fff', fontWeight: 700 }}>{label}</span>;
+            const FieldMini = ({ label, value, mono }: { label: string; value: any; mono?: boolean }) => (
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-muted)', fontWeight: 700, marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: '0.84rem', fontWeight: 600, fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined, color: value && String(value).trim() ? 'var(--text-dark)' : 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value && String(value).trim() ? String(value).trim() : '—'}</div>
+              </div>
+            );
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, padding: '14px 16px', borderRadius: 14, background: '#F8FAFC', border: '1px solid var(--border-color)' }}>
+                  <FieldMini label="ID" value={imp.id} mono />
+                  <FieldMini label="ID2" value={imp.id2} mono />
+                  <FieldMini label="Hikonnect ID" value={imp.hikonnectId} mono />
+                  <FieldMini label="USER TYPE" value={imp.userType} />
+                  <FieldMini label="STATION" value={imp.station} />
+                  <FieldMini label="IP ADDRESS" value={imp.ipAddress} mono />
+                  <FieldMini label="FIRST NAME" value={imp.firstName} />
+                  <FieldMini label="LAST NAME" value={imp.lastName} />
+                  <FieldMini label="COMPANY" value={imp.companyName} />
+                  <FieldMini label="CONTACT NUMBER" value={[imp.contactNumber, imp.secondaryContact].filter(Boolean).join(' / ') || null} mono />
+                  <FieldMini label="EMAIL" value={imp.email} />
+                  <FieldMini label="ADDRESS" value={imp.address} />
+                  <FieldMini label="PLAN" value={imp.plan} />
+                  <FieldMini label="START DATE" value={fmtDate(imp.startDate)} />
+                  <FieldMini label="EXPIRY DATE" value={fmtDate(imp.expiryDate)} />
+                  <FieldMini label="PASSWORD" value="••••••••" mono />
+                  <FieldMini label="PORTAL PASSWORD" value="••••••••" mono />
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, fontSize: '0.75rem', color: 'var(--text-muted)', alignItems: 'center' }}>
+                  <span>PPPoE: <strong style={{ fontFamily: 'monospace', color: 'var(--text-dark)' }}>{sub?.pppoeUsername ?? '—'}</strong></span>
+                  <span>·</span>
+                  <span>Status: <strong style={{ color: d?.status === 'ACTIVE' ? '#16A34A' : '#DC2626' }}>{d?.status ?? '—'}</strong></span>
+                  {imp.expiryDate && <><span>·</span><span>Expiry: <strong style={{ color: daysLeft !== null && daysLeft < 0 ? '#DC2626' : 'var(--text-dark)' }}>{fmtDate(imp.expiryDate)}</strong>{daysLeft !== null && <span style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 20, background: daysLeft < 0 ? '#FEE2E2' : daysLeft <= 7 ? '#FEF3C7' : '#E0E7FF', color: daysLeft < 0 ? '#DC2626' : daysLeft <= 7 ? '#92400E' : '#3730A3', fontWeight: 800, fontSize: '0.68rem' }}>{daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? 'today' : `${daysLeft}d left`}</span>}</span></>}
+                  {imp.ipConflict && pill('IP conflict', '#DC2626')}
+                  {imp.needsMacAddress && pill('needs MAC', '#92400E')}
+                  <Link href="/account" style={{ marginLeft: 'auto', color: 'var(--primary)', fontWeight: 700, textDecoration: 'none' }}>Edit & view all →</Link>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
       {coverage.length > 0 && (() => {
         const techCoverage = coverage.filter(c => (c.technology ?? 'FIBER') === coverageTech);
         const techCounts = { FIBER: coverage.filter(c => (c.technology ?? 'FIBER') === 'FIBER').length, RADIO: coverage.filter(c => (c.technology ?? 'FIBER') === 'RADIO').length };
-        const ZONE_LABELS: Record<string, string> = { ...STATIC_ZONE_LABELS };
+        const ZONE_LABELS: Record<string, string> = {};
         for (const z of coverageZones) ZONE_LABELS[z.slug] = z.label;
-        const ZONES = coverageZones.length
-          ? coverageZones.map((z) => z.slug)
-          : (coverage.length ? Array.from(new Set(coverage.map((c) => c.zone))).sort((a, b) => (ZONE_LABELS[a] ?? a).localeCompare(ZONE_LABELS[b] ?? b)) : FALLBACK_ZONES);
+        for (const c of coverage) if (c.zone && !ZONE_LABELS[c.zone]) ZONE_LABELS[c.zone] = formatZoneLabel(c.zone);
+        const ZONES = coverageZones.length ? coverageZones.map((z) => z.slug) : Array.from(new Set(coverage.map((c) => c.zone).filter(Boolean) as string[])).sort((a, b) => (ZONE_LABELS[a] ?? a).localeCompare(ZONE_LABELS[b] ?? b));
         return (
         <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>

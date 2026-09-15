@@ -39,7 +39,7 @@ export class AuthService {
 
   async login(email: string, password: string, ip?: string, userAgent?: string) {
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const user = await this.prisma.user.findFirst({ where: { email: normalizedEmail } });
     if (!user) {
       await bcrypt.compare(password, AuthService.DUMMY_HASH).catch(() => {});
       throw new UnauthorizedException('Invalid credentials');
@@ -335,7 +335,7 @@ export class AuthService {
 
   async forgotPassword(email: string) {
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const user = await this.prisma.user.findFirst({ where: { email: normalizedEmail } });
     if (!user) {
       return { message: 'If that email exists, a reset link has been sent.' };
     }

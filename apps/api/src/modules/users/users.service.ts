@@ -53,7 +53,7 @@ export interface LaunchJob {
 const planSelect = { id: true, name: true, technology: true, category: true, speedMbps: true, speedLabel: true, priceKobo: true };
 
 const customerInclude: Prisma.SubscriberInclude = {
-  user: { select: { id: true, name: true, email: true, phone: true } },
+  user: { select: { id: true, name: true, email: true, phone: true, secondaryPhone: true } },
   subscriptions: {
     include: { plan: { select: planSelect } },
     orderBy: { startedAt: 'desc' },
@@ -67,6 +67,106 @@ const customerInclude: Prisma.SubscriberInclude = {
   devices: true,
 };
 
+// ── PHPRadius → Hikonnect Import Helpers (spec §1-9) ──────────────────
+function isPhpRadiusSheet(headers: string[]): boolean {
+  const m = headers.map(h => String(h ?? '').trim().toUpperCase());
+  return m.includes('USER TYPE') && m.includes('IP ADDRESS') && m.includes('STATION');
+}
+function cleanPhoneSpec(raw: unknown): { primary: string | null; secondary: string | null } {
+  const s = String(raw ?? '').trim();
+  if (!s) return { primary: null, secondary: null };
+  // split two numbers
+  const parts = s.split(/[\/;,]+/).map(p => p.trim()).filter(Boolean);
+  const cleanOne = (p: string): string | null => {
+    let v = p.trim();
+    if (!v) return null;
+    // strip sign
+    if (v.startsWith('-')) v = v.slice(1);
+    // keep only digits
+    v = v.replace(/\D/g, '');
+    if (!v) return null;
+    // missing leading 0 → prepend 0 if 10 digits (802... → 0802...)
+    if (v.length === 10 && !v.startsWith('0')) v = '0' + v;
+    // if still not 11 digits starting with 0, keep as is if at least 10
+    return v || null;
+  };
+  const primary = cleanOne(parts[0] ?? '');
+  const secondary = parts[1] ? cleanOne(parts[1]) : null;
+  return { primary, secondary };
+}
+function cleanIpSpec(raw: unknown): { ip: string | null; needsFlag: boolean; note?: string } {
+  let s = String(raw ?? '').trim();
+  if (!s) return { ip: null, needsFlag: false };
+  // 192,168.2.127 → dot
+  s = s.replace(/,/g, '.').trim();
+  // remove spaces
+  s = s.replace(/\s+/g, '');
+  // flag malformed first octet
+  const m = s.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}|x)$/i);
+  if (!m) return { ip: s || null, needsFlag: false };
+  const octets = [m[1], m[2], m[3], m[4]];
+  let flagged = false;
+  let note: string | undefined;
+  // 198.168.x.x → likely typo 198→192
+  if (octets[0] === '198' && octets[1] === '168') {
+    flagged = true;
+    note = `first octet 198→192 typo? kept as ${s} flagged`;
+    // keep as-is but flag, don't silently guess — spec says flag either way
+    // we keep original s, but also provide cleaned version for reference
+  }
+  if (octets[0] === '192' && octets[1] === '146') {
+    flagged = true;
+    note = `192.146.x.x non-standard flagged`;
+  }
+  if (octets[3].toLowerCase() === 'x') {
+    // incomplete like 192.168.2.x → keep as is flagged
+    flagged = true;
+    note = note ? note + ' + incomplete .x' : 'incomplete .x';
+  }
+  // basic octet range check
+  for (let i = 0; i < 3; i++) {
+    const n = parseInt(octets[i], 10);
+    if (Number.isNaN(n) || n < 0 || n > 255) flagged = true;
+  }
+  return { ip: s, needsFlag: flagged, note };
+}
+function parseExpirySpec(raw: unknown): { date: Date | null; flagged: boolean } {
+  if (raw == null || raw === '') return { date: null, flagged: false };
+  // handle Excel serial or Date object
+  if (typeof raw === 'number') {
+    const d = XLSX.SSF.parse_date_code(raw);
+    if (d) return { date: new Date(Date.UTC(d.y, d.m - 1, d.d)), flagged: false };
+    return { date: null, flagged: false };
+  }
+  let s = String(raw).trim();
+  if (!s) return { date: null, flagged: false };
+  // strip stray dot: 13./08/2026 → 13/08/2026
+  s = s.replace(/\.\//g, '/').replace(/\s*\.\s*/g, '').trim();
+  // try DD/MM/YYYY
+  const dm = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (dm) {
+    let d = parseInt(dm[1], 10), mo = parseInt(dm[2], 10) - 1, y = parseInt(dm[3], 10);
+    if (y < 100) y += 2000;
+    const dt = new Date(Date.UTC(y, mo, d));
+    if (!isNaN(dt.getTime())) {
+      // normalize stale before 2026-09-15 → 2026-09-30
+      const cutoff = Date.UTC(2026, 8, 15);
+      const endOfMonth = new Date(Date.UTC(2026, 8, 30));
+      if (dt.getTime() < cutoff) return { date: endOfMonth, flagged: true };
+      return { date: dt, flagged: false };
+    }
+  }
+  const dt = new Date(s);
+  if (!isNaN(dt.getTime())) {
+    const cutoff = Date.UTC(2026, 8, 15);
+    const endOfMonth = new Date(Date.UTC(2026, 8, 30));
+    if (dt.getTime() < cutoff) return { date: endOfMonth, flagged: true };
+    return { date: dt, flagged: false };
+  }
+  return { date: null, flagged: false };
+}
+function formatZoneLabelSpec(slug: string): string { return slug.replace(/_/g,' ').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()); }
+
 function toCustomerView(sub: any) {
   const plan = sub.subscriptions?.[0]?.plan ?? null;
   const due = sub.invoices?.[0] ?? null;
@@ -78,11 +178,20 @@ function toCustomerView(sub: any) {
     name: sub.user?.name ?? null,
     email: email && !email.endsWith('@lan') ? email : null,
     phone: sub.user?.phone ?? null,
+    secondaryPhone: (sub.user as any)?.secondaryPhone ?? null,
     pppoeUsername: sub.pppoeUsername ?? null,
     address: address && !address.startsWith('Static IP:') ? address : null,
     status: sub.status,
     type: sub.type,
     networkType: sub.networkType ?? plan?.technology ?? null,
+    staticIpAddress: (sub as any).staticIpAddress ?? null,
+    stationLabel: (sub as any).stationLabel ?? null,
+    legacyId: (sub as any).legacyId ?? null,
+    hikonnectId: (sub as any).hikonnectId ?? null,
+    companyName: (sub as any).companyName ?? null,
+    id2: (sub as any).id2 ?? null,
+    firstName: (sub as any).firstName ?? null,
+    lastName: (sub as any).lastName ?? null,
     plan: plan?.name ?? null,
     planCategory: plan?.category ?? null,
     speedMbps: plan?.speedMbps ?? null,
@@ -98,6 +207,8 @@ function toCustomerView(sub: any) {
       name: c.name,
       ipAddress: c.ipAddress,
       macAddress: c.macAddress,
+      needsMacAddress: (c as any).needsMacAddress ?? false,
+      ipConflict: (c as any).ipConflict ?? false,
       status: c.status,
       connectionType: c.connectionType,
       installerName: c.installerName,
@@ -109,11 +220,15 @@ function toCustomerView(sub: any) {
 
 @Injectable()
 export class UsersService {
-  async findAll() {
+  async findAll(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 1000);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     return this.prisma.user.findMany({
       where: { deletedAt: null },
       select: userSelect,
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
@@ -140,9 +255,10 @@ export class UsersService {
     await this.prisma.$queryRaw`UPDATE "User" SET phone = NULL WHERE id = ${owner.id}`;
   }
 
-  async create(data: { email: string; password: string; phone?: string; name?: string; customRoleId?: string }, actorId: string) {
+  async create(data: { email: string; password: string; phone?: string; secondaryPhone?: string; name?: string; customRoleId?: string }, actorId: string) {
     const email = data.email.trim().toLowerCase();
     const phone = data.phone?.trim() || null;
+    const secondaryPhone = (data.secondaryPhone ?? '').trim() || null;
     // Soft-deleted rows are invisible to the soft-delete extension, so check
     // the raw table: an ACTIVE customer keeps their email, anything stale
     // (soft-deleted user or orphan left by a customer deletion) releases it.
@@ -161,6 +277,13 @@ export class UsersService {
       // placeholder so the address belongs to a brand-new account only.
       await this.prisma.$queryRaw`UPDATE "User" SET email = 'deleted-' || id || '@local' WHERE id = ${existing.id}`;
     }
+    // CONTACT NUMBER secondary — clean via same spec as import
+    let secondaryPhoneClean: string | null = null;
+    if (secondaryPhone) {
+      const cleaned = secondaryPhone.replace(/\D/g, '');
+      const v = cleaned.length === 10 && !cleaned.startsWith('0') ? '0' + cleaned : cleaned;
+      secondaryPhoneClean = v || null;
+    }
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(data.password, 12);
     const tenant = await this.prisma.tenant?.findFirst();
@@ -169,7 +292,7 @@ export class UsersService {
     let result;
     try {
       result = await this.prisma.user.create({
-        data: { tenantId, email, name: data.name, passwordHash, phone, customRoleId: data.customRoleId },
+        data: { tenantId, email, name: data.name, passwordHash, phone, secondaryPhone: secondaryPhoneClean, customRoleId: data.customRoleId },
         select: userSelect,
       });
     } catch (e: any) {
@@ -181,8 +304,8 @@ export class UsersService {
     return result;
   }
 
-  async update(id: string, data: { email?: string; name?: string; phone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean }, actorId: string) {
-    const before = await this.prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true, name: true, phone: true, isSuperAdmin: true, customRoleId: true } });
+  async update(id: string, data: { email?: string; name?: string; phone?: string; secondaryPhone?: string; customRoleId?: string; password?: string; isSuperAdmin?: boolean }, actorId: string) {
+    const before = await this.prisma.user.findUniqueOrThrow({ where: { id }, select: { email: true, name: true, phone: true, secondaryPhone: true, isSuperAdmin: true, customRoleId: true } });
     // Explicit field picking — never spread caller-supplied objects into
     // Prisma data (mass-assignment protection).
     const updateData: any = {};
@@ -192,6 +315,7 @@ export class UsersService {
       if (data.phone) await this.assertPhoneAvailable(data.phone, id);
       updateData.phone = data.phone;
     }
+    if ((data as any).secondaryPhone !== undefined) updateData.secondaryPhone = (data as any).secondaryPhone || null;
     if (data.customRoleId !== undefined) updateData.customRoleId = data.customRoleId;
     if (data.isSuperAdmin !== undefined) updateData.isSuperAdmin = data.isSuperAdmin;
     if (data.password) {
@@ -214,9 +338,11 @@ export class UsersService {
     return result;
   }
 
-  async customers() {
+  async customers(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 1000);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const tenantId = (await this.prisma.tenant?.findFirst())?.id;
-    const cacheKey = `users:customers:${tenantId}`;
+    const cacheKey = `users:customers:${tenantId}:${skip}:${take}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
     // Accounts awaiting KYC approval (maker–checker) stay out of the customer
@@ -225,6 +351,8 @@ export class UsersService {
       where: { tenantId, deletedAt: null, status: { not: 'PENDING_KYC' } },
       include: customerInclude,
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
     const result = subs.map(toCustomerView);
     // Short TTL: read on every admin page load; mutations invalidate explicitly.
@@ -237,9 +365,11 @@ export class UsersService {
     await this.cache.invalidatePattern('users:*');
   }
 
-  async kycQueue() {
+  async kycQueue(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 1000);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const tenantId = (await this.prisma.tenant?.findFirst())?.id;
-    const cacheKey = `users:kyc:${tenantId}`;
+    const cacheKey = `users:kyc:${tenantId}:${skip}:${take}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
     const subs = await this.prisma.subscriber.findMany({
@@ -254,6 +384,8 @@ export class UsersService {
         devices: true,
       },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
     const staffIds = [...new Set(
       subs.flatMap(s => [s.kycSubmittedById, s.kycApprovedById, s.kycRejectedById].filter((v): v is string => !!v)))];
@@ -523,7 +655,7 @@ export class UsersService {
     return view;
   }
 
-  async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string }, actorId: string) {
+  async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; secondaryPhone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string; ipAddress?: string; staticIpAddress?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string }, actorId: string) {
     const sub = await this.prisma.subscriber.findUniqueOrThrow({ where: { id, deletedAt: null }, include: { user: true } });
     if (data.email !== undefined) {
       const normalized = data.email.trim().toLowerCase();
@@ -536,17 +668,18 @@ export class UsersService {
       data.email = normalized;
     }
     if (data.phone) await this.assertPhoneAvailable(data.phone, sub.userId);
-    if (data.email !== undefined || data.phone !== undefined || data.name !== undefined) {
+    if (data.email !== undefined || data.phone !== undefined || data.name !== undefined || (data as any).secondaryPhone !== undefined) {
       await this.prisma.user.update({
         where: { id: sub.userId },
         data: {
           ...(data.name !== undefined ? { name: data.name || null } : {}),
           ...(data.email !== undefined ? { email: data.email } : {}),
           ...(data.phone !== undefined ? { phone: data.phone || null } : {}),
+          ...((data as any).secondaryPhone !== undefined ? { secondaryPhone: (data as any).secondaryPhone || null } : {}),
         },
       });
     }
-    if (data.address !== undefined || data.networkType !== undefined || data.pppoeUsername !== undefined) {
+    if (data.address !== undefined || data.networkType !== undefined || data.pppoeUsername !== undefined || data.legacyId !== undefined || data.id2 !== undefined || data.firstName !== undefined || data.lastName !== undefined || data.companyName !== undefined || data.stationLabel !== undefined) {
       try {
         await this.prisma.subscriber.update({
           where: { id },
@@ -554,11 +687,41 @@ export class UsersService {
             ...(data.address !== undefined ? { address: data.address || null } : {}),
             ...(data.networkType !== undefined ? { networkType: data.networkType || null } : {}),
             ...(data.pppoeUsername !== undefined ? { pppoeUsername: data.pppoeUsername.trim() || null } : {}),
-          },
+            ...(data.legacyId !== undefined ? { legacyId: data.legacyId?.trim() || null } : {}),
+            ...(data.id2 !== undefined ? { id2: data.id2?.trim() || null } : {}),
+            ...(data.firstName !== undefined ? { firstName: data.firstName?.trim() || null } : {}),
+            ...(data.lastName !== undefined ? { lastName: data.lastName?.trim() || null } : {}),
+            ...(data.companyName !== undefined ? { companyName: data.companyName?.trim() || null } : {}),
+            ...(data.stationLabel !== undefined ? { stationLabel: data.stationLabel?.trim() || null } : {}),
+          } as any,
         });
       } catch (e: any) {
         if (e?.code === 'P2002') throw new ConflictException('PPPoE username is already in use by another customer');
         throw e;
+      }
+    }
+    if (data.ipAddress !== undefined || data.staticIpAddress !== undefined) {
+      const ip = (data.ipAddress ?? data.staticIpAddress ?? '').trim() || null;
+      if (ip && !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new BadRequestException('Invalid IP address');
+      const currentCpe = await this.prisma.cpe.findFirst({ where: { subscriberId: id }, orderBy: { createdAt: 'asc' } });
+      const currentIp = (sub as any).staticIpAddress ?? currentCpe?.ipAddress ?? null;
+      if (ip !== currentIp) {
+        try {
+          await this.prisma.subscriber.update({ where: { id }, data: { staticIpAddress: ip } });
+        } catch (e: any) {
+          if (e?.code === 'P2002') throw new ConflictException('IP address is already in use');
+          throw e;
+        }
+        const cpe = currentCpe ?? await this.prisma.cpe.findFirst({ where: { subscriberId: id }, orderBy: { createdAt: 'asc' } });
+        if (ip) {
+          if (cpe) {
+            await this.prisma.cpe.update({ where: { id: cpe.id }, data: { ipAddress: ip, connectionType: 'STATIC_IP', status: 'OFFLINE', ipConflict: false } as any });
+          } else {
+            await this.prisma.cpe.create({ data: { subscriberId: id, ipAddress: ip, connectionType: 'STATIC_IP', status: 'OFFLINE', ipConflict: false, name: sub.pppoeUsername ?? (sub as any).hikonnectId ?? null } as any });
+          }
+        } else if (cpe) {
+          await this.prisma.cpe.update({ where: { id: cpe.id }, data: { ipAddress: null, ipConflict: false } as any });
+        }
       }
     }
     if (data.installerName !== undefined) {
@@ -728,9 +891,10 @@ export class UsersService {
       await tx.notification.deleteMany({ where: { subscriberId: { in: subIds } } });
       await tx.pppoeSession.deleteMany({ where: { subscriberId: { in: subIds } } });
       await tx.contract.deleteMany({ where: { subscriberId: { in: subIds } } });
-      await tx.subscription.deleteMany({ where: { subscriberId: { in: subIds } } });
-      await tx.cpe.deleteMany({ where: { subscriberId: { in: subIds } } });
-      await tx.subscriber.deleteMany({ where: { id: { in: subIds } } });
+      // Use raw deletes for subscriptions/plans/subscribers to bypass soft-delete filter (hard delete must remove all, including soft-deleted)
+      await tx.$executeRaw`DELETE FROM "Subscription" WHERE "subscriberId" IN (${Prisma.join(subIds)})`;
+      await tx.$executeRaw`DELETE FROM "Cpe" WHERE "subscriberId" IN (${Prisma.join(subIds)})`;
+      await tx.$executeRaw`DELETE FROM "Subscriber" WHERE id IN (${Prisma.join(subIds)})`;
       // Audit logs are immutable — preserved even when customer data is wiped.
       await tx.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
       await tx.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
@@ -740,7 +904,7 @@ export class UsersService {
       await tx.chatSession.updateMany({ where: { agentId: { in: userIds } }, data: { agentId: null } });
       await tx.agentPresence.deleteMany({ where: { userId: { in: userIds } } });
       await tx.user.deleteMany({ where: { id: { in: userIds } } });
-      await tx.plan.deleteMany({ where: { tenantId } });
+      await tx.$executeRaw`DELETE FROM "Plan" WHERE "tenantId" = ${tenantId}`;
     }, { timeout: 120_000, maxWait: 10_000 });
     await this.invalidateCustomerCache();
   }
@@ -769,10 +933,15 @@ export class UsersService {
   async importCustomers(file: Express.Multer.File, actorId: string, job: ImportJob) {
     if (!file) throw new BadRequestException('No file uploaded');
     const wb = XLSX.read(file.buffer, { type: 'buffer' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    // Prefer "PHP Radius" sheet per PHPRadius spec, otherwise first sheet; ignore Help/Sheet1 template
+    let sheetName = wb.SheetNames[0];
+    const phpIdx = wb.SheetNames.findIndex(n => String(n).trim().toLowerCase() === 'php radius');
+    if (phpIdx >= 0) sheetName = wb.SheetNames[phpIdx];
+    const sheet = wb.Sheets[sheetName];
     if (!sheet) throw new BadRequestException('No sheet found in the file');
     const raw: Array<Record<string, unknown>> = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     if (!raw.length) throw new BadRequestException('No data rows found in the file (first row must be headers)');
+    const isPhpRadius = isPhpRadiusSheet(Object.keys(raw[0]));
 
     const norm = (s: unknown): string => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
     const headers = Object.keys(raw[0]);
@@ -832,11 +1001,281 @@ export class UsersService {
     const results: ImportRowResult[] = [];
     let created = 0, skipped = 0, errors = 0;
     const seenUsernames = new Set<string>();
+    // PHPRadius spec counters and tracking (§1, §5)
+    let fiberSeq = 1, radioSeq = 1;
+    const seenIps = new Map<string, number>(); // for duplicate IP flag (§5)
+    const importDate = new Date();
 
     for (let i = 0; i < raw.length; i++) {
       job.processed = i + 1;
       const r = raw[i];
       const rowNo = i + 2;
+
+      // ── PHPRadius branch (spec §1-9) ───────────────────────────────
+      if (isPhpRadius) {
+        const rawUserType = userTypeCol ? String(r[userTypeCol] ?? '').trim() : '';
+        const userTypeNorm = rawUserType.toUpperCase().trim();
+        // Filter to 566 valid rows: skip empty USER TYPE (470 blank rows in sheet)
+        if (!userTypeNorm || (userTypeNorm !== 'RADIO' && !userTypeNorm.includes('FIBER'))) {
+          // also skip truly empty rows
+          const hasAny = [r[idCol ?? ''], r[emailCol ?? ''], r[phoneCol ?? ''], r[addressCol ?? ''], r[planCol ?? '']].some(v => String(v ?? '').trim());
+          if (!hasAny) { skipped++; results.push({ row: rowNo, email: '', name: '', status: 'skipped', reason: 'empty row' }); continue; }
+          // if USER TYPE is blank but row has content, skip as invalid per spec (only RADIO/FIBER valid)
+          skipped++; results.push({ row: rowNo, email: String(r[emailCol ?? ''] ?? '').trim(), name: '', status: 'skipped', reason: `invalid USER TYPE "${rawUserType}"` }); continue;
+        }
+        const isRadio = userTypeNorm === 'RADIO';
+        const isFiber = userTypeNorm.includes('FIBER');
+        const legacyId = idCol ? (String(r[idCol] ?? '').trim() || null) : null;
+        const rawPlan = planCol ? String(r[planCol] ?? '').trim() : '';
+        // §2 Plan mapping
+        let planName = '';
+        let planType: string = isRadio ? 'RADIO' : 'FIBER';
+        let planCategory = 'HOME';
+        let planPriceKobo = 0;
+        if (isRadio) {
+          // PLAN is amount
+          const amt = parseInt(String(rawPlan).replace(/[^0-9]/g, ''), 10);
+          if (!isNaN(amt) && amt > 0) {
+            planName = `Radio ${amt}`;
+            planPriceKobo = amt * 100;
+            planType = 'RADIO';
+            planCategory = 'HOME';
+          } else {
+            planName = rawPlan ? `Radio ${rawPlan}`.trim() : 'Radio Unknown';
+            planPriceKobo = 0;
+          }
+        } else if (isFiber) {
+          // PLAN is tier name, trim whitespace (PLATINUM with trailing space)
+          const tier = rawPlan.trim().replace(/\s+/g, ' ').toUpperCase().replace(/ +$/, '');
+          planName = tier || 'Fiber Unknown';
+          // normalize tier to level if needed, but keep name as tier
+          planType = 'FIBER';
+          planCategory = tier || 'HOME';
+          planPriceKobo = 0; // fee not in PLAN for fiber; use amount col if present?
+          // fee column for fiber is not used per spec; leave 0
+        }
+        // §1 Hikonnect ID generation (seq per type, legacyId kept)
+        const hikonnectId = isRadio ? `Hikonnect Radio-${String(radioSeq++).padStart(4, '0')}` : `Hikonnect Fiber-${String(fiberSeq++).padStart(4, '0')}`;
+        // §4 STATION free-text
+        const stationLabel = stationCol ? (String(r[stationCol] ?? '').trim() || null) : null;
+        // §3 duplicate legacyId: KEEP BOTH — do not skip, legacyId may repeat
+        // §8 phone handling
+        const rawPhone = phoneCol ? String(r[phoneCol] ?? '').trim() : '';
+        const { primary: phonePrimary, secondary: phoneSecondary } = cleanPhoneSpec(rawPhone);
+        // §5 IP handling
+        const rawIp = ipAddressCol ? String(r[ipAddressCol] ?? '').trim() : '';
+        const { ip: cleanedIp, needsFlag: ipFlagged, note: ipFlagNote } = cleanIpSpec(rawIp);
+        let ipAddress: string | null = cleanedIp;
+        let ipNote = '';
+        if (ipFlagNote) ipNote = `IP flagged: ${ipFlagNote}`;
+        // Fiber PPPOE blank by design (§5)
+        if (isFiber && userTypeNorm === 'FIBER PPPOE' && !ipAddress) {
+          ipAddress = null; // blank by design, not an error
+        } else if (isRadio && !ipAddress) {
+          ipNote = ipNote ? ipNote + ' · blank IP flagged for follow-up' : 'blank IP flagged for follow-up';
+        }
+        // duplicate IP tracking (§5: 15 total)
+        let ipConflict = false;
+        if (ipAddress) {
+          const lowIp = ipAddress.toLowerCase();
+          const cnt = (seenIps.get(lowIp) ?? 0) + 1;
+          seenIps.set(lowIp, cnt);
+          if (cnt > 1) {
+            ipConflict = true;
+            ipNote = ipNote ? ipNote + ` · duplicate IP ${ipAddress} (${cnt}×)` : `duplicate IP ${ipAddress} (${cnt}×)`;
+          }
+        }
+        // §7 Dates
+        const rawExpiry = dueCol ? r[dueCol] : null;
+        const { date: expiryParsed, flagged: expiryFlagged } = parseExpirySpec(rawExpiry);
+        let expiresAt: Date | null = expiryParsed;
+        if (expiryFlagged) ipNote = ipNote ? ipNote + ' · expiry normalized to 2026-09-30' : 'expiry normalized to 2026-09-30';
+        // START DATE: 566/566 empty → default to import date
+        const startDateCol = headers.find(h => norm(h) === 'start date') ?? null;
+        let startedAt: Date | null = null;
+        if (startDateCol) {
+          const rawStart = r[startDateCol];
+          if (rawStart != null && String(rawStart).trim() !== '') {
+            // strip stray . like 13./08/2026
+            let s = String(rawStart).trim().replace(/\.\//g, '/');
+            const d = new Date(s);
+            startedAt = isNaN(d.getTime()) ? importDate : d;
+          } else {
+            startedAt = importDate;
+          }
+        } else {
+          startedAt = importDate;
+        }
+        // §9 — capture all 16-column fields for display; passwords are hashed/not fabricated if blank
+        const firstNameVal = firstNameCol ? String(r[firstNameCol] ?? '').trim() || null : null;
+        const lastNameVal = lastNameCol ? String(r[lastNameCol] ?? '').trim() || null : null;
+        const companyNameVal = companyCol ? String(r[companyCol] ?? '').trim() || null : null;
+        const id2Val = id2Col ? String(r[id2Col] ?? '').trim() || null : null;
+        const portalPasswordRaw = portalPassCol ? String(r[portalPassCol] ?? '').trim() : '';
+        const radiusPasswordRaw = radiusPassCol ? String(r[radiusPassCol] ?? '').trim() : '';
+        const nameFromCols = (String(r[nameCol ?? ''] ?? '').trim()
+          || [firstNameVal ?? '', lastNameVal ?? ''].filter(Boolean).join(' '))
+          || (companyNameVal ?? '');
+        const name = nameFromCols || `Customer ${hikonnectId}`;
+        const emailRaw = emailCol ? String(r[emailCol] ?? '').trim().toLowerCase().replace(/\s+/g, '') : '';
+        const address = String(r[addressCol ?? ''] ?? '').trim() || null;
+        const autoEmail = !emailRaw && legacyId ? `${legacyId.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@local` : '';
+        const useEmail = emailRaw || autoEmail || `row-${rowNo}-${hikonnectId.toLowerCase().replace(/[^a-z0-9]/g,'-')}@local`;
+        const technology = isRadio ? 'RADIO' : 'FIBER';
+        // Preserve exact USER TYPE for customer portal (e.g. "FIBER HOTSPOT", "FIBER PPPOE", "RADIO")
+        const rawUserTypeForStorage = rawUserType.trim() || technology;
+        // hasContent for PHPRadius: require at least name or legacyId or phone or address
+        const hasContent = !!(name || legacyId || phonePrimary || address || planName);
+        if (!hasContent) { skipped++; results.push({ row: rowNo, email: emailRaw, name, status: 'skipped', reason: 'empty row' }); continue; }
+
+        try {
+          // email dedup: if exists, generate unique variant instead of skipping (keep both per §3)
+          let finalEmail = useEmail;
+          let emailAttempt = 0;
+          while (await this.prisma.user.findFirst({ where: { email: finalEmail }, select: { id: true } })) {
+            emailAttempt++;
+            finalEmail = `${useEmail.split('@')[0]}+${emailAttempt}@${useEmail.split('@')[1] ?? 'local'}`;
+            if (emailAttempt > 5) break;
+          }
+          let subscriberId = '';
+          let radiusNote = ipNote;
+          let cpeNote = '';
+          await this.prisma.$transaction(async (tx) => {
+            const phoneTaken: Array<{ id: string }> = phonePrimary
+              ? await tx.$queryRaw`SELECT id FROM "User" WHERE phone = ${phonePrimary} LIMIT 1`
+              : [];
+            const bcrypt = await import('bcryptjs');
+            // Portal password from sheet (if present) becomes the login password; otherwise random
+            const portalSecret = portalPasswordRaw || crypto.randomBytes(8).toString('hex');
+            const passwordHash = await bcrypt.hash(portalSecret, 10);
+            const user = await tx.user.create({
+              data: { email: finalEmail, name: name || null, phone: phoneTaken.length ? null : phonePrimary, secondaryPhone: phoneSecondary, passwordHash },
+              select: { id: true },
+            });
+            // For static IP (Radio with IP), also set Subscriber.staticIpAddress if not duplicate
+            let subscriberStaticIp: string | null = null;
+            let subscriberIpNote = '';
+            if (isRadio && ipAddress) {
+              const ipTakenForSub: Array<{ id: string }> = await tx.$queryRaw`SELECT id FROM "Subscriber" WHERE "staticIpAddress" = ${ipAddress} AND "deletedAt" IS NULL LIMIT 1`;
+              if (ipTakenForSub.length) {
+                subscriberStaticIp = null;
+                subscriberIpNote = `static IP ${ipAddress} duplicate in Subscriber — left null, flagged for follow-up`;
+                ipConflict = true;
+              } else {
+                subscriberStaticIp = ipAddress;
+              }
+            }
+            const subscriber = await tx.subscriber.create({
+              data: {
+                tenantId: tenantId!,
+                userId: user.id,
+                type: 'RESIDENTIAL',
+                status: 'ACTIVE',
+                address: address || null,
+                networkType: rawUserTypeForStorage || null,
+                pppoeUsername: hikonnectId.toLowerCase().replace(/\s+/g, '-'),
+                legacyId,
+                hikonnectId,
+                stationLabel,
+                companyName: companyNameVal,
+                id2: id2Val,
+                firstName: firstNameVal,
+                lastName: lastNameVal,
+                staticIpAddress: subscriberStaticIp,
+                staticIpNetmask: subscriberStaticIp ? '255.255.255.255' : null,
+              } as any,
+              select: { id: true },
+            });
+            subscriberId = subscriber.id;
+            // Plan per §2
+            let plan = await tx.plan.findFirst({ where: { tenantId, name: { equals: planName, mode: 'insensitive' }, type: planType as any }, select: { id: true } });
+            if (!plan) {
+              // For RADIO, price from plan amount; for FIBER, price 0 (or fee if present)
+              const feeForPlan = isRadio ? planPriceKobo : 0;
+              plan = await tx.plan.create({
+                data: { tenantId: tenantId!, name: planName, type: planType as any, technology: planType, category: planCategory, speedMbps: 1, priceKobo: feeForPlan, installationFeeKobo: feeForPlan, isActive: true },
+                select: { id: true },
+              });
+            }
+            await tx.subscription.create({
+              data: { subscriberId: subscriber.id, planId: plan.id, autoRenew: true, startedAt: startedAt ?? importDate, expiresAt, installationFeeKobo: isRadio ? planPriceKobo : 0 },
+            });
+            // §6 CPE: one per subscriber, always
+            const syntheticMac = `UNASSIGNED-${hikonnectId.replace(/[^A-Z0-9]/g, '').slice(-10)}-${rowNo}`.toUpperCase().replace(/[^A-Z0-9-]/g, '-').slice(0, 30);
+            const cpeIp = ipAddress; // may be null for PPPoE
+            // check duplicate IP already flagged above, but still create CPE
+            await tx.cpe.create({
+              data: {
+                subscriberId: subscriber.id,
+                name: legacyId || name || hikonnectId,
+                ipAddress: cpeIp,
+                macAddress: syntheticMac,
+                needsMacAddress: true,
+                ipConflict,
+                status: 'OFFLINE',
+                connectionType: isRadio ? 'STATIC_IP' : 'PPPOE',
+              } as any,
+            });
+          });
+          // RADIUS activation — forward sheet PASSWORD if present, plus expiry
+          const isStatic = false; // PHPRadius: never static per spec? but keep check
+          if (legacyId && !isStatic) {
+            const serviceToken = process.env.WEBHOOK_SERVICE_TOKEN;
+            if (serviceToken) {
+              try {
+                const resp = await fetch(
+                  `${process.env.RADIUS_SERVICE_URL ?? 'http://localhost:4106'}/api/v1/internal/radius/customers/${subscriberId}/activate`,
+                  {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json', 'x-webhook-token': serviceToken },
+                    body: JSON.stringify({
+                      ...(radiusPasswordRaw ? { password: radiusPasswordRaw } : {}),
+                      ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
+                    }),
+                  });
+                const body = resp.ok ? ((await resp.json()) as { expiry?: string }) : null;
+                const pwdNote = radiusPasswordRaw ? ' · radius pwd from sheet' : '';
+                radiusNote = `${radiusNote ? radiusNote + ' · ' : ''}${body?.expiry ? `radius on · expires ${body.expiry}${pwdNote}` : resp.ok ? `radius activated${pwdNote}` : `radius activation failed (${resp.status})`}`;
+                if (portalPasswordRaw) radiusNote += ' · portal pwd set from sheet';
+              } catch {
+                radiusNote = `${radiusNote ? radiusNote + ' · ' : ''}radius activation failed`;
+              }
+            } else if (radiusPasswordRaw || portalPasswordRaw) {
+              radiusNote = `${radiusNote ? radiusNote + ' · ' : ''}${radiusPasswordRaw ? 'radius pwd from sheet ' : ''}${portalPasswordRaw ? 'portal pwd from sheet ' : ''}· no service token, not sent`;
+            }
+          }
+          if (ipNote) radiusNote = radiusNote ? radiusNote + ' · ' + ipNote : ipNote;
+          if (cpeNote) radiusNote = `${radiusNote ? radiusNote + ' · ' : ''}${cpeNote}`;
+          created++;
+          results.push({ row: rowNo, email: finalEmail, name, status: 'created', plan: planName || undefined, reason: radiusNote || `legacy ${legacyId ?? 'none'} → ${hikonnectId}` });
+        } catch (e: any) {
+          errors++;
+          let reason = e?.message?.slice(0, 220) ?? 'unknown error';
+          if (e?.code === 'P2002') {
+            const target = String(e?.meta?.target ?? '');
+            // Log full target for debugging
+            console.error(`Import row ${rowNo} P2002 target=${target} email=${emailRaw} hikonnectId=${typeof hikonnectId !== 'undefined' ? hikonnectId : 'n/a'} legacyId=${typeof legacyId !== 'undefined' ? legacyId : 'n/a'}`, e?.message?.slice(0, 300));
+            reason = target.includes('email') ? 'email already exists'
+              : target.includes('hikonnectId') ? `hikonnectId duplicate (${target})`
+              : target.includes('pppoeUsername') ? 'PPPoE username already taken'
+              : target.includes('macAddress') ? `macAddress duplicate (${target})`
+              : target.includes('phone') ? 'phone duplicate'
+              : `duplicate ${target || 'unique constraint'}`;
+          } else if (e?.code === 'P2003') {
+            reason = 'references a missing record (invalid plan or parent)';
+          } else {
+            console.error(`Import row ${rowNo} error`, e);
+          }
+          results.push({ row: rowNo, email: emailRaw, name, status: 'error', reason });
+        }
+        job.created = created;
+        job.skipped = skipped;
+        job.errors = errors;
+        job.rows = results;
+        continue;
+      }
+
+      // ── Generic fallback (non-PHPRadius) ─────────────────────────
       const email = emailCol ? String(r[emailCol] ?? '').trim().toLowerCase().replace(/\s+/g, '') : '';
 const name = String(r[nameCol ?? ''] ?? '').trim()
         || [String(r[firstNameCol ?? ''] ?? '').trim(), String(r[lastNameCol ?? ''] ?? '').trim()].filter(Boolean).join(' ')
@@ -875,7 +1314,7 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
       seenUsernames.add(usernameKey);
 
       try {
-        const existing = await this.prisma.user.findUnique({ where: { email: useEmail }, select: { id: true } });
+        const existing = await this.prisma.user.findFirst({ where: { email: useEmail }, select: { id: true } });
         if (existing) {
           skipped++;
           results.push({ row: rowNo, email: useEmail, name, status: 'skipped', reason: 'email already exists' });
@@ -887,26 +1326,44 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
         if (autoEmail) radiusNote = `email auto-generated from ID (${autoEmail})`;
         else if (useEmail !== email) radiusNote = `email auto-generated (${useEmail})`;
         await this.prisma.$transaction(async (tx) => {
+          // Split CONTACT NUMBER into primary/secondary per PHPRadius spec
+          const { primary: phonePrimaryFallback, secondary: phoneSecondaryFallback } = cleanPhoneSpec(phone);
           // Raw read: a soft-deleted user still owns the unique phone slot, so
           // include them or the insert below fails on the phone constraint.
-          const phoneTaken: Array<{ id: string }> = phone
-            ? await tx.$queryRaw`SELECT id FROM "User" WHERE phone = ${phone} LIMIT 1`
+          const phoneTaken: Array<{ id: string }> = phonePrimaryFallback
+            ? await tx.$queryRaw`SELECT id FROM "User" WHERE phone = ${phonePrimaryFallback} LIMIT 1`
             : [];
           const bcrypt = await import('bcryptjs');
           const passwordHash = await bcrypt.hash(portalPassword || crypto.randomBytes(8).toString('hex'), 10);
           const user = await tx.user.create({
-            data: { email: useEmail, name: name || null, phone: phoneTaken.length ? null : phone || null, passwordHash },
+            data: { email: useEmail, name: name || null, phone: phoneTaken.length ? null : phonePrimaryFallback || null, secondaryPhone: phoneSecondaryFallback, passwordHash },
             select: { id: true },
           });
+          // Capture all sheet columns for customer portal display (16-field alignment)
+          const firstNameValFallback = firstNameCol ? String(r[firstNameCol] ?? '').trim() || null : null;
+          const lastNameValFallback = lastNameCol ? String(r[lastNameCol] ?? '').trim() || null : null;
+          const companyNameValFallback = companyCol ? String(r[companyCol] ?? '').trim() || null : null;
+          const id2ValFallback = id2Col ? String(r[id2Col] ?? '').trim() || null : null;
+          const legacyIdFallback = idCol ? String(r[idCol] ?? '').trim() || null : null;
+          const stationLabelFallback = stationCol ? String(r[stationCol] ?? '').trim() || null : null;
           const subscriber = await tx.subscriber.create({
-            data: { tenantId: tenantId!,
+            data: {
+              tenantId: tenantId!,
               userId: user.id,
               type: 'RESIDENTIAL',
               status: 'ACTIVE',
               address: address || null,
-              networkType: technology || null,
+              networkType: userType || technology || null,
               pppoeUsername: pppoeUsername || null,
-            },
+              legacyId: legacyIdFallback,
+              hikonnectId: pppoeUsername ? `Hikonnect ${technology || 'FIBER'}-${pppoeUsername.slice(0,8)}` : null,
+              stationLabel: stationLabelFallback,
+              companyName: companyNameValFallback,
+              id2: id2ValFallback,
+              firstName: firstNameValFallback,
+              lastName: lastNameValFallback,
+              staticIpAddress: ipAddress || null,
+            } as any,
             select: { id: true },
           });
           subscriberId = subscriber.id;

@@ -211,8 +211,22 @@ function buildQueryConfig(): Record<string, unknown> {
   for (const model of SOFT_DELETE_MODELS) {
     const ops: Record<string, unknown> = {};
     for (const op of READ_OPS) {
-      ops[op] = async ({ args, query }: { args: any; query: (a: any) => any }) =>
-        query(filterDeletedAt(args));
+      if (op === 'findUnique' || op === 'findUniqueOrThrow') {
+        ops[op] = async ({ args, query }: { args: any; query: (a: any) => any }) => {
+          const result = await query(args);
+          if (result && (result as any).deletedAt) {
+            if (op === 'findUnique') return null;
+            // Mimic Prisma P2025 for OrThrow: no record found after soft-delete filter
+            const err: any = new Error(`No ${op} record found`);
+            err.code = 'P2025';
+            throw err;
+          }
+          return result;
+        };
+      } else {
+        ops[op] = async ({ args, query }: { args: any; query: (a: any) => any }) =>
+          query(filterDeletedAt(args));
+      }
     }
     cfg[model] = ops;
   }

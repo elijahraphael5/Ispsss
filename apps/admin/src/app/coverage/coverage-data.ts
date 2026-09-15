@@ -12,12 +12,9 @@ export interface CoverageArea {
   updatedAt?: string;
 }
 
-export const ZONE_LABELS: Record<string, string> = {
-  LAGOS_MAINLAND: 'Lagos Mainland',
-  LAGOS_ISLAND: 'Lagos Island',
-  IKORODU: 'Ikorodu',
-  OTHER: 'Other',
-};
+// Zones are fully dynamic — managed via /coverage-zones CRUD. No hardcoded slugs.
+// This map is kept for legacy slug formatting only; runtime labels come from the DB.
+export const ZONE_LABELS: Record<string, string> = {};
 
 export const STATUS_COLORS: Record<string, string> = {
   COVERED: '#16A34A',

@@ -37,12 +37,70 @@ export class CustomerService {
     ]);
 
     const outstandingKobo = lastInvoice && ['ISSUED', 'OVERDUE'].includes(lastInvoice.status) ? lastInvoice.amountKobo : 0;
+    // Fetch user for detailed import fields
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true, secondaryPhone: true, name: true } });
+
+    // Build 16-column import view for customer portal (ID, ID2, PASSWORD masked, PORTAL PASSWORD masked, etc.)
+    const rawEmail: string | null = user?.email ?? null;
+    const displayEmail = rawEmail && !rawEmail.endsWith('@local') ? rawEmail : null;
+    const cpeIp = (cpe as any)?.ipAddress ?? null;
+    const subStaticIp = (subscriber as any).staticIpAddress ?? null;
+    const displayIp = subStaticIp ?? cpeIp ?? null;
+    const userTypeRaw = (subscriber as any).networkType ?? subscription?.plan?.technology ?? null;
 
     return {
-      subscriber: { id: subscriber.id, status: subscriber.status, type: subscriber.type, address: subscriber.address, createdAt: subscriber.createdAt },
+      subscriber: {
+        id: subscriber.id,
+        legacyId: (subscriber as any).legacyId ?? null,
+        hikonnectId: (subscriber as any).hikonnectId ?? null,
+        id2: (subscriber as any).id2 ?? null,
+        firstName: (subscriber as any).firstName ?? null,
+        lastName: (subscriber as any).lastName ?? null,
+        companyName: (subscriber as any).companyName ?? null,
+        stationLabel: (subscriber as any).stationLabel ?? null,
+        staticIpAddress: subStaticIp,
+        staticIpNetmask: (subscriber as any).staticIpNetmask ?? null,
+        address: subscriber.address,
+        status: subscriber.status,
+        type: subscriber.type,
+        networkType: (subscriber as any).networkType ?? null,
+        pppoeUsername: (subscriber as any).pppoeUsername ?? null,
+        createdAt: subscriber.createdAt,
+        startedAt: subscription?.startedAt ?? null,
+        expiresAt: subscription?.expiresAt ?? null,
+      },
+      // Flat 16-field mapping for easy consumption on the customer side
+      importFields: {
+        id: (subscriber as any).legacyId ?? null, // ID column (HIF/HIR)
+        id2: (subscriber as any).id2 ?? null, // ID2 column
+        password: '••••••••', // RADIUS password — masked, from sheet if present
+        portalPassword: '••••••••', // Portal password — masked, reset via support if needed
+        firstName: (subscriber as any).firstName ?? null,
+        lastName: (subscriber as any).lastName ?? null,
+        companyName: (subscriber as any).companyName ?? null,
+        contactNumber: user?.phone ?? null,
+        secondaryContact: (user as any)?.secondaryPhone ?? null,
+        email: displayEmail,
+        rawEmail,
+        station: (subscriber as any).stationLabel ?? null,
+        address: subscriber.address ?? null,
+        plan: subscription?.plan?.name ?? null,
+        planTechnology: subscription?.plan?.technology ?? null,
+        planPriceKobo: subscription?.plan?.priceKobo ?? null,
+        startDate: subscription?.startedAt ?? null,
+        expiryDate: subscription?.expiresAt ?? null,
+        ipAddress: displayIp,
+        ipConflict: (cpe as any)?.ipConflict ?? false,
+        needsMacAddress: (cpe as any)?.needsMacAddress ?? false,
+        userType: userTypeRaw,
+        connectionType: (cpe as any)?.connectionType ?? null,
+        hikonnectId: (subscriber as any).hikonnectId ?? null,
+        pppoeUsername: (subscriber as any).pppoeUsername ?? null,
+      },
+      user: user ? { email: user.email, phone: user.phone, secondaryPhone: (user as any).secondaryPhone ?? null, name: user.name } : null,
       plan: subscription ? { id: subscription.plan.id, name: subscription.plan.name, speedMbps: subscription.plan.speedMbps, priceKobo: subscription.plan.priceKobo, dataCapGb: subscription.plan.dataCapGb, technology: subscription.plan.technology } : null,
       subscription: subscription ? { id: subscription.id, startedAt: subscription.startedAt, expiresAt: subscription.expiresAt, autoRenew: subscription.autoRenew, suspendedAt: subscription.suspendedAt } : null,
-      cpe: cpe ? { id: cpe.id, name: cpe.name, macAddress: cpe.macAddress, ipAddress: cpe.ipAddress, status: cpe.status } : null,
+      cpe: cpe ? { id: cpe.id, name: cpe.name, macAddress: cpe.macAddress, needsMacAddress: (cpe as any).needsMacAddress ?? false, ipAddress: cpe.ipAddress, ipConflict: (cpe as any).ipConflict ?? false, status: cpe.status, connectionType: (cpe as any).connectionType ?? null } : null,
       session: null,
       status: subscriber.status,
       outstandingKobo,
@@ -309,39 +367,53 @@ private async verifyPaystackPayment(reference: string): Promise<boolean> {
     }
   }
 
-  async getInvoices(userId: string) {
+  async getInvoices(userId: string, pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const subscriber = await this.prisma.subscriber.findFirst({ where: { userId, deletedAt: null } });
     if (!subscriber) throw new NotFoundException('Subscriber not found');
     return this.prisma.invoice.findMany({
       where: { subscriberId: subscriber.id },
       include: { lines: { select: { description: true, amountKobo: true, quantity: true } } },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
-  async getPayments(userId: string) {
+  async getPayments(userId: string, pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const subscriber = await this.prisma.subscriber.findFirst({ where: { userId, deletedAt: null } });
     if (!subscriber) throw new NotFoundException('Subscriber not found');
     return this.prisma.payment.findMany({
       where: { invoice: { subscriberId: subscriber.id } },
       include: { invoice: { select: { invoiceNumber: true } } },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
-  async getReceipts(userId: string) {
+  async getReceipts(userId: string, pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const subscriber = await this.prisma.subscriber.findFirst({ where: { userId, deletedAt: null } });
     if (!subscriber) throw new NotFoundException('Subscriber not found');
     return this.prisma.receipt.findMany({
       where: { invoice: { subscriberId: subscriber.id } },
       include: { invoice: { select: { invoiceNumber: true } } },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
   // --- Customer Ticket Endpoints ---
 
-  async getTickets(userId: string) {
+  async getTickets(userId: string, pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     const subscriber = await this.prisma.subscriber.findFirst({ where: { userId, deletedAt: null } });
     if (!subscriber) throw new NotFoundException('Subscriber not found');
     return this.prisma.ticket.findMany({
@@ -351,6 +423,8 @@ private async verifyPaystackPayment(reference: string): Promise<boolean> {
         comments: { orderBy: { createdAt: 'asc' }, take: 1 },
       },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
@@ -387,5 +461,122 @@ private async verifyPaystackPayment(reference: string): Promise<boolean> {
       },
     });
     return comment;
+  }
+
+  // ── Customer self-edit (16 sheet cols) ────────────────────────
+  // Allows the authenticated customer to update their own subscriber fields.
+  // Only whitelisted fields are writable — ID/Hikonnect/plan/dates/IP remain admin-only.
+  async updateOwnProfile(userId: string, data: {
+    firstName?: string; lastName?: string; companyName?: string;
+    phone?: string; secondaryPhone?: string; email?: string;
+    address?: string; stationLabel?: string; ipAddress?: string;
+  }) {
+    const subscriber = await this.prisma.subscriber.findFirst({
+      where: { userId, deletedAt: null },
+      include: { user: true },
+    });
+    if (!subscriber) throw new NotFoundException('Subscriber not found');
+
+    // Email uniqueness (if changing)
+    if (data.email !== undefined) {
+      const normalized = String(data.email).trim().toLowerCase().replace(/\s+/g, '');
+      if (normalized && normalized !== subscriber.user.email.toLowerCase()) {
+        const taken = await this.prisma.user.findFirst({
+          where: { email: normalized, id: { not: subscriber.userId }, deletedAt: null },
+          select: { id: true },
+        });
+        if (taken) throw new BadRequestException('A user with this email already exists');
+        // Validate format roughly
+        if (normalized && !normalized.includes('@')) throw new BadRequestException('Invalid email');
+        data.email = normalized || undefined;
+      } else if (!normalized) {
+        // Empty string means do not change (placeholder @local emails stay hidden)
+        delete (data as any).email;
+      }
+    }
+
+    // Phone secondary handling — clean similar to import but permissive
+    const cleanPhone = (v: unknown): string | null => {
+      const s = String(v ?? '').trim();
+      if (!s) return null;
+      const digits = s.replace(/\D/g, '');
+      if (!digits) return null;
+      if (digits.length === 10 && !digits.startsWith('0')) return '0' + digits;
+      return digits;
+    };
+
+    // Update User (phone/secondary/email/name)
+    const userUpdates: Record<string, unknown> = {};
+    if (data.phone !== undefined) {
+      const cleaned = cleanPhone(data.phone);
+      if (cleaned) {
+        // Check uniqueness against live users (soft-deleted holders allowed)
+        const rows: Array<{ id: string; deletedAt: Date | null }> = await this.prisma.$queryRaw`SELECT id, "deletedAt" FROM "User" WHERE phone = ${cleaned} AND id <> ${subscriber.userId} LIMIT 1`;
+        const owner = rows[0];
+        if (owner && !owner.deletedAt) throw new BadRequestException('A user with this phone number already exists');
+        userUpdates.phone = cleaned;
+      } else if (String(data.phone).trim() === '') {
+        // Allow clearing? Keep existing — customers shouldn't wipe primary contact entirely
+        // Require at least one phone — ignore empty clear
+      }
+    }
+    if (data.secondaryPhone !== undefined) {
+      const cleaned = data.secondaryPhone ? cleanPhone(data.secondaryPhone) : null;
+      userUpdates.secondaryPhone = cleaned;
+    }
+    if (data.email !== undefined) userUpdates.email = data.email;
+    // Name derived from first/last if provided, else keep
+    if (data.firstName !== undefined || data.lastName !== undefined) {
+      const fn = data.firstName !== undefined ? String(data.firstName).trim() : (subscriber as any).firstName ?? '';
+      const ln = data.lastName !== undefined ? String(data.lastName).trim() : (subscriber as any).lastName ?? '';
+      const derived = [fn, ln].filter(Boolean).join(' ') || (subscriber as any).companyName || null;
+      if (derived) userUpdates.name = derived;
+    }
+
+    if (Object.keys(userUpdates).length) {
+      await this.prisma.user.update({ where: { id: subscriber.userId }, data: userUpdates as any });
+    }
+
+    // Update Subscriber (firstName/lastName/companyName/address/stationLabel)
+    const subUpdates: Record<string, unknown> = {};
+    if (data.firstName !== undefined) subUpdates.firstName = String(data.firstName).trim() || null;
+    if (data.lastName !== undefined) subUpdates.lastName = String(data.lastName).trim() || null;
+    if (data.companyName !== undefined) subUpdates.companyName = String(data.companyName).trim() || null;
+    if (data.address !== undefined) subUpdates.address = String(data.address).trim() || null;
+    if (data.stationLabel !== undefined) subUpdates.stationLabel = String(data.stationLabel).trim() || null;
+
+    if (Object.keys(subUpdates).length) {
+      await this.prisma.subscriber.update({ where: { id: subscriber.id }, data: subUpdates as any });
+    }
+
+    // Static IP — allow customer to request IP change (admin still validates via same checks as admin update)
+    if ((data as any).ipAddress !== undefined) {
+      const rawIp = String((data as any).ipAddress ?? '').trim();
+      const ip = rawIp || null;
+      if (ip && !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new BadRequestException('Invalid IP address');
+      const currentCpe = await this.prisma.cpe.findFirst({ where: { subscriberId: subscriber.id }, orderBy: { createdAt: 'asc' } });
+      const currentIp = (subscriber as any).staticIpAddress ?? (currentCpe as any)?.ipAddress ?? null;
+      if (ip !== currentIp) {
+        // Check uniqueness against live subscribers (soft-deleted holders allowed to reuse)
+        if (ip) {
+          const rows: Array<{ id: string }> = await this.prisma.$queryRaw`SELECT id FROM "Subscriber" WHERE "staticIpAddress" = ${ip} AND id <> ${subscriber.id} AND "deletedAt" IS NULL LIMIT 1`;
+          if (rows.length) throw new BadRequestException('IP address is already in use');
+        }
+        await this.prisma.subscriber.update({ where: { id: subscriber.id }, data: { staticIpAddress: ip } as any });
+        const cpe = currentCpe ?? await this.prisma.cpe.findFirst({ where: { subscriberId: subscriber.id }, orderBy: { createdAt: 'asc' } });
+        if (ip) {
+          if (cpe) {
+            await this.prisma.cpe.update({ where: { id: cpe.id }, data: { ipAddress: ip, connectionType: 'STATIC_IP', status: 'OFFLINE', ipConflict: false } as any });
+          } else {
+            await this.prisma.cpe.create({ data: { subscriberId: subscriber.id, ipAddress: ip, connectionType: 'STATIC_IP', status: 'OFFLINE', ipConflict: false, name: (subscriber as any).pppoeUsername ?? (subscriber as any).hikonnectId ?? null } as any });
+          }
+        } else if (cpe) {
+          await this.prisma.cpe.update({ where: { id: cpe.id }, data: { ipAddress: null, ipConflict: false } as any });
+        }
+      }
+    }
+
+    // Return fresh dashboard view so frontend can show updated data immediately
+    return this.getDashboard(userId);
   }
 }

@@ -9,7 +9,9 @@ export class CrmService {
     private readonly audit: AuditService,
   ) {}
 
-  async findAll() {
+  async findAll(pagination?: { skip?: number; take?: number }) {
+    const take = Math.min(Math.max(pagination?.take ?? 50, 1), 100);
+    const skip = Math.max(pagination?.skip ?? 0, 0);
     return this.prisma.contract.findMany({
       include: {
         subscriber: {
@@ -17,6 +19,8 @@ export class CrmService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 
