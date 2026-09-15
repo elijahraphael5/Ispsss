@@ -227,7 +227,7 @@ export class BillingService {
 
   private async ensureNewCustomer(c: { name?: string; email: string; phone?: string; address?: string }): Promise<string> {
     const email = c.email.trim().toLowerCase();
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const existing = await this.prisma.user.findUnique({
       where: { email },
       include: { subscriber: true },

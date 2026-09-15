@@ -18,6 +18,7 @@ describe('BillingService', () => {
     creditNote: { findFirst: jest.fn(), create: jest.fn() },
     user: { findUnique: jest.fn(), create: jest.fn() },
     subscriber: { findUnique: jest.fn(), create: jest.fn() },
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant1' }) },
     $transaction: jest.fn(),
   };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };

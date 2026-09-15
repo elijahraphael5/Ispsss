@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { softDelete } from '@isp/prisma';
+import { softDelete, encryptSecret, decryptSecret } from '@isp/prisma';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { CacheService } from '../../common/cache/cache.service';
@@ -40,33 +40,66 @@ export class NetworkService {
 
   // ── Network Devices ───────────────────────────────────────
 
+  private toSafeDevice(device: any): any {
+    if (!device) return device;
+    const { routerosPassword, routerosPasswordEnc, ...safe } = device;
+    // Never expose plaintext or ciphertext to clients; UI shows blank and requires re-entry
+    return safe;
+  }
+
+  private async encryptPasswordIfPresent(data: any): Promise<any> {
+    const out: any = { ...data };
+    if (out.routerosPassword !== undefined) {
+      const plain = out.routerosPassword;
+      delete out.routerosPassword;
+      if (plain) {
+        try {
+          out.routerosPasswordEnc = encryptSecret(String(plain));
+        } catch {
+          out.routerosPasswordEnc = null;
+        }
+      } else if (plain === '' || plain === null) {
+        out.routerosPasswordEnc = null;
+        // also clear legacy plaintext
+        out.routerosPassword = null;
+      }
+    }
+    return out;
+  }
+
   async findAllDevices() {
     const cached = await this.cache.get<any[]>('network:devices');
     if (cached) return cached;
     const devices = await this.prisma.networkDevice.findMany({ orderBy: { updatedAt: 'desc' } });
-    await this.cache.set('network:devices', devices, 30);
-    return devices;
+    const safe = devices.map((d: any) => this.toSafeDevice(d));
+    await this.cache.set('network:devices', safe, 30);
+    return safe;
   }
 
   async findDevice(id: string) {
     const d = await this.prisma.networkDevice.findUnique({ where: { id } });
     if (!d) throw new NotFoundException('Device not found');
-    return d;
+    return this.toSafeDevice(d);
   }
 
-  async createDevice(data: { name: string; type: string; ipAddress: string; vendor?: string; location?: string; secret?: string }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
-    const device = await this.prisma.networkDevice.create({ data: { ...data } as any });
-    await this.audit.log({ action: 'DEVICE_CREATED', entityType: 'NetworkDevice', entityId: device.id, metadata: { name: data.name, type: data.type, ipAddress: data.ipAddress } });
+  async createDevice(data: { name: string; type: string; ipAddress: string; vendor?: string; location?: string; secret?: string; routerosUsername?: string; routerosPassword?: string; routerosPort?: number }) {
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
+    const encrypted = await this.encryptPasswordIfPresent(data);
+    const device = await this.prisma.networkDevice.create({ data: { ...encrypted } as any });
+    await this.audit.log({ action: 'DEVICE_CREATED', entityType: 'NetworkDevice', entityId: device.id, metadata: { name: (data as any).name, type: (data as any).type, ipAddress: (data as any).ipAddress } });
     await this.invalidateNetworkCache();
-    return device;
+    return this.toSafeDevice(device);
   }
 
   async updateDevice(id: string, data: any) {
-    const device = await this.prisma.networkDevice.update({ where: { id }, data });
-    await this.audit.log({ action: 'DEVICE_UPDATED', entityType: 'NetworkDevice', entityId: id, metadata: { ...data } });
+    // never log plaintext password
+    const { routerosPassword, ...logSafe } = data ?? {};
+    const encrypted = await this.encryptPasswordIfPresent(data);
+    // if password was explicitly cleared (empty string), ensure Enc is nulled
+    const device = await this.prisma.networkDevice.update({ where: { id }, data: encrypted });
+    await this.audit.log({ action: 'DEVICE_UPDATED', entityType: 'NetworkDevice', entityId: id, metadata: { ...logSafe } });
     await this.invalidateNetworkCache();
-    return device;
+    return this.toSafeDevice(device);
   }
 
   // ── PPPoE Sessions ────────────────────────────────────────

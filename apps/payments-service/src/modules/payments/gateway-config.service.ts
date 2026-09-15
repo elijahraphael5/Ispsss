@@ -23,7 +23,7 @@ export class GatewayConfigService {
   private async decryptTenantKey(tenantId: string | null | undefined): Promise<string | null> {
     if (!tenantId) return null;
     try {
-      const row = await this.prisma.tenant.findUnique({
+      const row = await this.prisma.tenant?.findUnique({
         where: { id: tenantId },
         select: { paystackEnabled: true, paystackSecretKeyEnc: true },
       });
@@ -40,7 +40,7 @@ export class GatewayConfigService {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return this.cache.key;
     let key: string | null = null;
     try {
-      key = await this.decryptTenantKey((await this.prisma.tenant.findFirst())?.id);
+      key = await this.decryptTenantKey((await this.prisma.tenant?.findFirst())?.id);
     } catch {
       key = null;
     }

@@ -2,6 +2,7 @@ import { ExpiryReminderProcessor } from './expiry-reminder.processor';
 
 describe('ExpiryReminderProcessor', () => {
   const prisma = {
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findUnique: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findMany: jest.fn().mockResolvedValue([{ id: 'tenant-1' }]) },
     subscription: { findMany: jest.fn(), update: jest.fn() },
   };
   const mail = { sendExpiryReminder: jest.fn() };

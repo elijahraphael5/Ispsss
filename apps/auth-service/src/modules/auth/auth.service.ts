@@ -27,7 +27,7 @@ export class AuthService {
       throw new BadRequestException('Password must be at least 8 characters');
     }
     const passwordHash = await bcrypt.hash(password, 12);
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     return this.prisma.user.create({
       data: { tenantId, email: normalizedEmail, passwordHash, phone },
       select: { id: true, email: true, createdAt: true },

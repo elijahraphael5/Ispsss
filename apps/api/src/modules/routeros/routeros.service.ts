@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, BadGatewayException, RequestTimeoutException, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { decryptSecret } from '@isp/prisma';
 import * as bcrypt from 'bcryptjs';
 
 export interface RouterOsQueue {
@@ -60,13 +61,42 @@ export class RouterOsService {
     this.breakers.set(key, state);
   }
 
+  private getDecryptedPassword(device: any): string | null {
+    // Prefer Enc, fallback to legacy plaintext for migrating rows, then auto-migrate
+    const anyDevice: any = device;
+    if (anyDevice.routerosPasswordEnc) {
+      try {
+        const dec = decryptSecret(anyDevice.routerosPasswordEnc);
+        if (dec) return dec;
+      } catch {}
+    }
+    return anyDevice.routerosPassword ?? null;
+  }
+
+  private pwd(device: any): string {
+    return (this.getDecryptedPassword(device) ?? (device as any).routerosPassword) as string;
+  }
+
   private async getDevice(deviceId: string) {
     const device = await this.prisma.networkDevice.findUnique({ where: { id: deviceId } });
     if (!device) throw new NotFoundException('Device not found');
-    if (!device.routerosUsername || !device.routerosPassword) {
+    const pwd = this.getDecryptedPassword(device);
+    if (!(device as any).routerosUsername || !pwd) {
       throw new BadRequestException('Device is not configured as a RouterOS device (missing username/password)');
     }
-    return device;
+    // Lazy-migrate plaintext → Enc if needed
+    const anyDevice: any = device;
+    if (anyDevice.routerosPassword && !anyDevice.routerosPasswordEnc && pwd) {
+      try {
+        const { encryptSecret } = await import('@isp/prisma');
+        const enc = encryptSecret(pwd);
+        await this.prisma.networkDevice.update({ where: { id: deviceId }, data: { routerosPasswordEnc: enc, routerosPassword: null } as any }).catch(() => {});
+        (device as any).routerosPasswordEnc = enc;
+      } catch {}
+    }
+    // Attach decrypted for downstream fetch callers without exposing to DB model typing
+    (device as any).__decryptedPassword = pwd;
+    return device as any;
   }
 
   private baseUrl(ip: string, port: number | null): string {
@@ -159,12 +189,12 @@ export class RouterOsService {
 
   async getQueues(deviceId: string): Promise<RouterOsQueue[]> {
     const device = await this.getDevice(deviceId);
-    return this.fetch<RouterOsQueue[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/queue/simple');
+    return this.fetch<RouterOsQueue[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/queue/simple');
   }
 
   async createQueue(deviceId: string, data: Record<string, any>): Promise<RouterOsQueue> {
     const device = await this.getDevice(deviceId);
-    return this.fetch<RouterOsQueue>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/queue/simple', {
+    return this.fetch<RouterOsQueue>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/queue/simple', {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -172,7 +202,7 @@ export class RouterOsService {
 
   async updateQueue(deviceId: string, queueId: string, data: Record<string, any>): Promise<RouterOsQueue> {
     const device = await this.getDevice(deviceId);
-    return this.fetch<RouterOsQueue>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, `/queue/simple/${queueId}`, {
+    return this.fetch<RouterOsQueue>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), `/queue/simple/${queueId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
@@ -180,7 +210,7 @@ export class RouterOsService {
 
   async deleteQueue(deviceId: string, queueId: string): Promise<void> {
     const device = await this.getDevice(deviceId);
-    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, `/queue/simple/${queueId}`, {
+    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), `/queue/simple/${queueId}`, {
       method: 'DELETE',
     });
   }
@@ -228,7 +258,7 @@ export class RouterOsService {
 
   async getAllDevicesBandwidth() {
     const devices = await this.prisma.networkDevice.findMany({
-      where: { routerosUsername: { not: null }, routerosPassword: { not: null } },
+      where: { routerosUsername: { not: null }, OR: [{ routerosPassword: { not: null } }, { routerosPasswordEnc: { not: null } }] },
     });
     const results = await Promise.allSettled(
       devices.map(d => this.getBandwidthStats(d.id)),
@@ -258,13 +288,13 @@ export class RouterOsService {
 
   async getActiveSessions(deviceId: string): Promise<RouterOsSession[]> {
     const device = await this.getDevice(deviceId);
-    return this.fetch<RouterOsSession[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ppp/active');
+    return this.fetch<RouterOsSession[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/active');
   }
 
   async syncSessions(deviceId: string) {
     const device = await this.getDevice(deviceId);
     const activeSessions = await this.fetch<RouterOsSession[]>(
-      device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ppp/active',
+      device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/active',
     );
 
     let created = 0;
@@ -315,7 +345,7 @@ export class RouterOsService {
 
   async disconnectSession(deviceId: string, sessionId: string) {
     const device = await this.getDevice(deviceId);
-    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, `/ppp/active/${sessionId}`, { method: 'DELETE' });
+    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), `/ppp/active/${sessionId}`, { method: 'DELETE' });
     return { ok: true, sessionId };
   }
 
@@ -323,19 +353,19 @@ export class RouterOsService {
 
   async getDhcpLeases(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ip/dhcp-server/lease');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/dhcp-server/lease');
   }
 
   // ─── Firewall Address Lists ─────────────────────────────────
 
   async getAddressLists(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ip/firewall/address-list');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/firewall/address-list');
   }
 
   async addAddressListEntry(deviceId: string, data: { address: string; list: string; comment?: string }) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ip/firewall/address-list', {
+    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/firewall/address-list', {
       method: 'PUT',
       body: JSON.stringify({ address: data.address, list: data.list, comment: data.comment || '' }),
     });
@@ -343,7 +373,7 @@ export class RouterOsService {
 
   async removeAddressListEntry(deviceId: string, listId: string) {
     const device = await this.getDevice(deviceId);
-    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, `/ip/firewall/address-list/${listId}`, { method: 'DELETE' });
+    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), `/ip/firewall/address-list/${listId}`, { method: 'DELETE' });
     return { ok: true, listId };
   }
 
@@ -352,9 +382,9 @@ export class RouterOsService {
   async getWirelessClients(deviceId: string) {
     const device = await this.getDevice(deviceId);
     try {
-      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/interface/wireless/registration-table');
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface/wireless/registration-table');
     } catch {
-      return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/interface/wifi/registration-table');
+      return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface/wifi/registration-table');
     }
   }
 
@@ -362,13 +392,13 @@ export class RouterOsService {
 
   async getPppProfiles(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ppp/profile');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/profile');
   }
 
   async getSystemHealth(deviceId: string) {
     const device = await this.getDevice(deviceId);
     try {
-      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/system/health');
+      return await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/system/health');
     } catch {
       return [];
     }
@@ -376,7 +406,7 @@ export class RouterOsService {
 
   async getLogs(deviceId: string, limit = 100) {
     const device = await this.getDevice(deviceId);
-    const logs = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/log');
+    const logs = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/log');
     return logs.slice(-limit);
   }
 
@@ -384,24 +414,24 @@ export class RouterOsService {
 
   async getIpAddresses(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ip/address');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/address');
   }
 
   async getRoutes(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ip/route');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/route');
   }
 
   async getPools(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ip/pool');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ip/pool');
   }
 
   // ─── Ping ───────────────────────────────────────────────────
 
   async pingAddress(deviceId: string, address: string, count = 3) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/tool/ping', {
+    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/tool/ping', {
       method: 'POST',
       body: JSON.stringify({ address, count }),
     });
@@ -410,7 +440,7 @@ export class RouterOsService {
   // ─── PPP Secrets (subscribers) ──────────────────────────────
   async getPppSecrets(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    const secrets = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ppp/secret');
+    const secrets = await this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/secret');
     return secrets.map(s => ({
       id: s['.id'],
       username: s.name,
@@ -428,7 +458,7 @@ export class RouterOsService {
 
   async createPppSecret(deviceId: string, data: { name: string; password: string; profile: string; comment?: string; service?: string }) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/ppp/secret', {
+    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/ppp/secret', {
       method: 'PUT',
       body: JSON.stringify({
         name: data.name,
@@ -449,7 +479,7 @@ export class RouterOsService {
     if (data.profile) body.profile = data.profile;
     if (data.comment !== undefined) body.comment = data.comment;
     if (data.disabled) body.disabled = data.disabled;
-    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, `/ppp/secret/${secretId}`, {
+    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), `/ppp/secret/${secretId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
@@ -457,7 +487,7 @@ export class RouterOsService {
 
   async deletePppSecret(deviceId: string, secretId: string) {
     const device = await this.getDevice(deviceId);
-    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, `/ppp/secret/${secretId}`, {
+    await this.fetch<void>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), `/ppp/secret/${secretId}`, {
       method: 'DELETE',
     });
   }
@@ -466,12 +496,12 @@ export class RouterOsService {
 
   async getSystemResource(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/system/resource');
+    return this.fetch<any>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/system/resource');
   }
 
   async getInterfaces(deviceId: string) {
     const device = await this.getDevice(deviceId);
-    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, device.routerosPassword!, '/interface');
+    return this.fetch<any[]>(device.ipAddress, device.routerosPort, device.routerosUsername!, this.pwd(device), '/interface');
   }
 
   // ─── Static IP / ARP Sync ─────────────────────────────────────
@@ -479,7 +509,7 @@ export class RouterOsService {
   private async resolveArpDevice(deviceId?: string) {
     if (deviceId) return this.getDevice(deviceId);
     const device = await this.prisma.networkDevice.findFirst({
-      where: { routerosUsername: { not: null }, routerosPassword: { not: null } },
+      where: { routerosUsername: { not: null }, OR: [{ routerosPassword: { not: null } }, { routerosPasswordEnc: { not: null } }] },
       orderBy: { updatedAt: 'desc' },
     });
     if (!device) throw new BadRequestException('No RouterOS-configured device found. Create a network device with RouterOS credentials first.');
@@ -496,7 +526,7 @@ export class RouterOsService {
       const res = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from(`${device.routerosUsername}:${device.routerosPassword}`).toString('base64'),
+          Authorization: 'Basic ' + Buffer.from(`${device.routerosUsername}:${this.getDecryptedPassword(device as any) ?? device.routerosPassword}`).toString('base64'),
         },
         signal: AbortSignal.timeout(10000),
       });
@@ -523,7 +553,7 @@ export class RouterOsService {
     let created = 0;
     let skipped = 0;
 
-    const tenant = await this.prisma.tenant.findFirst({ where: { slug: 'default' } });
+    const tenant = await this.prisma.tenant?.findFirst({ where: { slug: 'default' } });
     const tenantId = tenant?.id ?? 'default';
     const customerRole = await this.prisma.customRole.findFirst({ where: { name: 'CUSTOMER' } });
 

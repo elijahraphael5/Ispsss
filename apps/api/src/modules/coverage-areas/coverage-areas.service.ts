@@ -17,8 +17,11 @@ export class CoverageAreasService {
   }
 
   async create(dto: CreateCoverageAreaDto) {
+    const tenant = await this.prisma.tenant?.findFirst({ select: { id: true } });
+    const data: any = { ...dto };
+    if (tenant) data.tenantId = tenant.id;
     const area = await this.prisma.coverageArea.create({
-      data: { ...dto } as any,
+      data,
     });
     await this.audit.log({
       action: 'COVERAGE_AREA_CREATED',

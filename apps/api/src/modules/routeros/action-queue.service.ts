@@ -9,7 +9,7 @@ export class ActionQueueService {
     private readonly routeros: RouterOsService) {}
 
   async suspend(deviceId: string, secretId: string, tenantId?: string) {
-    const resolvedTenantId = tenantId ?? ((await this.prisma.tenant.findFirst())?.id);
+    const resolvedTenantId = tenantId ?? ((await this.prisma.tenant?.findFirst())?.id);
     const health = await this.prisma.routerHealth.findUnique({ where: { deviceId } });
     if (health && health.linkStatus !== 'up') {
       return this.prisma.actionQueue.create({
@@ -20,7 +20,7 @@ export class ActionQueueService {
   }
 
   async planChange(deviceId: string, secretId: string, profile: string, tenantId?: string) {
-    const resolvedTenantId = tenantId ?? ((await this.prisma.tenant.findFirst())?.id);
+    const resolvedTenantId = tenantId ?? ((await this.prisma.tenant?.findFirst())?.id);
     const health = await this.prisma.routerHealth.findUnique({ where: { deviceId } });
     if (health && health.linkStatus !== 'up') {
       return this.prisma.actionQueue.create({

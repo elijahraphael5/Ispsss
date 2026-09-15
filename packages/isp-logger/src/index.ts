@@ -61,9 +61,12 @@ export function assertProdEnv(rules: ProdEnvRule[]): void {
   const bad: string[] = [];
   for (const { name, forbidden } of rules) {
     const val = process.env[name];
-    // Secret vars (with forbidden dev default) are required in all envs
+    // DATABASE_URL with change_me is the dev default and should only be rejected in prod
+    const alwaysCheck = !!forbidden && name !== 'DATABASE_URL';
     if (forbidden) {
-      if (!val || val.includes(forbidden)) bad.push(name);
+      if (!val || val.includes(forbidden)) {
+        if (alwaysCheck || isProd) bad.push(name);
+      }
     } else if (isProd) {
       if (!val) bad.push(name);
     }

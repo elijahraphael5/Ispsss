@@ -33,7 +33,7 @@ interface Permission {
 const MODULES = ['Dashboard', 'User Control', 'Customer', 'Package', 'Billing', 'Payments', 'Support', 'NOC', 'Notifications', 'Audit Logs', 'Owner', 'Settings'];
 const PERM_LABELS: Record<string, string> = { canView: 'View', canCreate: 'Create', canEdit: 'Edit', canDelete: 'Delete' };
 
-const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Billing Defaults', 'Payment Gateway', 'Email (Brevo)'];
+const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Installation', 'Billing Defaults', 'Payment Gateway', 'Email (Brevo)'];
 
 const fieldLabel: React.CSSProperties = { display: 'block', marginBottom: 5, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 };
 const fieldInput: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
@@ -46,6 +46,7 @@ interface TenantSettings {
   isActive: boolean;
   profile: { logoUrl: string | null; email: string | null; phone: string | null; address: string | null };
   billing: { vatRate: number; invoicePrefix: string };
+  installation: { fiberFeeKobo: number; radioFeeKobo: number };
   paystack: { enabled: boolean; publicKey: string | null; secretMasked: string | null; hasSecret: boolean };
   email: { enabled: boolean; host: string | null; port: number | null; user: string | null; passMasked: string | null; hasPass: boolean; fromEmail: string | null; fromName: string | null };
   persistedFields: string[];
@@ -88,6 +89,7 @@ export default function SettingsPage() {
   const [tenant, setTenant] = useState<TenantSettings | null>(null);
   const [companyForm, setCompanyForm] = useState({ name: '', logoUrl: '', email: '', phone: '', address: '' });
   const [billingForm, setBillingForm] = useState({ vatRate: '7.5', invoicePrefix: 'INV' });
+  const [installationForm, setInstallationForm] = useState({ fiberFee: '50000', radioFee: '120000' });
   const [paystackForm, setPaystackForm] = useState({ enabled: false, publicKey: '', secretKey: '' });
   const [paystackSecretMasked, setPaystackSecretMasked] = useState<string | null>(null);
   const [emailForm, setEmailForm] = useState({ enabled: false, host: '', port: '587', user: '', pass: '', fromEmail: '', fromName: '' });
@@ -106,6 +108,10 @@ export default function SettingsPage() {
         address: t.profile.address ?? '',
       });
       setBillingForm({ vatRate: String(t.billing.vatRate), invoicePrefix: t.billing.invoicePrefix });
+      setInstallationForm({
+        fiberFee: String(Math.round((t.installation?.fiberFeeKobo ?? 5000000) / 100)),
+        radioFee: String(Math.round((t.installation?.radioFeeKobo ?? 12000000) / 100)),
+      });
       setPaystackForm({ enabled: t.paystack?.enabled ?? false, publicKey: t.paystack?.publicKey ?? '', secretKey: '' });
       setPaystackSecretMasked(t.paystack?.secretMasked ?? null);
       setEmailForm({
@@ -155,6 +161,34 @@ export default function SettingsPage() {
       toast(res.pending?.length ? (res.message ?? 'Saved — some fields are not persisted yet') : 'Billing defaults saved', 'success', toasts, setToasts);
     } catch (e: any) {
       toast(e?.message ?? 'Failed to save billing defaults', 'error', toasts, setToasts);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function saveInstallation() {
+    setSavingSettings(true);
+    try {
+      const fiberKobo = installationForm.fiberFee === '' ? undefined : Math.round(parseFloat(installationForm.fiberFee) * 100);
+      const radioKobo = installationForm.radioFee === '' ? undefined : Math.round(parseFloat(installationForm.radioFee) * 100);
+      if (fiberKobo !== undefined && (isNaN(fiberKobo) || fiberKobo < 0)) { toast('Fiber fee must be a valid number', 'error', toasts, setToasts); return; }
+      if (radioKobo !== undefined && (isNaN(radioKobo) || radioKobo < 0)) { toast('Radio fee must be a valid number', 'error', toasts, setToasts); return; }
+      await api('/tenant/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fiberInstallationFeeKobo: fiberKobo,
+          radioInstallationFeeKobo: radioKobo,
+        }),
+      });
+      const t = await api<TenantSettings>('/tenant/settings');
+      setTenant(t);
+      setInstallationForm({
+        fiberFee: String(Math.round((t.installation?.fiberFeeKobo ?? 5000000) / 100)),
+        radioFee: String(Math.round((t.installation?.radioFeeKobo ?? 12000000) / 100)),
+      });
+      toast('Installation fees saved', 'success', toasts, setToasts);
+    } catch (e: any) {
+      toast(e?.message ?? 'Failed to save installation fees', 'error', toasts, setToasts);
     } finally {
       setSavingSettings(false);
     }
@@ -578,6 +612,31 @@ export default function SettingsPage() {
           <p style={pendingNote}>
             <strong>Only Company name is stored today</strong> (the <code>Tenant.name</code> column). The logo, contact and address fields have no database column yet — saving them is logged server-side and reported back, pending the deferred schema work.
           </p>
+        </div>
+      ) : tab === 'Installation' ? (
+        <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Installation Fees</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>One-off fees charged when a customer is created — Fiber and Radio</div>
+            </div>
+            <button className="btn-primary" disabled={savingSettings} onClick={saveInstallation}>{savingSettings ? 'Saving…' : 'Save Changes'}</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+            <div>
+              <label style={fieldLabel}>Fiber Installation Fee (₦)</label>
+              <input type="text" inputMode="decimal" value={installationForm.fiberFee} onChange={e => setInstallationForm(f => ({ ...f, fiberFee: e.target.value }))} placeholder="50000" style={fieldInput} />
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Applies when Network type is <b>Fiber</b></div>
+            </div>
+            <div>
+              <label style={fieldLabel}>Radio Installation Fee (₦)</label>
+              <input type="text" inputMode="decimal" value={installationForm.radioFee} onChange={e => setInstallationForm(f => ({ ...f, radioFee: e.target.value }))} placeholder="120000" style={fieldInput} />
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Applies when Network type is <b>Radio</b></div>
+            </div>
+          </div>
+          <div style={{ marginTop: 14, padding: '10px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, fontSize: '0.78rem', color: '#166534', lineHeight: 1.5 }}>
+            These fees are used as the default when creating a customer. Selecting <b>Fiber</b> auto-fills <b>₦{installationForm.fiberFee || '50000'}</b>, <b>Radio</b> auto-fills <b>₦{installationForm.radioFee || '120000'}</b> — you can still edit the fee per customer before saving. One-off only, not part of the plan.
+          </div>
         </div>
       ) : tab === 'Billing Defaults' ? (
         <div className="data-card" style={{ padding: 20, maxWidth: 640 }}>

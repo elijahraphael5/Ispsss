@@ -126,6 +126,7 @@ model Tenant {
   routerMetrics     RouterMetric[]
   routerUsageDays   RouterUsageDay[]
   coverageAreas     CoverageArea[]
+  coverageZones     CoverageZone[]
   paystackEnabled     Boolean       @default(false)
   paystackPublicKey   String?
   paystackSecretKeyEnc String?
@@ -138,27 +139,45 @@ model Tenant {
   smtpPassLast4       String?
   smtpFromEmail       String?
   smtpFromName        String?
+  fiberInstallationFeeKobo Int      @default(5000000)
+  radioInstallationFeeKobo Int      @default(12000000)
   deletedAt   DateTime?
   createdAt   DateTime      @default(now())
 }
 
-model CoverageArea {
+model CoverageZone {
   id        String   @id @default(uuid())
   tenantId  String?
-  tenant    Tenant?   @relation(fields: [tenantId], references: [id])
-  name      String
-  zone      String   @default("IKORODU")
-  lga       String?
-  status    String   @default("COVERED")
-  lat       Float?
-  lng       Float?
-  notes     String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  slug      String
+  label     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+}
+
+model CoverageArea {
+  id         String   @id @default(uuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id])
+  name       String
+  zone       String   @default("IKORODU")
+  lga        String?
+  status     String   @default("COVERED")
+  technology String   @default("FIBER")
+  lat        Float?
+  lng        Float?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
   @@index([tenantId])
   @@index([zone])
+  @@index([technology])
 }
 
 model CustomRole {
@@ -719,7 +738,8 @@ model NetworkDevice {
   sessions     Int      @default(0)
   secret           String?  // for NAS devices
   routerosUsername String?
-  routerosPassword String?
+  routerosPassword String?  // plaintext — legacy, migrated to routerosPasswordEnc
+  routerosPasswordEnc String? // AES-GCM encrypted via CREDENTIALS_ENCRYPTION_KEY
   routerosPort     Int?     @default(443)
   updatedAt        DateTime @updatedAt
   deletedAt        DateTime?

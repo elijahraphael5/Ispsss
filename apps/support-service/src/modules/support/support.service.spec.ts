@@ -26,6 +26,7 @@ describe('SupportService', () => {
     agentPresence: { upsert: jest.fn() },
     user: { findMany: jest.fn() },
     fileUpload: { findUnique: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findUnique: jest.fn() },
   };
   const tenant = { resolveTenant: jest.fn().mockResolvedValue('tenant-1') };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };

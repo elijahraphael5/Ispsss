@@ -1,7 +1,9 @@
 import { IsString, IsNotEmpty, IsOptional, IsNumber, IsIn, MaxLength, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export const COVERAGE_ZONES = ['LAGOS_MAINLAND', 'LAGOS_ISLAND', 'IKORODU', 'OTHER'];
 export const COVERAGE_STATUSES = ['COVERED', 'IN_PROGRESS', 'PLANNED'];
+export const COVERAGE_TECHNOLOGIES = ['FIBER', 'RADIO'];
 
 export class CreateCoverageAreaDto {
   @IsString()
@@ -10,7 +12,8 @@ export class CreateCoverageAreaDto {
   name!: string;
 
   @IsOptional()
-  @IsIn(COVERAGE_ZONES)
+  @IsString()
+  @MaxLength(30)
   zone?: string;
 
   @IsOptional()
@@ -23,15 +26,21 @@ export class CreateCoverageAreaDto {
   status?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(-90)
-  @Max(90)
+  @IsIn(COVERAGE_TECHNOLOGIES)
+  technology?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'lat must be a number between -90 and 90' })
+  @Min(-90, { message: 'lat must not be less than -90' })
+  @Max(90, { message: 'lat must not be greater than 90' })
   lat?: number;
 
   @IsOptional()
-  @IsNumber()
-  @Min(-180)
-  @Max(180)
+  @Type(() => Number)
+  @IsNumber({}, { message: 'lng must be a number between -180 and 180' })
+  @Min(-180, { message: 'lng must not be less than -180' })
+  @Max(180, { message: 'lng must not be greater than 180' })
   lng?: number;
 
   @IsOptional()
@@ -48,7 +57,8 @@ export class UpdateCoverageAreaDto {
   name?: string;
 
   @IsOptional()
-  @IsIn(COVERAGE_ZONES)
+  @IsString()
+  @MaxLength(30)
   zone?: string;
 
   @IsOptional()
@@ -61,15 +71,21 @@ export class UpdateCoverageAreaDto {
   status?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(-90)
-  @Max(90)
+  @IsIn(COVERAGE_TECHNOLOGIES)
+  technology?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'lat must be a number between -90 and 90' })
+  @Min(-90, { message: 'lat must not be less than -90' })
+  @Max(90, { message: 'lat must not be greater than 90' })
   lat?: number;
 
   @IsOptional()
-  @IsNumber()
-  @Min(-180)
-  @Max(180)
+  @Type(() => Number)
+  @IsNumber({}, { message: 'lng must be a number between -180 and 180' })
+  @Min(-180, { message: 'lng must not be less than -180' })
+  @Max(180, { message: 'lng must not be greater than 180' })
   lng?: number;
 
   @IsOptional()

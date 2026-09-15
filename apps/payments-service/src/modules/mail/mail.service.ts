@@ -121,7 +121,7 @@ export class MailService {
 
   private async resolveTransport(): Promise<nodemailer.Transporter | null> {
     try {
-      const smtp = await resolveTenantSmtp(this.prisma, (await this.prisma.tenant.findFirst())?.id);
+      const smtp = await resolveTenantSmtp(this.prisma, (await this.prisma.tenant?.findFirst())?.id);
       if (smtp) {
         const sig = smtp.host + ':' + smtp.port + ':' + smtp.user + ':' + smtp.pass.slice(-4);
         if (!this.tenantTransporter || this.tenantTransportSig !== sig) {

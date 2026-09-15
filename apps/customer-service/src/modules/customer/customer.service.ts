@@ -285,8 +285,8 @@ export class CustomerService {
 private async verifyPaystackPayment(reference: string): Promise<boolean> {
     let secretKey = process.env.PAYSTACK_SECRET_KEY;
     try {
-      const tenantId = (await this.prisma.tenant.findFirst())?.id;
-      const row = await this.prisma.tenant.findUnique({
+      const tenantId = (await this.prisma.tenant?.findFirst())?.id;
+      const row = await this.prisma.tenant?.findUnique({
         where: { id: tenantId },
         select: { paystackEnabled: true, paystackSecretKeyEnc: true },
       });

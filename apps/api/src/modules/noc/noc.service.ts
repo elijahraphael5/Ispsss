@@ -83,7 +83,7 @@ export class NocService {
   }
 
   async createDevice(data: { name: string; type: string; ipAddress: string; vendor?: string }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const device = await this.prisma.networkDevice.create({ data: { ...data } as any });
     await this.audit.log({ action: 'DEVICE_CREATED', entityType: 'NetworkDevice', entityId: device.id, metadata: { name: data.name, type: data.type, ipAddress: data.ipAddress } });
     return device;

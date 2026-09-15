@@ -64,6 +64,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get routerUsageDay() { return this.client.routerUsageDay; }
   get actionQueue() { return this.client.actionQueue; }
   get coverageArea() { return this.client.coverageArea; }
+  get coverageZone() { return (this.client as any).coverageZone; }
   get passwordResetToken() { return this.client.passwordResetToken; }
 
   get $transaction() { return this.client.$transaction.bind(this.client); }

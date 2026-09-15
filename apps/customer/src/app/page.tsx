@@ -8,7 +8,10 @@ import { useAuthStore, api, formatNaira } from '@isp/shared';
 import { SkeletonBlock, SkeletonCard } from './components/Skeleton';
 import InternetView from './components/InternetView';
 import AnalyticsView from './components/AnalyticsView';
-import { CoverageArea, ZONE_LABELS, STATUS_COLORS, STATUS_LABELS } from './components/coverage-data';
+import { CoverageArea, ZONE_LABELS as STATIC_ZONE_LABELS, STATUS_COLORS, STATUS_LABELS, TECH_LABELS, TECH_COLORS } from './components/coverage-data';
+
+const FALLBACK_ZONES = ['LAGOS_MAINLAND', 'LAGOS_ISLAND', 'IKORODU', 'OTHER'];
+interface CoverageZone { id: string; slug: string; label: string }
 
 const CoverageMap = dynamic(() => import('./components/CoverageMap'), {
   ssr: false,
@@ -44,6 +47,8 @@ export default function CustomerDashboard() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'overview' | 'internet' | 'analytics'>('overview');
   const [coverage, setCoverage] = useState<CoverageArea[]>([]);
+  const [coverageTech, setCoverageTech] = useState<'FIBER' | 'RADIO'>('FIBER');
+  const [coverageZones, setCoverageZones] = useState<CoverageZone[]>([]);
 
   useEffect(() => {
     if (!accessToken && typeof window !== 'undefined' && !localStorage.getItem('accessToken')) {
@@ -55,6 +60,7 @@ export default function CustomerDashboard() {
     if (!accessToken) return;
     api<DashboardData>('/customer/dashboard').then(setData).catch(() => {}).finally(() => setLoading(false));
     api<CoverageArea[]>('/coverage-areas').then(setCoverage).catch(() => {});
+    api<CoverageZone[]>('/coverage-zones').then(setCoverageZones).catch(() => {});
   }, [accessToken]);
 
   if (!user) return null;
@@ -162,13 +168,30 @@ export default function CustomerDashboard() {
         </div>
       </div>
 
-      {coverage.length > 0 && (
+      {coverage.length > 0 && (() => {
+        const techCoverage = coverage.filter(c => (c.technology ?? 'FIBER') === coverageTech);
+        const techCounts = { FIBER: coverage.filter(c => (c.technology ?? 'FIBER') === 'FIBER').length, RADIO: coverage.filter(c => (c.technology ?? 'FIBER') === 'RADIO').length };
+        const ZONE_LABELS: Record<string, string> = { ...STATIC_ZONE_LABELS };
+        for (const z of coverageZones) ZONE_LABELS[z.slug] = z.label;
+        const ZONES = coverageZones.length
+          ? coverageZones.map((z) => z.slug)
+          : (coverage.length ? Array.from(new Set(coverage.map((c) => c.zone))).sort((a, b) => (ZONE_LABELS[a] ?? a).localeCompare(ZONE_LABELS[b] ?? b)) : FALLBACK_ZONES);
+        return (
         <div className="data-card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Fiber Coverage</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>{TECH_LABELS[coverageTech]} Coverage</div>
+              <div className="badge-tabs" style={{ display: 'inline-flex' }}>
+                {(['FIBER','RADIO'] as const).map(t => (
+                  <button key={t} onClick={() => setCoverageTech(t)} className={`tab-item${coverageTech===t?' active':''}`} style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: '0.72rem' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: TECH_COLORS[t] }} />{TECH_LABELS[t]} <span style={{ fontSize: '0.62rem', background: coverageTech===t? TECH_COLORS[t]: '#E2E8F0', color: coverageTech===t? '#fff':'#64748B', padding: '1px 6px', borderRadius: 10 }}>{techCounts[t]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                {coverage.filter(c => c.status === 'COVERED').length} areas covered · {coverage.length} total
+                {techCoverage.filter(c => c.status === 'COVERED').length} areas covered · {techCoverage.length} total
               </span>
               <Link href="/coverage" style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, textDecoration: 'none' }}>
                 View all coverage →
@@ -176,10 +199,10 @@ export default function CustomerDashboard() {
             </div>
           </div>
           <div className="coverage-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16 }}>
-            <CoverageMap areas={coverage} height={300} />
+            <CoverageMap areas={techCoverage} height={300} />
             <div style={{ maxHeight: 300, overflowY: 'auto', borderLeft: '1px solid var(--border-color)', paddingLeft: 16 }}>
-              {['IKORODU', 'LAGOS_MAINLAND', 'LAGOS_ISLAND', 'OTHER'].map(zone => {
-                const items = coverage.filter(c => c.zone === zone);
+              {ZONES.map(zone => {
+                const items = techCoverage.filter(c => c.zone === zone);
                 if (items.length === 0) return null;
                 return (
                   <div key={zone} style={{ marginBottom: 14 }}>
@@ -194,10 +217,12 @@ export default function CustomerDashboard() {
                   </div>
                 );
               })}
+              {techCoverage.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '12px 0' }}>No {TECH_LABELS[coverageTech].toLowerCase()} areas yet.</div>}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       <div className="grid-2" style={{ gap: 20 }}>
         <div className="data-card" style={{ padding: 20 }}>

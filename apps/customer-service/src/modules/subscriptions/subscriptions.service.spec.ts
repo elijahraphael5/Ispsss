@@ -7,6 +7,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 describe('SubscriptionsService', () => {
   let service: SubscriptionsService;
   const prisma = {
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findUnique: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findMany: jest.fn().mockResolvedValue([{ id: 'tenant-1' }]) },
     subscriber: { findMany: jest.fn(), count: jest.fn(), findUniqueOrThrow: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     plan: { findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
     subscription: { create: jest.fn(), update: jest.fn(), deleteMany: jest.fn(), updateMany: jest.fn() },

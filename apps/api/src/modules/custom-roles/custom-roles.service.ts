@@ -42,7 +42,7 @@ export class CustomRolesService {
   }
 
   async create(dto: CreateCustomRoleDto) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     await this.releaseStaleRoleName(dto.name);
     try {
       return await this.prisma.$transaction(async (tx) => {

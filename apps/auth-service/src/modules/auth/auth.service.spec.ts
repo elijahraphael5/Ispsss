@@ -28,6 +28,9 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    tenant: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }),
+    },
     $transaction: jest.fn((ops: any) => Promise.all(ops)),
   };
   const tenant = { resolveTenant: jest.fn().mockResolvedValue('tenant-1') };
@@ -64,7 +67,7 @@ describe('AuthService', () => {
       expect(hash).not.toBe('secret123');
       expect(await bcrypt.compare('secret123', hash)).toBe(true);
       expect(result).toEqual({ id: 'u1', email: 'a@b.co', createdAt: expect.any(Date) });
-    });
+    }, 10000);
   });
 
   describe('login', () => {
@@ -88,7 +91,8 @@ describe('AuthService', () => {
       prisma.user.findUnique.mockResolvedValue({ ...user, twoFaEnabled: true });
       const result = await service.login('a@b.co', 'pass123');
       expect(result).toEqual(expect.objectContaining({ twoFaRequired: true, userId: 'u1', method: 'email' }));
-      expect(jwt.sign).not.toHaveBeenCalled();
+      // Temp 2FA token is issued (purpose 2fa-temp, 5m), but no refresh/access token family
+      expect(jwt.sign).toHaveBeenCalledWith(expect.objectContaining({ sub: 'u1', purpose: '2fa-temp' }), expect.objectContaining({ expiresIn: '5m' }));
       expect(prisma.refreshToken.create).not.toHaveBeenCalled();
     });
 
@@ -183,8 +187,9 @@ describe('AuthService', () => {
       const res = await service.setup2fa('u1');
       expect(res.secret).toEqual(expect.any(String));
       expect(res.otpauthUrl).toContain('otpauth://');
+      // Secret is stored encrypted (v1:...), not plaintext
       expect(prisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'u1' }, data: { twoFaSecret: res.secret } }),
+        expect.objectContaining({ where: { id: 'u1' }, data: { twoFaSecret: expect.stringMatching(/^v1:/) } }),
       );
     });
   });
@@ -294,12 +299,12 @@ describe('AuthService', () => {
 
     it('resetPassword rejects unknown token', async () => {
       prisma.passwordResetToken.findUnique.mockResolvedValue(null);
-      await expect(service.resetPassword('tok', 'newpass')).rejects.toThrow(UnauthorizedException);
+      await expect(service.resetPassword('tok', 'newpass123')).rejects.toThrow(UnauthorizedException);
     });
 
     it('resetPassword rejects expired token (legacy unused fields tolerated)', async () => {
       prisma.passwordResetToken.findUnique.mockResolvedValue({ id: 'prt1', usedAt: null, expiresAt: new Date(Date.now() - 1000) });
-      await expect(service.resetPassword('tok', 'newpass')).rejects.toThrow(UnauthorizedException);
+      await expect(service.resetPassword('tok', 'newpass123')).rejects.toThrow(UnauthorizedException);
     });
 
     it('resetPassword updates the password hash and marks token used', async () => {

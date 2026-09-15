@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { CoverageArea, STATUS_COLORS, STATUS_LABELS, ZONE_LABELS } from './coverage-data';
+import { CoverageArea, STATUS_COLORS, STATUS_LABELS, ZONE_LABELS, TECH_LABELS } from './coverage-data';
 
 function pinIcon(color: string, active = false) {
   return L.divIcon({
@@ -57,9 +57,10 @@ export default function CoverageMap({
     const layer = L.layerGroup().addTo(map);
     areas.filter((a) => a.lat != null && a.lng != null).forEach((a) => {
       const color = STATUS_COLORS[a.status] ?? '#94A3B8';
+      const tech = TECH_LABELS[(a.technology as string) ?? 'FIBER'] ?? (a.technology ?? 'FIBER');
       L.marker([a.lat as number, a.lng as number], { icon: pinIcon(color) })
         .bindPopup(
-          `<strong>${esc(a.name)}</strong><br/>${esc(ZONE_LABELS[a.zone] ?? a.zone)}${a.lga ? ` · ${esc(a.lga)}` : ''}<br/>` +
+          `<strong>${esc(a.name)}</strong> <span style="font-size:0.7rem;background:#F1F5F9;padding:2px 6px;border-radius:8px">${esc(tech)}</span><br/>${esc(ZONE_LABELS[a.zone] ?? a.zone)}${a.lga ? ` · ${esc(a.lga)}` : ''}<br/>` +
           `<span style="color:${color};font-weight:600">${esc(STATUS_LABELS[a.status] ?? a.status)}</span>`,
         )
         .addTo(layer);

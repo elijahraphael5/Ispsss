@@ -124,6 +124,7 @@ export const SOFT_DELETE_MODELS = [
   'routerUsageDay',
   'pppoeSession',
   'coverageArea',
+  'coverageZone',
 ] as const;
 
 // Models whose UPDATE/DELETE writes are mirrored into `EntityHistory`.
@@ -162,6 +163,7 @@ export const HISTORY_MODELS = [
   'networkDevice',
   'contract',
   'coverageArea',
+  'coverageZone',
 ] as const;
 
 const READ_OPS = [
@@ -215,13 +217,20 @@ export const softDeleteExtension = Prisma.defineExtension({
 });
 
 // Fields that must never be persisted in EntityHistory snapshots.
+// Includes plaintext + ciphertext variants for encrypted secrets so history never leaks either form.
 const SENSITIVE_KEYS = new Set([
   'passwordHash',
   'twoFaSecret',
   'twoFaOtpHash',
   'tokenHash',
   'routerosPassword',
+  'routerosPasswordEnc',
   'secret',
+  'paystackSecretKey',
+  'paystackSecretKeyEnc',
+  'smtpPass',
+  'smtpPassEnc',
+  'smtpPassword',
 ]);
 
 /** Serializes a snapshot for JSONB storage, redacting sensitive fields. */

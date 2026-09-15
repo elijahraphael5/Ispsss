@@ -53,9 +53,9 @@ describe('RadiusControllers', () => {
     delete process.env.WEBHOOK_SERVICE_TOKEN;
   });
 
-  it('skips the token check when WEBHOOK_SERVICE_TOKEN is unset', async () => {
+  it('rejects when WEBHOOK_SERVICE_TOKEN is unset (internal endpoints disabled)', () => {
     delete process.env.WEBHOOK_SERVICE_TOKEN;
-    await expect(internal.deactivate('c1', undefined)).resolves.toMatchObject({ deactivated: true });
+    expect(() => internal.deactivate('c1', undefined as any)).toThrow(HttpException);
   });
 
   it('rejects mutations when the per-customer rate limit is exceeded', async () => {

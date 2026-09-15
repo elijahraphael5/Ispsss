@@ -15,7 +15,7 @@ export class OwnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listTenants() {
-    return this.prisma.tenant.findMany({
+    return this.prisma.tenant?.findMany({
       orderBy: { name: 'asc' },
       include: {
         _count: { select: { users: true, subscribers: true } },
@@ -24,7 +24,7 @@ export class OwnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getTenantById(id: string) {
-    return this.prisma.tenant.findUniqueOrThrow({
+    return this.prisma.tenant?.findUniqueOrThrow({
       where: { id },
       include: {
         _count: { select: { users: true, subscribers: true } },

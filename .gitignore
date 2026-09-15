@@ -3,12 +3,10 @@ dist/
 .next/
 .turbo/
 *.tsbuildinfo
+# Secrets — never commit real credentials. Use Coolify vault / Docker secrets in prod.
 .env
 .env.*
 !.env.example
-/.env.production
-apps/*/.env
-**/.env.production
 *.log
 uploads/
 *.xlsx

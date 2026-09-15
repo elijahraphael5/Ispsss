@@ -13,6 +13,7 @@ import { NocModule } from './modules/noc/noc.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CustomRolesModule } from './modules/custom-roles/custom-roles.module';
 import { CoverageAreasModule } from './modules/coverage-areas/coverage-areas.module';
+import { CoverageZonesModule } from './modules/coverage-zones/coverage-zones.module';
 import { TenantSettingsModule } from './modules/tenant-settings/tenant-settings.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -43,6 +44,7 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
     ReportsModule,
     CustomRolesModule,
     CoverageAreasModule,
+    CoverageZonesModule,
     TenantSettingsModule,
     NotificationsModule,
     OwnerModule,

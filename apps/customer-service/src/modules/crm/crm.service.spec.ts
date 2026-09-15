@@ -7,6 +7,7 @@ import { AuditService } from '../audit-logs/audit.service';
 describe('CrmService', () => {
   let service: CrmService;
   const prisma = {
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findUnique: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findMany: jest.fn().mockResolvedValue([{ id: 'tenant-1' }]) },
     contract: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
   };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };

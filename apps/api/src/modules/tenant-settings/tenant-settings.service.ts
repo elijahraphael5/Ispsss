@@ -21,7 +21,7 @@ export class TenantSettingsService {
   ) {}
 
   private async getTenant() {
-    const tenant = await this.prisma.tenant.findFirst();
+    const tenant = await this.prisma.tenant?.findFirst();
     if (!tenant) throw new NotFoundException('Tenant not found');
     return tenant;
   }
@@ -43,6 +43,10 @@ export class TenantSettingsService {
         vatRate: 7.5,
         invoicePrefix: 'INV',
       },
+      installation: {
+        fiberFeeKobo: (tenant as any).fiberInstallationFeeKobo ?? 5000000,
+        radioFeeKobo: (tenant as any).radioInstallationFeeKobo ?? 12000000,
+      },
       paystack: {
         enabled: tenant.paystackEnabled,
         publicKey: tenant.paystackPublicKey ?? null,
@@ -59,7 +63,7 @@ export class TenantSettingsService {
         fromEmail: tenant.smtpFromEmail ?? null,
         fromName: tenant.smtpFromName ?? null,
       },
-      persistedFields: ['name', 'paystackEnabled', 'paystackPublicKey', 'paystackSecretKey', 'smtpEnabled', 'smtpHost', 'smtpPort', 'smtpUser', 'smtpPass', 'smtpFromEmail', 'smtpFromName'],
+      persistedFields: ['name', 'paystackEnabled', 'paystackPublicKey', 'paystackSecretKey', 'smtpEnabled', 'smtpHost', 'smtpPort', 'smtpUser', 'smtpPass', 'smtpFromEmail', 'smtpFromName', 'fiberInstallationFeeKobo', 'radioInstallationFeeKobo'],
       pendingFields: [...PENDING_TENANT_FIELDS],
     };
   }
@@ -151,9 +155,21 @@ export class TenantSettingsService {
       after.smtpFromName = data.smtpFromName;
       persisted.push('smtpFromName');
     }
+    if (dto.fiberInstallationFeeKobo !== undefined) {
+      data.fiberInstallationFeeKobo = dto.fiberInstallationFeeKobo;
+      before.fiberInstallationFeeKobo = (tenant as any).fiberInstallationFeeKobo;
+      after.fiberInstallationFeeKobo = dto.fiberInstallationFeeKobo;
+      persisted.push('fiberInstallationFeeKobo');
+    }
+    if (dto.radioInstallationFeeKobo !== undefined) {
+      data.radioInstallationFeeKobo = dto.radioInstallationFeeKobo;
+      before.radioInstallationFeeKobo = (tenant as any).radioInstallationFeeKobo;
+      after.radioInstallationFeeKobo = dto.radioInstallationFeeKobo;
+      persisted.push('radioInstallationFeeKobo');
+    }
 
     if (Object.keys(data).length > 0) {
-      await this.prisma.tenant.update({ where: { id: tenant.id }, data });
+      await this.prisma.tenant?.update({ where: { id: tenant.id }, data });
       await this.audit.log({
         action: 'TENANT_SETTINGS_UPDATED',
         entityType: 'Tenant',

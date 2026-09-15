@@ -104,10 +104,12 @@ function badge(label: string, color: string) {
   return <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 600, backgroundColor: color + '18', color }}>{label}</span>;
 }
 
-function planFee(plans: any[], planId: string, networkType: string): string {
-  const p = plans.find((x: any) => x.id === planId);
-  if (p?.installationFeeKobo) return String(Math.round(p.installationFeeKobo / 100));
-  return networkType === 'FIBER' ? '50000' : '120000';
+function planFee(plans: any[], planId: string, networkType: string, installFees?: { fiber: number; radio: number }): string {
+  // Installation is one-off, not part of plan — use Settings Installation tab (Fiber/Radio)
+  // planFee is kept for backwards compat but ignored per user request
+  const fiberNaira = installFees ? String(Math.round(installFees.fiber / 100)) : '50000';
+  const radioNaira = installFees ? String(Math.round(installFees.radio / 100)) : '120000';
+  return networkType === 'FIBER' ? fiberNaira : radioNaira;
 }
 
 function cell(pad = '7px 12px') {
@@ -162,6 +164,7 @@ export default function CustomerPage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>(() => pageCache?.plans ?? []);
+  const [installFees, setInstallFees] = useState<{ fiber: number; radio: number }>({ fiber: 5000000, radio: 12000000 });
   const [loading, setLoading] = useState(() => !pageCache);
   const [error, setError] = useState('');
   const [cached, setCached] = useState<string | null>(null);
@@ -548,6 +551,9 @@ export default function CustomerPage() {
       void api<any[]>('/router-health').then(setRouterHealth).catch(() => {});
       void api<Customer[]>('/users/customers').then(setCustomers).catch(() => {});
       void api<any[]>('/subscriptions/plans').then(setPlans).catch(() => {});
+      void api<any>('/tenant/settings').then(t => {
+        if (t?.installation) setInstallFees({ fiber: t.installation.fiberFeeKobo ?? 5000000, radio: t.installation.radioFeeKobo ?? 12000000 });
+      }).catch(() => {});
       void api<SnapshotRow[]>('/routeros/snapshots')
         .then(s => { if (s.length) setSubscribers(snapshotRows(s)); })
         .catch(() => {});
@@ -903,7 +909,7 @@ export default function CustomerPage() {
               </div>
               <div>
                 <label style={lbl}>Network type</label>
-                <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(plans, f.planId, nt) } : {}) })); }} style={inp}>
+                <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(plans, f.planId, nt, installFees) } : {}) })); }} style={inp}>
                   <option value="FIBER">FIBER</option>
                   <option value="RADIO">RADIO</option>
                   <option value="PPPOE">PPPoE</option>

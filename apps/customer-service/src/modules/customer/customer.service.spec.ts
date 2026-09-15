@@ -10,6 +10,7 @@ const cpe = { id: 'c1', name: 'CPE-1', macAddress: 'AA:BB', ipAddress: '10.0.0.2
 describe('CustomerService', () => {
   let service: CustomerService;
   const prisma = {
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findUnique: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findMany: jest.fn().mockResolvedValue([{ id: 'tenant-1' }]) },
     subscriber: { findFirst: jest.fn() },
     payment: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },
     invoice: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },

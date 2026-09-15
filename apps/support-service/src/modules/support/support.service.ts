@@ -64,7 +64,7 @@ export class SupportService {
     email: string;
     department?: string;
   }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const subscriber = await this.prisma.subscriber.findFirst({
       where: { userId: data.userId, deletedAt: null },
       select: { id: true },
@@ -408,7 +408,7 @@ export class SupportService {
   // ─────────────────────────── Agents & presence ───────────────────────────
 
   async setPresence(userId: string, status: 'ONLINE' | 'AWAY' | 'OFFLINE') {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     return this.prisma.agentPresence.upsert({
       where: { userId },
       create: { tenantId, userId, status, lastSeenAt: new Date() },
@@ -475,7 +475,7 @@ export class SupportService {
   }
 
   async createCanned(data: { title: string; body: string; category?: string }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     return this.prisma.cannedResponse.create({ data: { tenantId, ...data } });
   }
 
@@ -544,7 +544,7 @@ export class SupportService {
     priority?: string;
     assignedAgentId?: string;
   }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const priority = data.priority ?? 'MEDIUM';
     const ticket = await this.prisma.ticket.create({
       data: {
@@ -697,7 +697,7 @@ export class SupportService {
     }
     if (!isAgent && !isOwner) throw new ForbiddenException('Access denied');
 
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const upload = await this.storeUpload({
       tenantId: tenantId ?? undefined,
       relativeDir: `chat/${sessionId}`,
@@ -715,7 +715,7 @@ export class SupportService {
     const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new NotFoundException('Ticket not found');
 
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const upload = await this.storeUpload({
       tenantId: tenantId ?? undefined,
       relativeDir: `ticket/${ticketId}`,
@@ -742,7 +742,7 @@ export class SupportService {
       },
     });
     if (!upload) throw new NotFoundException('Attachment not found');
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     if (upload.tenantId !== tenantId) throw new ForbiddenException('Access denied');
 
     const isAgent = isAgentActor(actor);
@@ -779,7 +779,7 @@ export class SupportService {
   }
 
   async createTicketForCustomer(userId: string, data: { subject: string; description?: string; category?: string; priority?: string }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const subscriber = await this.prisma.subscriber.findFirst({
       where: { userId, deletedAt: null },
       include: { user: { select: { email: true } } },

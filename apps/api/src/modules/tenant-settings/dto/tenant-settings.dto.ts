@@ -89,4 +89,14 @@ export class UpdateTenantSettingsDto {
   @IsString()
   @MaxLength(120)
   smtpFromName?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  fiberInstallationFeeKobo?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  radioInstallationFeeKobo?: number;
 }

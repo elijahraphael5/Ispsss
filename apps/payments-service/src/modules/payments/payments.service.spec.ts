@@ -13,6 +13,7 @@ import { MailService } from '../mail/mail.service';
 describe('PaymentsService', () => {
   let service: PaymentsService;
   const prisma = {
+    tenant: { findFirst: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findUnique: jest.fn().mockResolvedValue({ id: 'tenant-1' }), findMany: jest.fn().mockResolvedValue([{ id: 'tenant-1' }]) },
     invoice: { findUniqueOrThrow: jest.fn(), findUnique: jest.fn() },
     payment: {
       create: jest.fn(),

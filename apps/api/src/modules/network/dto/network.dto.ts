@@ -47,6 +47,17 @@ export class CreateNetworkDeviceDto {
   @IsOptional()
   @IsString()
   secret?: string;
+
+  @IsOptional()
+  @IsString()
+  routerosUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  routerosPassword?: string;
+
+  @IsOptional()
+  routerosPort?: number;
 }
 
 export class UpdateNetworkDeviceDto {
@@ -74,4 +85,15 @@ export class UpdateNetworkDeviceDto {
   @IsOptional()
   @IsString()
   secret?: string;
+
+  @IsOptional()
+  @IsString()
+  routerosUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  routerosPassword?: string;
+
+  @IsOptional()
+  routerosPort?: number;
 }

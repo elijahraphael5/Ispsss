@@ -13,7 +13,7 @@ export class NotificationsService {
   }
 
   async findAll() {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const cacheKey = `notifications:${tenantId}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
@@ -28,7 +28,7 @@ export class NotificationsService {
   }
 
   async create(data: { title: string; message: string; type?: string; subscriberId?: string; link?: string }) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const created = await this.prisma.notification.create({
       data: { title: data.title, message: data.message, type: data.type ?? 'INFO', subscriberId: data.subscriberId, link: data.link },
     });
@@ -43,7 +43,7 @@ export class NotificationsService {
   }
 
   async markAllRead() {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const result = await this.prisma.notification.updateMany({ where: { tenantId, read: false }, data: { read: true } });
     await this.invalidateNotifications();
     return result;

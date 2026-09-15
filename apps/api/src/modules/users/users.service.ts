@@ -163,7 +163,7 @@ export class UsersService {
     }
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(data.password, 12);
-    const tenant = await this.prisma.tenant.findFirst();
+    const tenant = await this.prisma.tenant?.findFirst();
     if (!tenant) throw new NotFoundException('Default tenant not found — seed the database');
     const tenantId = tenant.id;
     let result;
@@ -215,7 +215,7 @@ export class UsersService {
   }
 
   async customers() {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const cacheKey = `users:customers:${tenantId}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
@@ -238,7 +238,7 @@ export class UsersService {
   }
 
   async kycQueue() {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const cacheKey = `users:kyc:${tenantId}`;
     const cached = await this.cache.get<any[]>(cacheKey);
     if (cached) return cached;
@@ -373,7 +373,7 @@ export class UsersService {
   }
 
   async launchLogins(body: { testEmail?: string }, actorId: string) {
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     const users = await this.prisma.user.findMany({
       where: { tenantId, deletedAt: null, subscriber: { isNot: null } },
       include: {
@@ -665,7 +665,7 @@ export class UsersService {
    * plans, refresh tokens) so a re-upload of the list always starts clean.
    * Staff users (no subscriber) are preserved.
    */
-  private async clearCustomerData() {    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+  private async clearCustomerData() {    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     await this.prisma.$transaction(async (tx) => {
       // Tenant-scoped: never touch other tenants' plans/customers. Raw read so
       // soft-deleted subscribers (deleted customers) are included too — their
@@ -821,7 +821,7 @@ export class UsersService {
       return isNaN(d.getTime()) ? null : d;
     };
 
-    const tenantId = (await this.prisma.tenant.findFirst())?.id;
+    const tenantId = (await this.prisma.tenant?.findFirst())?.id;
 
     job.stage = 'wiping existing customer data';
     await this.clearCustomerData();

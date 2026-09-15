@@ -51,7 +51,7 @@ export class RouterSnapshotService implements OnModuleInit {
   }
 
   private async resolveTenantId(): Promise<string | undefined> {
-    return (await this.prisma.tenant.findFirst({ select: { id: true } }))?.id;
+    return (await this.prisma.tenant?.findFirst({ select: { id: true } }))?.id;
   }
 
   async snapshotAll() {
