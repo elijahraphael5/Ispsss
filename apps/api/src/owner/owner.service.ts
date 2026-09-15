@@ -4,7 +4,16 @@ import { applyPrismaExtensions } from '@isp/prisma';
 
 @Injectable()
 export class OwnerService implements OnModuleInit, OnModuleDestroy {
-  private prisma = applyPrismaExtensions(new PrismaClient());
+  private prisma = applyPrismaExtensions(new PrismaClient(
+    (() => {
+      const url = process.env.DATABASE_URL;
+      if (!url) return undefined;
+      const hasLimit = url.includes('connection_limit=');
+      const sep = url.includes('?') ? '&' : '?';
+      const finalUrl = hasLimit ? url : `${url}${sep}connection_limit=5`;
+      return { datasources: { db: { url: finalUrl } } } as any;
+    })(),
+  ) as any);
 
   async onModuleInit() {
     await this.prisma.$connect();

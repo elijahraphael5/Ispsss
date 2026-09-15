@@ -577,7 +577,7 @@ export class UsersService {
       }
     }
     if (data.planName !== undefined && data.planName) {
-      const plan = await this.prisma.plan.findFirst({ where: { tenantId: sub.tenantId, name: { equals: data.planName, mode: 'insensitive' } } });
+      const plan = await this.prisma.plan.findFirst({ where: { name: { equals: data.planName, mode: 'insensitive' } } });
       if (!plan) throw new NotFoundException(`Plan "${data.planName}" not found`);
       const latest = await this.prisma.subscription.findFirst({ where: { subscriberId: id }, orderBy: { startedAt: 'desc' } });
       if (latest) {

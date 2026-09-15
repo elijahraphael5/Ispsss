@@ -5,7 +5,17 @@ set -e
 # NAS entries themselves come from the MariaDB `nas` table (read_clients = yes)
 # and are managed from the admin NOC page — see radius/README.md.
 SECRET="${RADIUS_SHARED_SECRET:-testing123}"
-sed -i "s/@@RADIUS_SHARED_SECRET@@/${SECRET}/g" /etc/raddb/clients.conf
+# Use envsubst/awk instead of sed to avoid breaking on /, &, | in secrets
+if command -v envsubst >/dev/null 2>&1; then
+  export RADIUS_SHARED_SECRET="$SECRET"
+  envsubst '${RADIUS_SHARED_SECRET}' < /etc/raddb/clients.conf > /tmp/clients.conf.tmp && mv /tmp/clients.conf.tmp /etc/raddb/clients.conf
+  # Fallback if template uses @@RADIUS_SHARED_SECRET@@ placeholder
+  if grep -q "@@RADIUS_SHARED_SECRET@@" /etc/raddb/clients.conf 2>/dev/null; then
+    awk -v s="$SECRET" '{ gsub(/@@RADIUS_SHARED_SECRET@@/, s); print }' /etc/raddb/clients.conf > /tmp/clients.conf.tmp && mv /tmp/clients.conf.tmp /etc/raddb/clients.conf
+  fi
+else
+  awk -v s="$SECRET" '{ gsub(/@@RADIUS_SHARED_SECRET@@/, s); print }' /etc/raddb/clients.conf > /tmp/clients.conf.tmp && mv /tmp/clients.conf.tmp /etc/raddb/clients.conf
+fi
 
 # ── Template DB env vars into the sql module config ───────────────────────────
 DB_HOST="${RADIUS_DB_HOST:-mariadb}"
@@ -13,7 +23,13 @@ DB_PORT="${RADIUS_DB_PORT:-3306}"
 DB_USER="${RADIUS_DB_USER:-radius}"
 DB_PASS="${RADIUS_DB_PASSWORD:-radiuspw}"
 DB_NAME="${RADIUS_DB_NAME:-radius}"
-sed -i "s/@@DB_HOST@@/${DB_HOST}/g; s/@@DB_PORT@@/${DB_PORT}/g; s/@@DB_USER@@/${DB_USER}/g; s/@@DB_PASS@@/${DB_PASS}/g; s/@@DB_NAME@@/${DB_NAME}/g" /etc/raddb/mods-available/sql
+if command -v envsubst >/dev/null 2>&1; then
+  export RADIUS_DB_HOST="$DB_HOST" RADIUS_DB_PORT="$DB_PORT" RADIUS_DB_USER="$DB_USER" RADIUS_DB_PASSWORD="$DB_PASS" RADIUS_DB_NAME="$DB_NAME"
+  # sql module uses @@DB_*@@ placeholders — use awk to avoid sed escaping issues
+  awk -v h="$DB_HOST" -v p="$DB_PORT" -v u="$DB_USER" -v pw="$DB_PASS" -v n="$DB_NAME" '{ gsub(/@@DB_HOST@@/, h); gsub(/@@DB_PORT@@/, p); gsub(/@@DB_USER@@/, u); gsub(/@@DB_PASS@@/, pw); gsub(/@@DB_NAME@@/, n); print }' /etc/raddb/mods-available/sql > /tmp/sql.tmp && mv /tmp/sql.tmp /etc/raddb/mods-available/sql
+else
+  awk -v h="$DB_HOST" -v p="$DB_PORT" -v u="$DB_USER" -v pw="$DB_PASS" -v n="$DB_NAME" '{ gsub(/@@DB_HOST@@/, h); gsub(/@@DB_PORT@@/, p); gsub(/@@DB_USER@@/, u); gsub(/@@DB_PASS@@/, pw); gsub(/@@DB_NAME@@/, n); print }' /etc/raddb/mods-available/sql > /tmp/sql.tmp && mv /tmp/sql.tmp /etc/raddb/mods-available/sql
+fi
 
 # ── Bootstrap the FreeRADIUS SQL schema (idempotent) ──────────────────────────
 # A fresh MariaDB volume normally runs radius/initdb/schema.sql, but if that

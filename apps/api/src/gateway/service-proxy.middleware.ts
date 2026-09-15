@@ -38,8 +38,18 @@ export class ServiceProxyMiddleware implements NestMiddleware {
     );
     if (!route) return next();
 
+    // Preserve raw body for webhook HMAC fidelity and multipart fidelity:
+    // when body is already parsed (JSON) we can re-serialize, but for webhook
+    // and multipart the raw stream must be piped. Detect via content-type.
+    const contentType = (req.headers['content-type'] ?? '') as string;
+    const isWebhook = req.path.startsWith('/api/v1/payments/webhook');
+    const isMultipart = contentType.includes('multipart/form-data');
+    const shouldPipeRaw = isWebhook || isMultipart || req.body === undefined;
+
     let body: Buffer | null = null;
-    if (req.body !== undefined && typeof req.body === 'object') {
+    if (!shouldPipeRaw && req.body !== undefined && typeof req.body === 'object') {
+      // For regular JSON, re-serialize (whitelist already applied upstream)
+      // This is safe because HMAC-sensitive webhooks are already piped raw above.
       body = Buffer.from(JSON.stringify(req.body));
     }
 
@@ -53,9 +63,22 @@ export class ServiceProxyMiddleware implements NestMiddleware {
       delete headers['content-length'];
       delete headers['transfer-encoding'];
       headers['content-length'] = String(body.length);
+    } else if (shouldPipeRaw) {
+      // Let node handle chunked transfer for streamed bodies; remove stale length
+      delete headers['content-length'];
     }
     headers.host = target.host;
-    headers['x-forwarded-for'] = (req.headers['x-forwarded-for'] as string) ?? req.socket.remoteAddress ?? '';
+    // Only append to X-Forwarded-For when behind trusted proxy; otherwise
+    // downstream should use socket remoteAddress directly to avoid spoofing.
+    if (process.env.TRUST_PROXY === 'true') {
+      const incoming = (req.headers['x-forwarded-for'] as string) ?? '';
+      const remote = req.socket.remoteAddress ?? '';
+      headers['x-forwarded-for'] = incoming ? `${incoming}, ${remote}` : remote;
+    } else {
+      // Don't forward client-supplied XFF when not trusting proxy
+      delete headers['x-forwarded-for'];
+      headers['x-forwarded-for'] = req.socket.remoteAddress ?? '';
+    }
 
     const proxyReq = http.request(
       {
@@ -100,8 +123,11 @@ export class ServiceProxyMiddleware implements NestMiddleware {
 
     if (body) {
       proxyReq.end(body);
-    } else {
+    } else if (shouldPipeRaw) {
       req.pipe(proxyReq);
+    } else {
+      // No body to send (e.g. GET)
+      proxyReq.end();
     }
   }
 }

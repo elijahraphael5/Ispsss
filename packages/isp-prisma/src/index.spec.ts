@@ -11,9 +11,9 @@ import {
 } from './index';
 
 describe('filterDeletedAt', () => {
-  it('injects deletedAt: null into an existing where', () => {
+  it('injects deletedAt: null via AND to avoid OR bypass', () => {
     expect(filterDeletedAt({ where: { id: 'x' } })).toEqual({
-      where: { id: 'x', deletedAt: null },
+      where: { AND: [{ deletedAt: null }, { id: 'x' }] },
     });
   });
 
@@ -24,9 +24,27 @@ describe('filterDeletedAt', () => {
 
   it('preserves other args fields', () => {
     expect(filterDeletedAt({ where: { a: 1 }, select: { id: true }, take: 5 })).toEqual({
-      where: { a: 1, deletedAt: null },
+      where: { AND: [{ deletedAt: null }, { a: 1 }] },
       select: { id: true },
       take: 5,
+    });
+  });
+
+  it('ANDs deletedAt over OR branches so soft-deleted rows cannot leak', () => {
+    expect(filterDeletedAt({ where: { OR: [{ email: 'a@b.c' }, { phone: '123' }] } })).toEqual({
+      where: { AND: [{ deletedAt: null }, { OR: [{ email: 'a@b.c' }, { phone: '123' }] }] },
+    });
+  });
+
+  it('respects explicit deletedAt (restore/admin view)', () => {
+    expect(filterDeletedAt({ where: { id: 'x', deletedAt: { not: null } } })).toEqual({
+      where: { id: 'x', deletedAt: { not: null } },
+    });
+  });
+
+  it('respects __includeDeleted escape hatch', () => {
+    expect(filterDeletedAt({ where: { id: 'x', __includeDeleted: true } })).toEqual({
+      where: { id: 'x' },
     });
   });
 });
@@ -114,7 +132,7 @@ describe('softDeleteQueryConfig', () => {
     const upstream = jest.fn(async (a: any) => a);
     await query.invoice.findMany({ args: { where: { subscriberId: 's1' } }, query: upstream });
     expect(upstream).toHaveBeenCalledWith({
-      where: { subscriberId: 's1', deletedAt: null },
+      where: { AND: [{ deletedAt: null }, { subscriberId: 's1' }] },
     });
   });
 });

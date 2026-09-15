@@ -6,9 +6,15 @@ import { applyPrismaExtensions } from '@isp/prisma';
 export class PrismaService implements OnModuleInit, OnModuleDestroy {
   private client: PrismaClient = applyPrismaExtensions(
     new PrismaClient(
-      process.env.DATABASE_REPLICA_URL
-        ? { datasources: { db: { url: process.env.DATABASE_REPLICA_URL } } }
-        : undefined,
+      (() => {
+        const url = process.env.DATABASE_URL;
+        if (!url) return undefined;
+        // cap pool per service to 5 (7 services × 5 = 35 << max_connections 100)
+        const hasLimit = url.includes('connection_limit=');
+        const sep = url.includes('?') ? '&' : '?';
+        const finalUrl = hasLimit ? url : `${url}${sep}connection_limit=5`;
+        return { datasources: { db: { url: finalUrl } } };
+      })(),
     ),
   ) as unknown as PrismaClient;
 

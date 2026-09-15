@@ -179,12 +179,31 @@ const READ_OPS = [
 
 /**
  * Injects `deletedAt: null` into a query's `where`, hiding soft-deleted rows
- * from read operations. Idempotent — a caller-supplied `deletedAt: null` is
- * simply re-applied.
+ * from read operations. Uses AND to ensure OR branches cannot bypass the
+ * filter. Respects an explicitly-provided `deletedAt` (e.g. admin restore
+ * view) and provides an escape hatch via `__includeDeleted: true`.
  */
 export function filterDeletedAt(args: any): any {
   const a = args ?? {};
-  return { ...a, where: { ...(a.where ?? {}), deletedAt: null } };
+  // Escape hatch: caller explicitly wants deleted rows (restore/admin view)
+  if (a.where && (a.where.__includeDeleted === true || a.where.deletedAt !== undefined)) {
+    const { __includeDeleted: _ignored, ...rest } = a.where;
+    // If deletedAt was explicitly set (including null), respect it
+    if (_ignored !== undefined && a.where.deletedAt === undefined) {
+      return { ...a, where: rest };
+    }
+    if (a.where.deletedAt !== undefined) {
+      const { __includeDeleted: _2, ...restWhere } = a.where as any;
+      return { ...a, where: restWhere };
+    }
+    return { ...a, where: rest };
+  }
+  const originalWhere = a.where ?? {};
+  // If where is empty, just filter deleted
+  if (!originalWhere || Object.keys(originalWhere).length === 0) {
+    return { ...a, where: { deletedAt: null } };
+  }
+  return { ...a, where: { AND: [{ deletedAt: null }, originalWhere] } };
 }
 
 function buildQueryConfig(): Record<string, unknown> {
