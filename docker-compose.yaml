@@ -48,6 +48,8 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: always
+    mem_limit: 512m
+    cpus: 0.5
     environment:
       POSTGRES_USER: isp_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -63,6 +65,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    mem_limit: 128m
+    cpus: 0.2
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -88,6 +92,8 @@ services:
     build:
       <<: *build
       target: runtime-api
+    mem_limit: 512m
+    cpus: 1.0
     command: ["node", "apps/api/dist/main.js"]
     environment:
       <<: *common-env
@@ -127,6 +133,8 @@ services:
         NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
         NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
     command: ["node", "apps/auth-service/dist/main.js"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       <<: *common-env
       APP_PORT: "4101"
@@ -154,6 +162,8 @@ services:
         NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
         NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
     command: ["node", "apps/payments-service/dist/main.js"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       <<: *common-env
       APP_PORT: "4102"
@@ -181,6 +191,8 @@ services:
         NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
         NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
     command: ["node", "apps/billing-service/dist/main.js"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       <<: *common-env
       APP_PORT: "4103"
@@ -207,6 +219,8 @@ services:
         NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
         NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
     command: ["node", "apps/support-service/dist/main.js"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       <<: *common-env
       APP_PORT: "4104"
@@ -230,6 +244,8 @@ services:
         NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
         NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
     command: ["node", "apps/customer-service/dist/main.js"]
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       <<: *common-env
       APP_PORT: "4105"
@@ -250,6 +266,8 @@ services:
   mariadb:
     image: mariadb:11
     restart: always
+    mem_limit: 512m
+    cpus: 0.5
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: radius
@@ -269,6 +287,8 @@ services:
       context: ./radius
       dockerfile: Dockerfile
     restart: always
+    mem_limit: 128m
+    cpus: 0.3
     ports:
       - "1812:1812/udp"
       - "1813:1813/udp"
@@ -293,6 +313,8 @@ services:
     build:
       <<: *build
       target: runtime-radius
+    mem_limit: 256m
+    cpus: 0.5
     command: ["node", "apps/radius-service/dist/main.js"]
     environment:
       <<: *common-env
@@ -325,13 +347,15 @@ services:
     build:
       <<: *build
       target: runtime-admin
-    working_dir: /repo/apps/admin
-    command: ["sh", "-c", "exec ./node_modules/.bin/next start -p 3000"]
     environment:
       API_PROXY_TARGET: http://api:4000
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     depends_on:
       init:
         condition: service_completed_successfully
+    mem_limit: 256m
+    cpus: 0.5
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
@@ -343,13 +367,15 @@ services:
     build:
       <<: *build
       target: runtime-customer
-    working_dir: /repo/apps/customer
-    command: ["sh", "-c", "exec ./node_modules/.bin/next start -p 3000"]
     environment:
       API_PROXY_TARGET: http://api:4000
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     depends_on:
       init:
         condition: service_completed_successfully
+    mem_limit: 256m
+    cpus: 0.5
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
@@ -361,6 +387,8 @@ services:
     build:
       context: ./infra/nginx
     restart: always
+    mem_limit: 128m
+    cpus: 0.3
     networks:
       - default
       - coolify
