@@ -1,5 +1,25 @@
 -- Batch 7: deletedAt indexes + soft-delete-aware unique constraints
 
+-- 0. Create CoverageZone table if missing (schema added in 9b9d524 but no CREATE TABLE migration existed)
+-- This must run before any CoverageZone index; previous deploys failed here with "relation CoverageZone does not exist"
+CREATE TABLE IF NOT EXISTS "CoverageZone" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT,
+    "slug" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+    CONSTRAINT "CoverageZone_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "CoverageZone_tenantId_slug_key" ON "CoverageZone"("tenantId", "slug");
+CREATE INDEX IF NOT EXISTS "CoverageZone_tenantId_idx" ON "CoverageZone"("tenantId");
+DO $$ BEGIN
+    ALTER TABLE "CoverageZone" ADD CONSTRAINT "CoverageZone_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
 -- 1. DeletedAt indexes for fast WHERE "deletedAt" IS NULL filtering (every soft-delete read)
 CREATE INDEX IF NOT EXISTS "User_deletedAt_idx" ON "User"("deletedAt");
 CREATE INDEX IF NOT EXISTS "Subscriber_deletedAt_idx" ON "Subscriber"("deletedAt");
