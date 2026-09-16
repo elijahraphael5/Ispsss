@@ -10,7 +10,7 @@ ENV PNPM_HOME=/root/.local/share/pnpm
 FROM base AS pruner
 WORKDIR /app
 COPY . .
-RUN npx turbo prune --scope=api --scope=auth-service --scope=payments-service --scope=billing-service --scope=support-service --scope=customer-service --scope=radius-service --scope=admin --scope=customer --docker
+RUN npx turbo prune api auth-service payments-service billing-service support-service customer-service radius-service admin customer --docker
 
 # ---- installer: fetch deps once, cached unless lock changes (ultra-fast fresh deploy) ----
 FROM base AS installer

@@ -17,7 +17,7 @@
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["node", "jest", "express", "multer", "cookie-parser", "speakeasy", "passport-jwt", "bcryptjs", "qrcode", "pg", "nodemailer"]
+    "types": ["node", "jest", "express", "multer", "cookie-parser", "passport-jwt", "bcryptjs", "pg", "nodemailer"]
   },
   "include": ["src/**/*"]
 }
