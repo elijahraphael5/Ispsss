@@ -209,6 +209,8 @@ export default function CustomerPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [createForm, setCreateForm] = useState({
     // 16 sheet columns mapped
     legacyId: '', id2: '',
@@ -378,6 +380,91 @@ export default function CustomerPage() {
       setPurging(false);
     }
   }
+
+  async function handleExport(format: 'csv' | 'xlsx' | 'pdf') {
+    setShowExport(false);
+    // Export the customers currently in view — respects search / plan / status filters
+    const idsInView = new Set(filteredRows.map(r => matchCustomer(r)?.id).filter(Boolean) as string[]);
+    const toExport = (search || filter !== 'All' || planFilter !== 'All') && idsInView.size ? customers.filter(c => idsInView.has(c.id)) : customers;
+    if (!toExport.length) { setError('No customers to export'); return; }
+    const headers = ['ID','ID2','First Name','Last Name','Company','Full Name','Email','Phone','Secondary Phone','Address','Station','User Type','Plan','PPPoE Username','IP Address','Status','Due Date'];
+    const rows = toExport.map(c => [
+      c.legacyId || '',
+      c.id2 || '',
+      c.firstName || '',
+      c.lastName || '',
+      c.companyName || '',
+      c.name || '',
+      c.email || '',
+      c.phone || '',
+      c.secondaryPhone || '',
+      c.address || '',
+      c.stationLabel || '',
+      c.networkType || '',
+      c.plan || '',
+      c.pppoeUsername || '',
+      c.staticIpAddress || (c.cpes?.[0]?.ipAddress || ''),
+      c.status || '',
+      c.dueAt ? new Date(c.dueAt).toLocaleDateString('en-GB') : '',
+    ]);
+    const fileBase = `customers-${new Date().toISOString().slice(0,10)}`;
+    try {
+      if (format === 'csv') {
+        const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+        const csv = [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${fileBase}.csv`; a.click(); URL.revokeObjectURL(url);
+        setCreateSuccess(`Exported ${toExport.length} customers as CSV`);
+      } else if (format === 'xlsx') {
+        const XLSX = await import('xlsx');
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        // auto width
+        const colWidths = headers.map((h, i) => ({ wch: Math.max(h.length, ...rows.map(r => String(r[i] ?? '').length).slice(0, 200)) + 2 }));
+        (ws as any)['!cols'] = colWidths;
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Customers');
+        XLSX.writeFile(wb, `${fileBase}.xlsx`);
+        setCreateSuccess(`Exported ${toExport.length} customers as XLSX`);
+      } else {
+        const { default: jsPDF } = await import('jspdf');
+        const autoTable = (await import('jspdf-autotable')).default;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+        const title = `Customers — ${toExport.length} records • ${new Date().toLocaleString()}`;
+        doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.text(title, 24, 24);
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor('#64748B');
+        doc.text('Hikonnect ISP Platform • single light container • no gradients on tables', 24, 36);
+        (autoTable as any)(doc, {
+          startY: 48,
+          head: [headers.map(h => h.toUpperCase())],
+          body: rows,
+          theme: 'grid',
+          headStyles: { fillColor: [248, 250, 252], textColor: [51, 65, 85], fontSize: 6, fontStyle: 'bold', lineColor: [226, 232, 240] },
+          bodyStyles: { fontSize: 6, cellPadding: 4, textColor: [15, 23, 42] },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          columnStyles: { 5: { cellWidth: 80 }, 9: { cellWidth: 90 }, 13: { cellWidth: 60 }, 14: { cellWidth: 60 } },
+          margin: { left: 24, right: 24 },
+          didDrawPage: (data: any) => {
+            doc.setFontSize(6); doc.setTextColor('#94A3B8');
+            doc.text(`Page ${data.pageNumber}`, doc.internal.pageSize.getWidth() - 40, doc.internal.pageSize.getHeight() - 12);
+          },
+        });
+        doc.save(`${fileBase}.pdf`);
+        setCreateSuccess(`Exported ${toExport.length} customers as PDF`);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? `Export ${format} failed`);
+    }
+  }
+
+  // close export menu on outside click / esc
+  useEffect(() => {
+    if (!showExport) return;
+    const onDoc = (e: MouseEvent) => { if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setShowExport(false); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowExport(false); };
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [showExport]);
 
   // Selection key per row: DB customers (`sub:<id>`) and cached RouterOS
   // snapshots (`snap:<id>`) can be deleted; live router-only rows cannot.
@@ -735,60 +822,92 @@ export default function CustomerPage() {
         </button>
       </div>
 
-      <div className="data-card" style={{ marginBottom: 16, overflow: 'hidden', borderTop: '3px solid #F15925' }}>
-        <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'linear-gradient(180deg, #FFF 0%, #F8FAFC 100%)' }}>
-          <div className="badge-tabs" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
+      <div className="data-card" style={{ marginBottom: 16, overflow: 'visible', borderTop: '3px solid #F15925', borderRadius: 16, background: '#FFFFFF', boxShadow: '0 1px 3px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.04)' }}>
+        <div style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#FFFFFF', borderRadius: '16px 16px 0 0', borderBottom: '1px solid #F1F5F9', overflow: 'visible' }}>
+          <div className="badge-tabs" style={{ background: '#F1F5F9', padding: 3, borderRadius: 999, gap: 2, boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.03)', border: '1px solid #E2E8F0' }}>
             {(['All', 'Active', 'Non Active'] as const).map(f => (
               <button key={f} onClick={() => { setFilter(f); setPage(0); }}
                 className={`tab-item${filter === f ? ' active' : ''}`}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontWeight: 700, transition: 'all 0.15s' }}>
+                style={{ border: 'none', cursor: 'pointer', font: 'inherit', fontWeight: 700, transition: 'all 0.15s', padding: '6px 14px', borderRadius: 999, fontSize: '0.78rem' }}>
                 {f}
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="btn-sm-outline" onClick={() => load()} disabled={loading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: loading ? '#F1F5F9' : '#fff' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={() => load()} disabled={loading}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: '1px solid #E2E8F0', background: loading ? '#F1F5F9' : '#FFFFFF', color: '#334155', fontSize: '0.78rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: '0 1px 2px rgba(15,23,42,0.04)', transition: 'all 0.15s', opacity: loading ? 0.7 : 1 }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              {loading ? 'Loading…' : 'Refresh'}
+              Refresh
             </button>
-            <button className="btn-sm-outline" onClick={() => { setImportResult(null); setImportError(''); setImportFile(null); setShowImport(true); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderColor: '#E2E8F0' }}>
+            <button onClick={() => { setImportResult(null); setImportError(''); setImportFile(null); setShowImport(true); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#334155', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 1px 2px rgba(15,23,42,0.04)', transition: 'all 0.15s' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               Import
             </button>
-            <button className="btn-sm-outline" onClick={() => { setPurgeConfirmText(''); setShowPurge(true); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', color: '#DC2626', borderColor: '#FECACA', background: '#FFFBFB' }}>
+            <div style={{ position: 'relative' }} ref={exportMenuRef}>
+              <button onClick={() => setShowExport(v => !v)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: '1px solid #E2E8F0', background: showExport ? '#F1F5F9' : '#FFFFFF', color: '#334155', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 1px 2px rgba(15,23,42,0.04)', transition: 'all 0.15s' }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export
+                <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ transform: showExport ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              {showExport && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 30, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 12px 32px rgba(15,23,42,0.12)', padding: 6, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#94A3B8', padding: '6px 10px 2px' }}>Export {customers.length ? `${customers.length} customers` : 'customers'} • single light</div>
+                  <button onClick={() => handleExport('csv')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0', background: '#FFFFFF', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.12s' }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', color: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.7rem' }}>CSV</span>
+                    <span style={{ flex: 1 }}><span style={{ display: 'block', fontWeight: 700, fontSize: '0.82rem', color: '#0F172A' }}>CSV</span><span style={{ display: 'block', fontSize: '0.68rem', color: '#94A3B8' }}>Comma-separated • Excel/Sheets</span></span>
+                    <span style={{ color: '#94A3B8' }}>→</span>
+                  </button>
+                  <button onClick={() => handleExport('xlsx')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0', background: '#FFFFFF', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.12s' }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.7rem' }}>XLS</span>
+                    <span style={{ flex: 1 }}><span style={{ display: 'block', fontWeight: 700, fontSize: '0.82rem', color: '#0F172A' }}>Excel (XLSX)</span><span style={{ display: 'block', fontSize: '0.68rem', color: '#94A3B8' }}>Native workbook • 17 columns</span></span>
+                    <span style={{ color: '#94A3B8' }}>→</span>
+                  </button>
+                  <button onClick={() => handleExport('pdf')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0', background: '#FFFFFF', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.12s' }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.7rem' }}>PDF</span>
+                    <span style={{ flex: 1 }}><span style={{ display: 'block', fontWeight: 700, fontSize: '0.82rem', color: '#0F172A' }}>PDF</span><span style={{ display: 'block', fontSize: '0.68rem', color: '#94A3B8' }}>A4 landscape • printable</span></span>
+                    <span style={{ color: '#94A3B8' }}>→</span>
+                  </button>
+                  <div style={{ fontSize: '0.68rem', color: '#94A3B8', padding: '6px 10px', lineHeight: 1.4, background: '#F8FAFC', borderRadius: 10, border: '1px solid #F1F5F9' }}>Respects search & filter. All fields exported: ID, ID2, names, email, phones, address, station, type, plan, PPPoE, IP, status, due date.</div>
+                </div>
+              )}
+            </div>
+            <button onClick={() => { setPurgeConfirmText(''); setShowPurge(true); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: '1px solid #FECACA', background: '#FFFBFB', color: '#DC2626', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 1px 2px rgba(220,38,38,0.06)', transition: 'all 0.15s' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Purge
             </button>
-            <button className="btn-sm" onClick={() => setDeleteOpen(true)} disabled={selectedKeys.size === 0}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: selectedKeys.size ? '#DC2626' : '#E2E8F0', cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 0.75, boxShadow: selectedKeys.size ? '0 2px 8px rgba(220,38,38,0.2)' : 'none' }}>
+            <button onClick={() => setDeleteOpen(true)} disabled={selectedKeys.size === 0}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: '1px solid transparent', background: selectedKeys.size ? '#DC2626' : '#F1F5F9', color: selectedKeys.size ? '#fff' : '#94A3B8', fontSize: '0.78rem', fontWeight: 600, cursor: selectedKeys.size ? 'pointer' : 'not-allowed', opacity: selectedKeys.size ? 1 : 1, boxShadow: selectedKeys.size ? '0 2px 8px rgba(220,38,38,0.18)' : 'none', transition: 'all 0.15s' }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Delete{selectedKeys.size ? ` (${selectedKeys.size})` : ''}
             </button>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, padding: '14px 18px', flexWrap: 'wrap', alignItems: 'center', background: '#fff', borderTop: '1px solid #F1F5F9' }}>
-          <div className="search-box" style={{ flex: '1 1 280px', width: 'auto', background: '#F8FAFC', borderColor: '#E2E8F0', transition: 'all 0.15s', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)' }}>
-            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <div style={{ display: 'flex', gap: 10, padding: '12px 14px', flexWrap: 'wrap', alignItems: 'center', background: '#F8FAFC', borderTop: '1px solid #F1F5F9', borderRadius: '0 0 16px 16px' }}>
+          <div className="search-box" style={{ flex: '1 1 280px', width: 'auto', background: '#FFFFFF', borderColor: '#E2E8F0', borderRadius: 999, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 1px 2px rgba(15,23,42,0.04)', transition: 'all 0.15s', minHeight: 36, boxSizing: 'border-box' }}>
+            <svg width="14" height="14" fill="none" stroke="#94A3B8" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input
               value={search}
               onChange={e => { setSearch(e.target.value); }}
               placeholder="Search name, email, phone, username, address…"
-              style={{ background: 'transparent' }}
+              style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '0.82rem', width: '100%', color: '#0F172A' }}
             />
-            {search && <button onClick={() => setSearch('')} style={{ border: 'none', background: '#E2E8F0', width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-muted)' }}><svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>}
+            {search && <button onClick={() => setSearch('')} style={{ border: 'none', background: '#F1F5F9', width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748B', flexShrink: 0, transition: 'all 0.12s' }}><svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>}
           </div>
-          <select
-            value={planFilter}
-            onChange={e => { setPlanFilter(e.target.value); }}
-            style={{ padding: '9px 16px', borderRadius: 20, border: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer', background: '#F8FAFC', maxWidth: 220, fontWeight: 600 }}
-          >
-            <option value="All">All plans</option>
-            {filtered.planOptions.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          {(search || filter !== 'All' || planFilter !== 'All') && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{filteredRows.length} matches</span>}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <select
+              value={planFilter}
+              onChange={e => { setPlanFilter(e.target.value); }}
+              style={{ padding: '8px 32px 8px 14px', borderRadius: 999, border: '1px solid #E2E8F0', fontSize: '0.78rem', cursor: 'pointer', background: '#FFFFFF', color: '#334155', fontWeight: 600, appearance: 'none', WebkitAppearance: 'none', boxShadow: '0 1px 2px rgba(15,23,42,0.04)', minHeight: 36, lineHeight: 1.2 }}
+            >
+              <option value="All">All plans</option>
+              {filtered.planOptions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <svg width="14" height="14" fill="none" stroke="#94A3B8" strokeWidth="2" viewBox="0 0 24 24" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          {(search || filter !== 'All' || planFilter !== 'All') && <span style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '6px 10px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: '#F59E0B' }} />{filteredRows.length} matches</span>}
         </div>
       </div>
 
@@ -974,130 +1093,323 @@ export default function CustomerPage() {
       )}
 
       {showCreate && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.52)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
           onClick={() => setShowCreate(false)}>
-          <div style={{ background: 'white', padding: 32, width: 520, maxWidth: '95vw', height: '100vh', overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,0.1)' }}
+          <style>{`@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes popIn{from{transform:scale(0.96);opacity:0}to{transform:scale(1);opacity:1}}@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}`}</style>
+          <div style={{ background: '#FCFDFF', width: 640, maxWidth: '100vw', height: '100dvh', maxHeight: '100dvh', overflow: 'hidden', boxSizing: 'border-box', boxShadow: '-24px 0 80px rgba(15,23,42,0.18)', display: 'flex', flexDirection: 'column', animation: 'slideIn 0.32s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 700 }}>New Customer</h2>
-              <span style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowCreate(false)}>✕</span>
+            {/* ── Header ── */}
+            <div style={{ position: 'relative', flexShrink: 0, padding: '22px 28px 18px', background: '#FFFFFF', borderBottom: '1px solid rgba(226,232,240,0.9)', overflow: 'visible', boxSizing: 'border-box' }}>
+              {/* soft light blobs — single colour, no gradient */}
+              <div style={{ position: 'absolute', top: -40, right: -30, width: 220, height: 220, borderRadius: '50%', background: '#FFF7ED', opacity: 0.6, pointerEvents: 'none' }} />
+              <div style={{ position: 'absolute', bottom: -60, left: -20, width: 280, height: 280, borderRadius: '50%', background: '#EFF6FF', opacity: 0.5, pointerEvents: 'none' }} />
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
+                  <div style={{ width: 46, height: 46, borderRadius: 14, background: 'linear-gradient(135deg, #F15925 0%, #EA580C 100%)', boxShadow: '0 8px 20px rgba(241,89,37,0.28), 0 2px 6px rgba(241,89,37,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                    <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></svg>
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <h2 style={{ fontSize: '1.28rem', fontWeight: 800, letterSpacing: -0.4, color: '#0F172A', lineHeight: 1.1 }}>New Customer</h2>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', padding: '3px 8px', borderRadius: 999, background: '#FFF7ED', color: '#EA580C', border: '1px solid #FFEDD5' }}>16 fields · sheet-aligned</span>
+                    </div>
+                    <p style={{ fontSize: '0.82rem', color: '#64748B', marginTop: 4, lineHeight: 1.45 }}>Add a customer exactly as your import sheet — IDs, contact, location & billing in one smooth flow.</p>
+                    {/* stepper */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12 }}>
+                      {[
+                        { dot: '#F15925', label: 'Identity', done: !!(createForm.name || createForm.firstName || createForm.legacyId) },
+                        { dot: '#2563EB', label: 'Contact', done: !!createForm.email },
+                        { dot: '#059669', label: 'Location', done: !!(createForm.address || createForm.planId) },
+                        { dot: '#7C3AED', label: 'Billing', done: !!(createForm.startDate || createForm.expiry || createForm.includeInstallation) },
+                      ].map(s => (
+                        <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                          <div style={{ width: 22, height: 22, borderRadius: 999, background: s.done ? s.dot : '#fff', border: `1.5px solid ${s.done ? s.dot : '#E2E8F0'}`, color: s.done ? '#fff' : '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.66rem', fontWeight: 800, transition: 'all 0.2s', boxShadow: s.done ? `0 2px 8px ${s.dot}30` : 'none' }}>
+                            {s.done ? '✓' : '·'}
+                          </div>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, color: s.done ? '#0F172A' : '#94A3B8', whiteSpace: 'nowrap' }}>{s.label}</span>
+                          {s.label !== 'Billing' && <div style={{ flex: 1, height: 1.5, background: s.done ? '#E2E8F0' : '#F1F5F9', borderRadius: 999, marginLeft: 4 }} />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setShowCreate(false)} style={{ width: 36, height: 36, borderRadius: 12, border: '1px solid rgba(226,232,240,0.9)', background: 'rgba(255,255,255,0.85)', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, boxShadow: '0 1px 4px rgba(15,23,42,0.06)', transition: 'all 0.15s' }} onMouseEnter={e => (e.currentTarget.style.background = '#fff')} onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.85)')}>
+                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+              </div>
+              {/* live name preview */}
+              {(() => {
+                const dn = createForm.name.trim() || [createForm.firstName.trim(), createForm.lastName.trim()].filter(Boolean).join(' ') || createForm.companyName.trim() || (createForm.email ? createForm.email.split('@')[0] : '');
+                return dn ? (
+                  <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.88)', border: '1px solid rgba(241,89,37,0.10)', boxShadow: '0 1px 6px rgba(15,23,42,0.04)', animation: 'popIn 0.22s ease', minWidth: 0 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 999, background: `hsl(${(dn.charCodeAt(0) || 65) * 13 % 360} 78% 92%)`, color: `hsl(${(dn.charCodeAt(0) || 65) * 13 % 360} 45% 32%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.72rem', flexShrink: 0 }}>{dn.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</div>
+                    <div style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.25, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{dn}</div>
+                      <div style={{ fontSize: '0.68rem', color: '#94A3B8', lineHeight: 1.3, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>Will be used as display name • {createForm.legacyId ? createForm.legacyId : createForm.email ? createForm.email : 'preview'}</div>
+                    </div>
+                    <span style={{ marginLeft: 'auto', fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#F15925', background: '#FFF7ED', border: '1px solid #FFEDD5', padding: '3px 7px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>Auto-saved</span>
+                  </div>
+                ) : null;
+              })()}
             </div>
 
-            <div className="grid-2" style={{ gap: 12 }}>
-            {/* 16 sheet columns — sectioned like import help */}
-            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#F15925', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #FFE4D6', paddingBottom: 6 }}>IDs & Names (sheet: ID, ID2, FIRST/LAST/COMPANY)</div>
-            <div>
-                <label style={lbl}>ID (legacy, e.g. HIF-0001)</label>
-                <input value={createForm.legacyId} onChange={e => setCreateForm({ ...createForm, legacyId: e.target.value })} style={inp} placeholder="HIF/HIR" />
-              </div>
-              <div>
-                <label style={lbl}>ID2</label>
-                <input value={createForm.id2} onChange={e => setCreateForm({ ...createForm, id2: e.target.value })} style={inp} placeholder="ID2 column" />
-              </div>
-              <div>
-                <label style={lbl}>FIRST NAME</label>
-                <input value={createForm.firstName} onChange={e => setCreateForm({ ...createForm, firstName: e.target.value })} style={inp} placeholder="FIRST NAME" />
-              </div>
-              <div>
-                <label style={lbl}>LAST NAME</label>
-                <input value={createForm.lastName} onChange={e => setCreateForm({ ...createForm, lastName: e.target.value })} style={inp} placeholder="LAST NAME" />
-              </div>
-              <div>
-                <label style={lbl}>COMPANY NAME</label>
-                <input value={createForm.companyName} onChange={e => setCreateForm({ ...createForm, companyName: e.target.value })} style={inp} placeholder="COMPANY NAME" />
-              </div>
-              <div>
-                <label style={lbl}>Full name (fallback) *</label>
-                <input value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} style={inp} placeholder="auto from FIRST+LAST if blank" />
-              </div>
-            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#2563EB', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #DBEAFE', paddingBottom: 6, marginTop: 4 }}>Contact & Email (sheet: CONTACT NUMBER, EMAIL)</div>
-              <div>
-                <label style={lbl}>Email *</label>
-                <input value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>CONTACT NUMBER</label>
-                <input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} style={inp} placeholder="080... (slash for secondary)" />
-              </div>
-              <div>
-                <label style={lbl}>Secondary CONTACT</label>
-                <input value={createForm.secondaryPhone} onChange={e => setCreateForm({ ...createForm, secondaryPhone: e.target.value })} style={inp} placeholder="070... (if 2 numbers)" />
-              </div>
-              <div>
-                <label style={lbl}>USER TYPE (sheet)</label>
-                <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(plans, f.planId, nt, installFees) } : {}) })); }} style={inp}>
-                  <option value="FIBER">FIBER</option>
-                  <option value="RADIO">RADIO</option>
-                  <option value="FIBER HOTSPOT">FIBER HOTSPOT</option>
-                  <option value="FIBER PPPOE">FIBER PPPOE</option>
-                  <option value="PPPOE">PPPoE</option>
-                  <option value="STATIC_IP">Static IP</option>
-                </select>
-              </div>
-            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #D1FAE5', paddingBottom: 6, marginTop: 4 }}>Location & Service (sheet: STATION, ADDRESS, IP ADDRESS, USER TYPE)</div>
-              <div>
-                <label style={lbl}>STATION</label>
-                <input value={createForm.stationLabel} onChange={e => setCreateForm({ ...createForm, stationLabel: e.target.value })} style={inp} placeholder="HOME / FIBER / RADIO / ITA-ELEWA" />
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>ADDRESS (sheet)</label>
-                <input value={createForm.address} onChange={e => setCreateForm({ ...createForm, address: e.target.value })} style={inp} />
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Plan (sheet: PLAN)</label>
-                <select value={createForm.planId} onChange={e => { const pid = e.target.value; setCreateForm(f => ({ ...f, planId: pid, ...(f.includeInstallation ? { fee: planFee(plans, pid, f.networkType) } : {}) })); }} style={inp}>
-                  <option value="">— No plan —</option>
-                  {plans.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.technology ?? p.type})</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={lbl}>PPPoE / RADIUS username (ID2 fallback)</label>
-                <input value={createForm.pppoeUsername} onChange={e => setCreateForm({ ...createForm, pppoeUsername: e.target.value })} style={inp} placeholder="e.g. HIF-0001 / ID2" />
-              </div>
-              <div>
-                <label style={lbl}>IP ADDRESS (sheet)</label>
-                <input value={createForm.ipAddress} onChange={e => setCreateForm({ ...createForm, ipAddress: e.target.value })} style={inp} placeholder="e.g. 192.168.1.10" />
-              </div>
-            <div style={{ gridColumn: '1 / -1', fontSize: '0.72rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #EDE9FE', paddingBottom: 6, marginTop: 4 }}>Dates & Fees (sheet: START DATE, EXPIRY DATE, PLAN fee)</div>
-              <div>
-                <label style={lbl}>START DATE (sheet)</label>
-                <input type="date" value={createForm.startDate} onChange={e => setCreateForm({ ...createForm, startDate: e.target.value })} style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>EXPIRY DATE (sheet)</label>
-                <input type="date" value={createForm.expiry} onChange={e => setCreateForm({ ...createForm, expiry: e.target.value })} style={inp} />
-              </div>
-              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={createForm.includeInstallation} onChange={e => { const on = e.target.checked; setCreateForm(f => ({ ...f, includeInstallation: on, fee: on ? planFee(plans, f.planId, f.networkType) : f.fee })); }} style={{ width: 16, height: 16 }} />
-                <span>Include installation fee</span>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Installation fee (₦)</label>
-                <input value={createForm.fee} disabled={!createForm.includeInstallation} onChange={e => setCreateForm({ ...createForm, fee: e.target.value })} style={{ ...inp, ...(createForm.includeInstallation ? {} : { background: '#F5F5F5', color: 'var(--text-muted)' }) }} placeholder="auto-filled from plan" />
-              </div>
-              <div>
-                <label style={lbl}>Portal password</label>
-                <input value={createForm.portalPassword} onChange={e => setCreateForm({ ...createForm, portalPassword: e.target.value })} style={inp} placeholder="random if blank" />
-              </div>
-              <div>
-                <label style={lbl}>RADIUS password</label>
-                <input value={createForm.radiusPassword} onChange={e => setCreateForm({ ...createForm, radiusPassword: e.target.value })} style={inp} placeholder="default if blank" />
-              </div>
-              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={createForm.sendWelcome} onChange={e => setCreateForm({ ...createForm, sendWelcome: e.target.checked })} style={{ width: 16, height: 16 }} />
-                <span>Send welcome email with login details</span>
-              </div>
+            {/* ── Body ── */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '20px 24px 28px', display: 'flex', flexDirection: 'column', gap: 16, background: '#F8FAFC', boxSizing: 'border-box' }} className="live-scroll">
+              <style>{`.grid-2{width:100%;box-sizing:border-box}.grid-2>div{min-width:0;overflow-wrap:anywhere;word-break:break-word}`}</style>
+              {(() => {
+                const fInp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '11px 14px', borderRadius: 14, border: '1.5px solid #E2E8F0', background: '#F8FAFC', fontSize: '0.86rem', fontWeight: 500, color: '#0F172A', outline: 'none', transition: 'all 0.15s', boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.02)', minWidth: 0 };
+                const fInpIcon: React.CSSProperties = { ...fInp, paddingLeft: 40 };
+                const fLbl: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: '0.71rem', fontWeight: 800, letterSpacing: 0.3, color: '#334155', marginBottom: 6, textTransform: 'uppercase' as const, lineHeight: 1.3, wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0 };
+                const hint: React.CSSProperties = { fontSize: '0.68rem', color: '#94A3B8', fontWeight: 500, marginTop: 5, lineHeight: 1.35, wordBreak: 'break-word', overflowWrap: 'anywhere' };
+                const card: React.CSSProperties = { background: '#fff', border: '1px solid #F1F5F9', borderRadius: 18, padding: 16, boxShadow: '0 1px 3px rgba(15,23,42,0.02), 0 8px 24px rgba(15,23,42,0.04)', position: 'relative', overflow: 'visible', isolation: 'isolate' as any };
+                const secHead = (color: string, bg: string, icon: React.ReactNode, title: string, sheet: string) => (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, minWidth: 0, flexWrap: 'wrap' as const }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 12, background: bg, color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 12px ${color}18`, border: `1px solid ${color}14`, flexShrink: 0 }}>{icon}</div>
+                    <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' as const, wordBreak: 'break-word' as const }}>
+                      <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#0F172A', letterSpacing: -0.2, lineHeight: 1.15 }}>{title}</div>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#94A3B8', lineHeight: 1.3, wordBreak: 'break-word' as const, overflowWrap: 'anywhere' as const }}>{sheet}</div>
+                    </div>
+                    <span style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', padding: '4px 8px', borderRadius: 999, background: bg, color, border: `1px solid ${color}18`, whiteSpace: 'nowrap', flexShrink: 0 }}>{title.split(' ')[0]}</span>
+                  </div>
+                );
+                const FieldWrap: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; focusedColor?: string }> = ({ children, icon, focusedColor = '#F15925' }) => (
+                  <div style={{ position: 'relative', minWidth: 0, width: '100%' }}>
+                    {icon && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', display: 'flex', pointerEvents: 'none', zIndex: 1 }}>{icon}</span>}
+                    {children}
+                  </div>
+                );
+                return (
+                  <>
+                    {/* IDs & Names */}
+                    <div style={{ ...card, borderLeft: '3px solid #F15925', animation: 'popIn 0.28s ease' }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, width: 120, height: 120, background: '#FFF7ED', opacity: 0.5, pointerEvents: 'none' }} />
+                      {secHead('#F15925', '#FFF7ED', <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M8 10h4M8 14h6M16 10h.01M16 14h.01" /></svg>, 'IDs & Names', 'sheet: ID, ID2, FIRST / LAST / COMPANY')}
+                      <div className="grid-2" style={{ gap: 12, position: 'relative' }}>
+                        <div>
+                          <label style={fLbl}><svg width="12" height="12" fill="none" stroke="#F59E0B" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2H10a2 2 0 0 0-2 2v2" /></svg> Legacy ID <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>(HIF-0001)</span></label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>}>
+                            <input value={createForm.legacyId} onChange={e => setCreateForm({ ...createForm, legacyId: e.target.value })} style={fInpIcon} placeholder="HIF-0001  ·  HIR-xxxx" onFocus={e => { e.currentTarget.style.borderColor = '#F15925'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(241,89,37,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Sheet column <b>ID</b> • used as RADIUS fallback</div>
+                        </div>
+                        <div>
+                          <label style={fLbl}><svg width="12" height="12" fill="none" stroke="#F59E0B" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" /></svg> ID2</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="4" rx="1" /><path d="M5 8h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /></svg>}>
+                            <input value={createForm.id2} onChange={e => setCreateForm({ ...createForm, id2: e.target.value })} style={fInpIcon} placeholder="Secondary ID column" onFocus={e => { e.currentTarget.style.borderColor = '#F59E0B'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Sheet column <b>ID2</b> • optional</div>
+                        </div>
+                        <div>
+                          <label style={fLbl}>First name</label>
+                          <input value={createForm.firstName} onChange={e => setCreateForm({ ...createForm, firstName: e.target.value })} style={fInp} placeholder="e.g. Chinedu" onFocus={e => { e.currentTarget.style.borderColor = '#F15925'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(241,89,37,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                        </div>
+                        <div>
+                          <label style={fLbl}>Last name</label>
+                          <input value={createForm.lastName} onChange={e => setCreateForm({ ...createForm, lastName: e.target.value })} style={fInp} placeholder="e.g. Okafor" onFocus={e => { e.currentTarget.style.borderColor = '#F15925'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(241,89,37,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                        </div>
+                        <div>
+                          <label style={fLbl}>Company name</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /></svg>}>
+                            <input value={createForm.companyName} onChange={e => setCreateForm({ ...createForm, companyName: e.target.value })} style={fInpIcon} placeholder="Business / Estate" onFocus={e => { e.currentTarget.style.borderColor = '#F15925'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(241,89,37,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                        </div>
+                        <div>
+                          <label style={{ ...fLbl, color: !createForm.name && (createForm.firstName || createForm.lastName) ? '#F15925' : '#334155' }}>Display name <span style={{ color: '#F15925' }}>*</span> {(createForm.firstName || createForm.lastName) && !createForm.name && <span style={{ fontSize: '0.62rem', fontWeight: 700, background: '#FFF7ED', color: '#EA580C', border: '1px solid #FFEDD5', padding: '2px 6px', borderRadius: 999, textTransform: 'none', letterSpacing: 0 }}>auto: {createForm.firstName} {createForm.lastName}</span>}</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>}>
+                            <input value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} style={{ ...fInpIcon, borderColor: !createForm.name && (createForm.firstName || createForm.lastName) ? '#FDBA74' : '#E2E8F0', background: !createForm.name && (createForm.firstName || createForm.lastName) ? '#FFF7ED' : '#F8FAFC' }} placeholder="Falls back to FIRST + LAST" onFocus={e => { e.currentTarget.style.borderColor = '#F15925'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(241,89,37,0.12)'; }} onBlur={e => { const auto = !createForm.name && (createForm.firstName || createForm.lastName); e.currentTarget.style.borderColor = auto ? '#FDBA74' : '#E2E8F0'; e.currentTarget.style.background = auto ? '#FFF7ED' : '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Leave blank to auto-build from <b>FIRST + LAST</b></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Contact & Email */}
+                    <div style={{ ...card, borderLeft: '3px solid #2563EB', animation: 'popIn 0.32s ease 0.06s both' }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, width: 140, height: 140, background: '#EFF6FF', opacity: 0.5, pointerEvents: 'none' }} />
+                      {secHead('#2563EB', '#EFF6FF', <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>, 'Contact & Email', 'sheet: CONTACT NUMBER, EMAIL')}
+                      <div className="grid-2" style={{ gap: 12, position: 'relative' }}>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={{ ...fLbl, color: '#2563EB' }}>Email <span style={{ color: '#EF4444' }}>*</span> <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>portal login</span></label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>}>
+                            <input value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} style={{ ...fInpIcon, borderColor: createForm.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createForm.email) ? '#FCA5A5' : '#E2E8F0' }} placeholder="customer@email.com" onFocus={e => { e.currentTarget.style.borderColor = '#2563EB'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = createForm.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createForm.email) ? '#FCA5A5' : '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Used for portal access • lower-cased on save</div>
+                        </div>
+                        <div>
+                          <label style={fLbl}>Primary phone</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 5.07 12.81 19.79 19.79 0 0 1 2 4.18 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>}>
+                            <input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} style={fInpIcon} placeholder="080…  (use / for second)" onFocus={e => { e.currentTarget.style.borderColor = '#2563EB'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Sheet: <b>CONTACT NUMBER</b> • slash splits</div>
+                        </div>
+                        <div>
+                          <label style={fLbl}>Secondary phone</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 5.07 12.81 19.79 19.79 0 0 1 2 4.18 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /><circle cx="18" cy="7" r="3" fill="currentColor" opacity="0.12" /></svg>}>
+                            <input value={createForm.secondaryPhone} onChange={e => setCreateForm({ ...createForm, secondaryPhone: e.target.value })} style={fInpIcon} placeholder="070… (if 2 numbers)" onFocus={e => { e.currentTarget.style.borderColor = '#2563EB'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={fLbl}>User type <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>sheet: USER TYPE</span></label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', display: 'flex', pointerEvents: 'none' }}><svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" /></svg></span>
+                            <select value={createForm.networkType} onChange={e => { const nt = e.target.value; setCreateForm(f => ({ ...f, networkType: nt, ...(f.includeInstallation ? { fee: planFee(plans, f.planId, nt, installFees) } : {}) })); }} style={{ ...fInpIcon, appearance: 'none', cursor: 'pointer', fontWeight: 600 }} onFocus={e => { e.currentTarget.style.borderColor = '#2563EB'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }}>
+                              <option value="FIBER">FIBER  — Fiber</option>
+                              <option value="RADIO">RADIO  — AirFiber / Radio</option>
+                              <option value="FIBER HOTSPOT">FIBER HOTSPOT</option>
+                              <option value="FIBER PPPOE">FIBER PPPOE</option>
+                              <option value="PPPOE">PPPoE</option>
+                              <option value="STATIC_IP">Static IP</option>
+                            </select>
+                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }}>▾</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Location & Service */}
+                    <div style={{ ...card, borderLeft: '3px solid #059669', animation: 'popIn 0.32s ease 0.12s both' }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, width: 140, height: 140, background: '#ECFDF5', opacity: 0.5, pointerEvents: 'none' }} />
+                      {secHead('#059669', '#ECFDF5', <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>, 'Location & Service', 'sheet: STATION, ADDRESS, PLAN, IP')}
+                      <div className="grid-2" style={{ gap: 12, position: 'relative' }}>
+                        <div>
+                          <label style={fLbl}>Station</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>}>
+                            <input value={createForm.stationLabel} onChange={e => setCreateForm({ ...createForm, stationLabel: e.target.value })} style={fInpIcon} placeholder="HOME / FIBER / ITA-ELEWA…" onFocus={e => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5,150,105,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#059669', background: '#ECFDF5', border: '1px solid #A7F3D0', padding: '6px 10px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}><span style={{ width: 6, height: 6, borderRadius: 999, background: '#059669' }} />Coverage-aware</span>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={fLbl}>Address</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>}>
+                            <input value={createForm.address} onChange={e => setCreateForm({ ...createForm, address: e.target.value })} style={fInpIcon} placeholder="No. 12, Admiralty Way, Lekki…" onFocus={e => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5,150,105,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={fLbl}>Plan <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>sheet: PLAN</span></label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', display: 'flex', pointerEvents: 'none' }}><svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="8" x2="8" y2="8" /><line x1="16" y1="12" x2="8" y2="12" /><line x1="10" y1="16" x2="8" y2="16" /></svg></span>
+                            <select value={createForm.planId} onChange={e => { const pid = e.target.value; setCreateForm(f => ({ ...f, planId: pid, ...(f.includeInstallation ? { fee: planFee(plans, pid, f.networkType) } : {}) })); }} style={{ ...fInpIcon, appearance: 'none', cursor: 'pointer', fontWeight: 600 }} onFocus={e => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5,150,105,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }}>
+                              <option value="">— No plan — (assign later)</option>
+                              {plans.map((p: any) => <option key={p.id} value={p.id}>{p.name} • {p.technology ?? p.type} {p.speedMbps ? `• ${p.speedMbps} Mbps` : ''}</option>)}
+                            </select>
+                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }}>▾</span>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={fLbl}>PPPoE / RADIUS user <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>ID2 fallback</span></label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="11" r="4" /></svg>}>
+                            <input value={createForm.pppoeUsername} onChange={e => setCreateForm({ ...createForm, pppoeUsername: e.target.value })} style={fInpIcon} placeholder="HIF-0001" onFocus={e => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5,150,105,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Leave blank → auto from <b>{createForm.legacyId || createForm.id2 || 'ID'}</b></div>
+                        </div>
+                        <div>
+                          <label style={fLbl}>IP address</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" /><path d="M7 12h10M12 7v10" /></svg>}>
+                            <input value={createForm.ipAddress} onChange={e => setCreateForm({ ...createForm, ipAddress: e.target.value })} style={fInpIcon} placeholder="192.168.1.10" inputMode="decimal" onFocus={e => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5,150,105,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Static IP or pool • sheet <b>IP ADDRESS</b></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dates & Fees */}
+                    <div style={{ ...card, borderLeft: '3px solid #7C3AED', animation: 'popIn 0.32s ease 0.18s both' }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, width: 140, height: 140, background: '#F5F3FF', opacity: 0.5, pointerEvents: 'none' }} />
+                      {secHead('#7C3AED', '#F5F3FF', <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>, 'Dates & Fees', 'sheet: START / EXPIRY / PLAN fee')}
+                      <div className="grid-2" style={{ gap: 12, position: 'relative' }}>
+                        <div>
+                          <label style={fLbl}>Start date</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>}>
+                            <input type="date" value={createForm.startDate} onChange={e => setCreateForm({ ...createForm, startDate: e.target.value })} style={fInpIcon} onFocus={e => { e.currentTarget.style.borderColor = '#7C3AED'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Sheet <b>START DATE</b> • dd.mm.yyyy</div>
+                        </div>
+                        <div>
+                          <label style={fLbl}>Expiry date</label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /><path d="M12 14l2 2 4-4" /></svg>}>
+                            <input type="date" value={createForm.expiry} onChange={e => setCreateForm({ ...createForm, expiry: e.target.value })} style={{ ...fInpIcon, fontWeight: createForm.expiry ? 700 : 500 }} onFocus={e => { e.currentTarget.style.borderColor = '#7C3AED'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          <div style={hint}>Sheet <b>EXPIRY DATE</b> • +30d if blank</div>
+                        </div>
+
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 14, background: createForm.includeInstallation ? '#F5F3FF' : '#F8FAFC', border: `1.5px solid ${createForm.includeInstallation ? '#DDD6FE' : '#E2E8F0'}`, transition: 'all 0.18s' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: 10, background: createForm.includeInstallation ? '#7C3AED' : '#fff', color: createForm.includeInstallation ? '#fff' : '#94A3B8', border: `1px solid ${createForm.includeInstallation ? '#7C3AED' : '#E2E8F0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.18s' }}>
+                              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#0F172A', lineHeight: 1 }}>Installation fee</div>
+                              <div style={{ fontSize: '0.68rem', color: '#64748B', lineHeight: 1.2 }}>One-off • auto from plan & network type</div>
+                            </div>
+                          </div>
+                          <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                            <input type="checkbox" checked={createForm.includeInstallation} onChange={e => { const on = e.target.checked; setCreateForm(f => ({ ...f, includeInstallation: on, fee: on ? planFee(plans, f.planId, f.networkType) : f.fee })); }} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                            <span style={{ width: 44, height: 26, borderRadius: 999, background: createForm.includeInstallation ? '#7C3AED' : '#E2E8F0', position: 'relative', display: 'inline-block', transition: 'all 0.2s', boxShadow: createForm.includeInstallation ? '0 2px 8px rgba(124,58,237,0.28)' : 'inset 0 1px 2px rgba(0,0,0,0.06)' }}>
+                              <span style={{ position: 'absolute', top: 2, left: createForm.includeInstallation ? 20 : 2, width: 22, height: 22, borderRadius: 999, background: '#fff', boxShadow: '0 1px 4px rgba(15,23,42,0.14)', transition: 'all 0.2s' }} />
+                            </span>
+                          </label>
+                        </div>
+
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={{ ...fLbl, opacity: createForm.includeInstallation ? 1 : 0.6 }}>Amount (₦)</label>
+                          <FieldWrap icon={<span style={{ fontSize: '0.82rem', fontWeight: 800, color: createForm.includeInstallation ? '#7C3AED' : '#94A3B8' }}>₦</span>}>
+                            <input value={createForm.fee} disabled={!createForm.includeInstallation} onChange={e => setCreateForm({ ...createForm, fee: e.target.value })} style={{ ...fInpIcon, opacity: createForm.includeInstallation ? 1 : 0.6, background: createForm.includeInstallation ? '#F8FAFC' : '#F1F5F9', fontWeight: 700, letterSpacing: -0.2 }} placeholder="50,000" onFocus={e => { if (!createForm.includeInstallation) return; e.currentTarget.style.borderColor = '#7C3AED'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = createForm.includeInstallation ? '#F8FAFC' : '#F1F5F9'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                          {!createForm.includeInstallation && <div style={hint}>Enable toggle to charge installation on first invoice</div>}
+                        </div>
+
+                        <div>
+                          <label style={fLbl}>Portal password <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>auto if blank</span></label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>}>
+                            <input value={createForm.portalPassword} onChange={e => setCreateForm({ ...createForm, portalPassword: e.target.value })} style={fInpIcon} placeholder="Random 8-char" onFocus={e => { e.currentTarget.style.borderColor = '#7C3AED'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                        </div>
+                        <div>
+                          <label style={fLbl}>RADIUS password <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>default if blank</span></label>
+                          <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>}>
+                            <input value={createForm.radiusPassword} onChange={e => setCreateForm({ ...createForm, radiusPassword: e.target.value })} style={fInpIcon} placeholder="••••••••" onFocus={e => { e.currentTarget.style.borderColor = '#7C3AED'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                          </FieldWrap>
+                        </div>
+
+                        <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 14, background: createForm.sendWelcome ? '#ECFDF5' : '#F8FAFC', border: `1.5px solid ${createForm.sendWelcome ? '#A7F3D0' : '#E2E8F0'}`, cursor: 'pointer', transition: 'all 0.15s' }}>
+                          <input type="checkbox" checked={createForm.sendWelcome} onChange={e => setCreateForm({ ...createForm, sendWelcome: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#059669', cursor: 'pointer' }} />
+                          <span style={{ width: 32, height: 32, borderRadius: 10, background: createForm.sendWelcome ? '#059669' : '#fff', color: createForm.sendWelcome ? '#fff' : '#94A3B8', border: `1px solid ${createForm.sendWelcome ? '#059669' : '#E2E8F0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                          </span>
+                          <span style={{ flex: 1 }}>
+                            <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: '#0F172A', lineHeight: 1 }}>Send welcome email</span>
+                            <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748B', lineHeight: 1.2 }}>Portal link + credentials to customer</span>
+                          </span>
+                          <span style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', padding: '4px 8px', borderRadius: 999, background: createForm.sendWelcome ? '#059669' : '#fff', color: createForm.sendWelcome ? '#fff' : '#94A3B8', border: `1px solid ${createForm.sendWelcome ? '#059669' : '#E2E8F0'}` }}>{createForm.sendWelcome ? 'ON' : 'OFF'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {createError && (
+                      <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', borderRadius: 14, fontSize: '0.82rem', lineHeight: 1.4, animation: 'popIn 0.2s ease' }}>
+                        <span style={{ width: 28, height: 28, borderRadius: 10, background: '#FEE2E2', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg></span>
+                        <span style={{ paddingTop: 2 }}>{createError}</span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
-            {createError && (
-              <div style={{ padding: '10px 14px', background: '#FEE2E2', color: '#DC2626', borderRadius: 10, marginTop: 12, fontSize: '0.85rem' }}>{createError}</div>
-            )}
-
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={() => setShowCreate(false)} className="btn-outline">Cancel</button>
-              <button onClick={handleCreateCustomer} disabled={creating} className="btn-primary">
-                {creating ? 'Creating…' : 'Create Customer'}
-              </button>
+            {/* ── Footer ── */}
+            <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0, boxSizing: 'border-box', flexWrap: 'wrap' as const }}>
+              <div style={{ fontSize: '0.72rem', color: '#94A3B8', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 700, color: '#334155', fontSize: '0.74rem' }}>{!createForm.email || !((createForm.name.trim() || createForm.firstName.trim() || createForm.companyName.trim())) ? 'Almost there…' : 'Ready to create'}</div>
+                <div>{!createForm.email ? 'Email is required' : !((createForm.name.trim() || createForm.firstName.trim() || createForm.companyName.trim())) ? 'Add a name' : 'Appears in customers after KYC approval'}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+                <button onClick={() => setShowCreate(false)} style={{ padding: '11px 18px', borderRadius: 999, border: '1.5px solid #E2E8F0', background: '#fff', fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer', color: '#334155', transition: 'all 0.15s' }} onMouseEnter={e => { e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.borderColor = '#CBD5E1'; }} onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#E2E8F0'; }}>Cancel</button>
+                <button onClick={handleCreateCustomer} disabled={creating} style={{ padding: '11px 20px', borderRadius: 999, border: 'none', background: creating ? '#E2E8F0' : 'linear-gradient(135deg, #F15925 0%, #EA580C 100%)', color: creating ? '#94A3B8' : '#fff', fontWeight: 800, fontSize: '0.84rem', cursor: creating ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: creating ? 'none' : '0 8px 20px rgba(241,89,37,0.28), 0 2px 6px rgba(241,89,37,0.18)', opacity: creating ? 0.9 : 1, transition: 'all 0.15s', letterSpacing: -0.1 }}>
+                  {creating ? <><span style={{ width: 14, height: 14, border: '2px solid #94A3B8', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} /> Creating…</> : <>Create customer <span style={{ width: 20, height: 20, borderRadius: 999, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>→</span></>}
+                </button>
+              </div>
             </div>
           </div>
         </div>

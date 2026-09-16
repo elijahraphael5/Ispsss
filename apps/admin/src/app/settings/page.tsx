@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { api, useAuthStore } from '@isp/shared';
+import { useState, useEffect, useRef } from 'react';
+import { api, apiUpload, useAuthStore } from '@isp/shared';
 import {
   Users,
   Shield,
@@ -46,7 +46,7 @@ interface Permission {
 const MODULES = ['Dashboard', 'User Control', 'Customer', 'Package', 'Billing', 'Payments', 'Support', 'NOC', 'Notifications', 'Audit Logs', 'Owner', 'Settings'];
 const PERM_LABELS: Record<string, string> = { canView: 'View', canCreate: 'Create', canEdit: 'Edit', canDelete: 'Delete' };
 
-const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Integrations'];
+const TABS = ['Admin Users', 'Roles', 'Security', 'Launch', 'Company', 'Integrations', 'Backup'];
 
 const fieldLabel: React.CSSProperties = { display: 'block', marginBottom: 5, fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 };
 const fieldInput: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
@@ -109,6 +109,16 @@ export default function SettingsPage() {
   const [emailForm, setEmailForm] = useState({ enabled: false, host: '', port: '587', user: '', pass: '', fromEmail: '', fromName: '' });
   const [emailPassMasked, setEmailPassMasked] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [snapshots, setSnapshots] = useState<{ id: string; file: string; sizeLabel: string; createdAt: string }[]>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [snapshotsError, setSnapshotsError] = useState('');
+  const [creatingSnapshot, setCreatingSnapshot] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [snapshotUploadFile, setSnapshotUploadFile] = useState<File | null>(null);
+  const snapshotInputRef = useRef<HTMLInputElement>(null);
+  const [restoreModalId, setRestoreModalId] = useState<string | null>(null);
+  const [restoreConfirmText, setRestoreConfirmText] = useState('');
+  const restoreSnap = restoreModalId ? snapshots.find(s => s.id === restoreModalId) : null;
 
   useEffect(() => {
     if (!accessToken) return;
@@ -265,6 +275,93 @@ export default function SettingsPage() {
       setSavingSettings(false);
     }
   }
+
+  async function fetchSnapshots() {
+    setSnapshotsLoading(true);
+    setSnapshotsError('');
+    try {
+      const data = await api<{ id: string; file: string; sizeLabel: string; createdAt: string }[]>('/snapshots');
+      setSnapshots(data);
+    } catch (e: any) {
+      setSnapshotsError(e?.message ?? 'Failed to load snapshots');
+    } finally {
+      setSnapshotsLoading(false);
+    }
+  }
+
+  async function createSnapshot() {
+    setCreatingSnapshot(true);
+    setSnapshotsError('');
+    try {
+      const snap = await api<{ id: string; file: string; sizeLabel: string; createdAt: string }>('/snapshots', { method: 'POST', body: JSON.stringify({}) });
+      toast(`Snapshot created — ${snap.file} (${snap.sizeLabel})`, 'success', toasts, setToasts);
+      fetchSnapshots();
+    } catch (e: any) {
+      toast(e?.message ?? 'Snapshot failed', 'error', toasts, setToasts);
+      setSnapshotsError(e?.message ?? 'Snapshot failed');
+    } finally {
+      setCreatingSnapshot(false);
+    }
+  }
+
+  async function restoreSnapshot(id: string) {
+    setRestoringId(id);
+    try {
+      await api(`/snapshots/${id}/restore`, { method: 'POST', body: JSON.stringify({}) });
+      toast('Restore completed — reloading', 'success', toasts, setToasts);
+      setRestoreModalId(null);
+      setRestoreConfirmText('');
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (e: any) {
+      toast(e?.message ?? 'Restore failed', 'error', toasts, setToasts);
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  async function deleteSnapshot(id: string) {
+    if (!confirm(`Delete snapshot "${id}"?`)) return;
+    try {
+      await api(`/snapshots/${id}`, { method: 'DELETE' });
+      toast('Snapshot deleted', 'success', toasts, setToasts);
+      fetchSnapshots();
+    } catch (e: any) {
+      toast(e?.message ?? 'Delete failed', 'error', toasts, setToasts);
+    }
+  }
+
+  async function downloadSnapshot(id: string, file: string) {
+    try {
+      const res = await fetch(`/api/v1/snapshots/${id}/download`, { headers: { Authorization: `Bearer ${accessToken?.replace('Bearer ', '')}` } });
+      // Fallback to api() blob handling via direct link
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = file; a.click(); URL.revokeObjectURL(url);
+    } catch {
+      // Fallback: open in new tab (next will proxy)
+      window.open(`/api/v1/snapshots/${id}/download`, '_blank');
+    }
+  }
+
+  async function uploadSnapshot() {
+    if (!snapshotUploadFile) { toast('Choose a .dump or .sql file first', 'error', toasts, setToasts); return; }
+    const name = snapshotUploadFile.name.toLowerCase();
+    if (!name.endsWith('.dump') && !name.endsWith('.sql')) { toast('Only .dump or .sql files are accepted', 'error', toasts, setToasts); return; }
+    try {
+      await apiUpload('/snapshots/upload', snapshotUploadFile);
+      toast('Snapshot uploaded', 'success', toasts, setToasts);
+      setSnapshotUploadFile(null);
+      if (snapshotInputRef.current) snapshotInputRef.current.value = '';
+      fetchSnapshots();
+    } catch (e: any) {
+      toast(e?.message ?? 'Upload failed', 'error', toasts, setToasts);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'Backup' && accessToken) fetchSnapshots();
+  }, [tab, accessToken]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -805,6 +902,191 @@ export default function SettingsPage() {
                 Use port <strong>465</strong> (TLS) — port 587 is blocked on the server.
               </p>
             </div>
+          )}
+        </div>      ) : tab === 'Backup' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 860 }}>
+          {/* Hero — single light #FFFFFF, soft, no gradient */}
+          <div className="data-card" style={{ padding: 0, overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0' }}>
+            <div style={{ padding: '18px 20px', display: 'flex', gap: 16, alignItems: 'flex-start', background: '#FFFFFF', borderBottom: '1px solid #F1F5F9' }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/><polyline points="12 22 12 12"/><polyline points="7 12 12 7 17 12"/></svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0F172A', letterSpacing: -0.3 }}>Backup & Restore</div>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#0F172A', background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '4px 8px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: '#10B981' }} />{snapshots.length} snapshots</span>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#94A3B8', background: '#FFFFFF', border: '1px solid #F1F5F9', padding: '4px 8px', borderRadius: 999 }}>Auto-saved to backups/snapshots</span>
+                </div>
+                <div style={{ fontSize: '0.82rem', color: '#64748B', lineHeight: 1.5, marginTop: 6 }}>One file restores <b style={{ color: '#0F172A' }}>everything</b> — dashboard, tenant settings, customers, chats, tickets, invoices, payments and radius. Download to keep off-site, upload to bring back.</div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end', flexShrink: 0 }}>
+                <button onClick={createSnapshot} disabled={creatingSnapshot} style={{ padding: '10px 18px', borderRadius: 999, border: '1px solid #0F172A', background: creatingSnapshot ? '#F1F5F9' : '#0F172A', color: creatingSnapshot ? '#94A3B8' : '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: creatingSnapshot ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(15,23,42,0.12)', opacity: creatingSnapshot ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ animation: creatingSnapshot ? 'spin 0.8s linear infinite' : 'none' }}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/><polyline points="12 22 12 12"/><polyline points="7 12 12 7 17 12"/></svg>
+                  {creatingSnapshot ? 'Creating…' : 'Snapshot Now'}
+                </button>
+                <span style={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 500 }}>Takes ~2–5s • no downtime</span>
+              </div>
+            </div>
+            {/* Sweet 3-step workflow — single light pills, no gradients */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, padding: '14px 18px', background: '#F8FAFC', borderTop: '1px solid #F1F5F9' }}>
+              {[
+                { n: '1', title: 'Create', desc: 'Full pg_dump -Fc + radius', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' },
+                { n: '2', title: 'Download', desc: 'Keep off-site or share', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l12 5 7-10' },
+                { n: '3', title: 'Restore', desc: 'One-click, full overwrite', icon: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5' },
+              ].map(s => (
+                <div key={s.n} style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 12, padding: '12px 12px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 10, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.72rem', flexShrink: 0 }}>{s.n}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0F172A', display: 'flex', alignItems: 'center', gap: 6 }}><svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d={s.icon} /></svg>{s.title}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#94A3B8', lineHeight: 1.3, marginTop: 1 }}>{s.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* What’s inside — 6 pills */}
+            <div style={{ padding: '12px 18px', display: 'flex', flexWrap: 'wrap', gap: 6, background: '#FFFFFF', borderTop: '1px solid #F1F5F9' }}>
+              {['Dashboard','Tenant settings','Customers','Chats & Tickets','Invoices','Radius'].map(t => (
+                <span key={t} style={{ fontSize: '0.68rem', fontWeight: 600, padding: '5px 10px', borderRadius: 999, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#334155', display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: '#0F172A' }} />{t}</span>
+              ))}
+              <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: '#94A3B8', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}><svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>Stored as single light file</span>
+            </div>
+            {snapshotsError && <div style={{ margin: '0 18px 14px', padding: '10px 12px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', borderRadius: 10, fontSize: '0.82rem' }}>{snapshotsError}</div>}
+          </div>
+
+          <div className="data-card" style={{ padding: 0, overflow: 'hidden', background: '#FFFFFF' }}>
+            <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#FFFFFF', borderBottom: '1px solid #F1F5F9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 10, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0F172A' }}>Snapshots</div>
+                  <div style={{ fontSize: '0.72rem', color: '#94A3B8' }}>{snapshots.length} file{snapshots.length === 1 ? '' : 's'} • newest first</div>
+                </div>
+              </div>
+              <button onClick={fetchSnapshots} disabled={snapshotsLoading} style={{ padding: '7px 12px', borderRadius: 999, border: '1px solid #E2E8F0', background: '#FFFFFF', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ animation: snapshotsLoading ? 'spin 0.8s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                Refresh
+              </button>
+            </div>
+
+            {snapshotsLoading ? (
+              <div style={{ padding: 28, textAlign: 'center', color: '#94A3B8', fontSize: '0.85rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 20, height: 20, border: '2px solid #E2E8F0', borderTopColor: '#0F172A', borderRadius: 999, display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
+                Loading snapshots…
+              </div>
+            ) : snapshots.length === 0 ? (
+              <div style={{ padding: '28px 18px', textAlign: 'center' }}>
+                <div style={{ width: 64, height: 64, borderRadius: 16, background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', color: '#94A3B8' }}>
+                  <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/><polyline points="12 22 12 12"/><polyline points="7 12 12 7 17 12"/></svg>
+                </div>
+                <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '0.92rem' }}>No snapshots yet</div>
+                <div style={{ fontSize: '0.82rem', color: '#64748B', marginTop: 4, maxWidth: 360, margin: '4px auto 0', lineHeight: 1.4 }}>Create your first backup — it captures everything and is ready to restore in one click.</div>
+                <button onClick={createSnapshot} disabled={creatingSnapshot} style={{ marginTop: 14, padding: '9px 16px', borderRadius: 999, border: '1px solid #0F172A', background: '#0F172A', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/><polyline points="12 22 12 12"/><polyline points="7 12 12 7 17 12"/></svg>
+                  Create first snapshot
+                </button>
+              </div>
+            ) : (
+              <div style={{ maxHeight: 360, overflowY: 'auto' }} className="live-scroll">
+                {snapshots.map(s => (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid #F1F5F9', flexWrap: 'wrap', background: '#FFFFFF', transition: 'background 0.12s' }} onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFC')} onMouseLeave={e => (e.currentTarget.style.background = '#FFFFFF')}>
+                    <div style={{ width: 38, height: 38, borderRadius: 10, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#0F172A', wordBreak: 'break-all', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {s.file}
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#334155', background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '2px 6px', borderRadius: 999 }}>{s.sizeLabel}</span>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{new Date(s.createdAt).toLocaleString()}</span>
+                        <span style={{ width: 3, height: 3, borderRadius: 999, background: '#CBD5E1' }} />
+                        <span>{s.id}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button onClick={() => downloadSnapshot(s.id, s.file)} style={{ padding: '7px 12px', borderRadius: 999, border: '1px solid #E2E8F0', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#334155' }}>
+                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Download
+                      </button>
+                      <button onClick={() => { setRestoreModalId(s.id); setRestoreConfirmText(''); }} disabled={restoringId === s.id} style={{ padding: '7px 12px', borderRadius: 999, border: '1px solid #FECACA', background: restoringId === s.id ? '#F1F5F9' : '#FFFFFF', color: '#DC2626', fontSize: '0.75rem', fontWeight: 700, cursor: restoringId === s.id ? 'not-allowed' : 'pointer', opacity: restoringId === s.id ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        {restoringId === s.id ? 'Restoring…' : 'Restore'}
+                      </button>
+                      <button onClick={() => deleteSnapshot(s.id)} style={{ width: 32, height: 32, borderRadius: 999, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Delete">
+                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="data-card" style={{ padding: 16, background: '#FFFFFF' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0F172A', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 28, height: 28, borderRadius: 10, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </span>
+              Restore from file
+              <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 600, color: '#94A3B8', background: '#F8FAFC', border: '1px solid #F1F5F9', padding: '4px 8px', borderRadius: 999 }}>Local + Download</span>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 6, lineHeight: 1.5 }}>Upload a previously downloaded <code style={{ background: '#F8FAFC', border: '1px solid #F1F5F9', padding: '2px 6px', borderRadius: 6, fontSize: '0.72rem' }}>.dump</code> or <code style={{ background: '#F8FAFC', border: '1px solid #F1F5F9', padding: '2px 6px', borderRadius: 6, fontSize: '0.72rem' }}>.sql</code> to add it to the list, then <b style={{ color: '#0F172A' }}>Restore</b>. Copies to <code style={{ background: '#F8FAFC', border: '1px solid #F1F5F9', padding: '2px 6px', borderRadius: 6, fontSize: '0.72rem' }}>backups/snapshots</code> on the server.</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center', background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 12, padding: 10 }}>
+              <label style={{ flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, border: '1.5px dashed #CBD5E1', background: '#FFFFFF', cursor: 'pointer', minWidth: 0 }}>
+                <span style={{ width: 32, height: 32, borderRadius: 10, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: '0.82rem', color: snapshotUploadFile ? '#0F172A' : '#94A3B8', fontWeight: snapshotUploadFile ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{snapshotUploadFile ? snapshotUploadFile.name : 'Choose .dump or .sql file…'}</span>
+                <input ref={snapshotInputRef} type="file" accept=".dump,.sql" onChange={e => setSnapshotUploadFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#334155', background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '6px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>Browse</span>
+              </label>
+              <button onClick={uploadSnapshot} disabled={!snapshotUploadFile} style={{ padding: '10px 16px', borderRadius: 999, border: '1px solid #0F172A', background: snapshotUploadFile ? '#0F172A' : '#F1F5F9', color: snapshotUploadFile ? '#fff' : '#94A3B8', fontWeight: 700, fontSize: '0.82rem', cursor: snapshotUploadFile ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>Upload</button>
+            </div>
+            <div style={{ marginTop: 10, fontSize: '0.68rem', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 6 }}><svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>Uploads are saved locally and appear above — no auto-restore, you control when to click Restore.</div>
+          </div>
+          {restoreSnap && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.48)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => { setRestoreModalId(null); setRestoreConfirmText(''); }}>
+                <div style={{ background: '#FFFFFF', borderRadius: 20, width: 480, maxWidth: '100%', boxShadow: '0 20px 60px rgba(15,23,42,0.18)', overflow: 'hidden', animation: 'pop 0.2s ease' }} onClick={e => e.stopPropagation()}>
+                  <div style={{ padding: '20px 22px 16px', background: '#FFFFFF', borderBottom: '1px solid #F1F5F9', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 12, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', letterSpacing: -0.2 }}>Restore this snapshot?</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 2, lineHeight: 1.45 }}>This will <b style={{ color: '#DC2626' }}>wipe and replace</b> the entire database — dashboard, tenant settings, customers, chats, tickets, invoices, payments and radius will be overwritten. The app will reload after.</div>
+                    </div>
+                    <button onClick={() => { setRestoreModalId(null); setRestoreConfirmText(''); }} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>×</button>
+                  </div>
+                  <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12, background: '#FFFFFF' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: '#FFFFFF', border: '1px solid #E2E8F0', color: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0F172A', wordBreak: 'break-all' }}>{restoreSnap.file}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#94A3B8' }}>{new Date(restoreSnap.createdAt).toLocaleString()} • {restoreSnap.sizeLabel} • {restoreSnap.id}</div>
+                      </div>
+                    </div>
+                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '10px 12px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <svg width="14" height="14" fill="none" stroke="#DC2626" strokeWidth="1.8" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 1 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <div style={{ fontSize: '0.78rem', color: '#7F1D1D', lineHeight: 1.4 }}><b>Irreversible.</b> All current data will be replaced by the snapshot. Customers, chats and invoices created after this snapshot will be lost. Make sure you have a fresh snapshot if you need to keep them.</div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: 6 }}>Type <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '2px 6px', borderRadius: 6, fontSize: '0.75rem' }}>RESTORE</span> to confirm</label>
+                      <input value={restoreConfirmText} onChange={e => setRestoreConfirmText(e.target.value)} placeholder="RESTORE" autoFocus style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${restoreConfirmText === 'RESTORE' ? '#0F172A' : '#E2E8F0'}`, background: restoreConfirmText === 'RESTORE' ? '#F8FAFC' : '#FFFFFF', fontSize: '0.85rem', fontWeight: 600, letterSpacing: 0.5, outline: 'none', boxSizing: 'border-box', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }} />
+                      <div style={{ fontSize: '0.68rem', color: restoreConfirmText === 'RESTORE' ? '#059669' : '#94A3B8', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>{restoreConfirmText === 'RESTORE' ? <><svg width="12" height="12" fill="none" stroke="#059669" strokeWidth="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Ready to restore</> : 'This protects against accidental clicks.'}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: '14px 18px', borderTop: '1px solid #F1F5F9', display: 'flex', justifyContent: 'flex-end', gap: 10, background: '#FFFFFF' }}>
+                    <button onClick={() => { setRestoreModalId(null); setRestoreConfirmText(''); }} disabled={restoringId === restoreSnap.id} style={{ padding: '10px 18px', borderRadius: 999, border: '1px solid #E2E8F0', background: '#FFFFFF', fontWeight: 600, fontSize: '0.82rem', cursor: restoringId === restoreSnap.id ? 'not-allowed' : 'pointer', color: '#334155', opacity: restoringId === restoreSnap.id ? 0.6 : 1 }}>Cancel</button>
+                    <button onClick={() => restoreSnapshot(restoreSnap.id)} disabled={restoreConfirmText !== 'RESTORE' || restoringId === restoreSnap.id} style={{ padding: '10px 18px', borderRadius: 999, border: 'none', background: restoreConfirmText !== 'RESTORE' || restoringId === restoreSnap.id ? '#F1F5F9' : '#DC2626', color: restoreConfirmText !== 'RESTORE' || restoringId === restoreSnap.id ? '#94A3B8' : '#fff', fontWeight: 800, fontSize: '0.82rem', cursor: restoreConfirmText !== 'RESTORE' || restoringId === restoreSnap.id ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: restoreConfirmText !== 'RESTORE' || restoringId === restoreSnap.id ? 'none' : '0 4px 14px rgba(220,38,38,0.22)', opacity: restoringId === restoreSnap.id ? 0.9 : 1 }}>
+                      {restoringId === restoreSnap.id ? <><span style={{ width: 14, height: 14, border: '2px solid #94A3B8', borderTopColor: 'transparent', borderRadius: 999, display: 'inline-block', animation: 'spin 0.7s linear infinite' }} /> Restoring…</> : 'Confirm restore'}
+                    </button>
+                  </div>
+                </div>
+              </div>
           )}
         </div>      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>

@@ -19,6 +19,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { OwnerModule } from './owner/owner.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { RouterHealthModule } from './modules/router-health/router-health.module';
+import { SnapshotsModule } from './modules/snapshots/snapshots.module';
 import { JobsModule } from './jobs/jobs.module';
 import { MailModule } from './modules/mail/mail.module';
 import { GatewayModule } from './gateway/gateway.module';
@@ -47,6 +48,7 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
     AdminModule,
     MailModule,
     RouterHealthModule,
+    SnapshotsModule,
     GatewayModule,
     ...(redisUrl === 'none' ? [] : [JobsModule]),
   ],
