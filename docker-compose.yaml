@@ -124,14 +124,8 @@ services:
 
   auth-service:
     build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime-service
-      args:
-        SERVICE: auth-service
-        NEXT_PUBLIC_API_URL: /api/v1
-        NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
-        NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
+      <<: *build
+      target: runtime-auth
     command: ["node", "apps/auth-service/dist/main.js"]
     mem_limit: 256m
     cpus: 0.5
@@ -153,14 +147,8 @@ services:
 
   payments-service:
     build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime-service
-      args:
-        SERVICE: payments-service
-        NEXT_PUBLIC_API_URL: /api/v1
-        NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
-        NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
+      <<: *build
+      target: runtime-payments
     command: ["node", "apps/payments-service/dist/main.js"]
     mem_limit: 256m
     cpus: 0.5
@@ -182,14 +170,8 @@ services:
 
   billing-service:
     build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime-service
-      args:
-        SERVICE: billing-service
-        NEXT_PUBLIC_API_URL: /api/v1
-        NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
-        NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
+      <<: *build
+      target: runtime-billing
     command: ["node", "apps/billing-service/dist/main.js"]
     mem_limit: 256m
     cpus: 0.5
@@ -210,14 +192,8 @@ services:
 
   support-service:
     build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime-service
-      args:
-        SERVICE: support-service
-        NEXT_PUBLIC_API_URL: /api/v1
-        NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
-        NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
+      <<: *build
+      target: runtime-support
     command: ["node", "apps/support-service/dist/main.js"]
     mem_limit: 256m
     cpus: 0.5
@@ -235,14 +211,8 @@ services:
 
   customer-service:
     build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime-service
-      args:
-        SERVICE: customer-service
-        NEXT_PUBLIC_API_URL: /api/v1
-        NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}
-        NEXT_PUBLIC_SESSION_IDLE_MINUTES: ${NEXT_PUBLIC_SESSION_IDLE_MINUTES:-60}
+      <<: *build
+      target: runtime-customer-svc
     command: ["node", "apps/customer-service/dist/main.js"]
     mem_limit: 256m
     cpus: 0.5
