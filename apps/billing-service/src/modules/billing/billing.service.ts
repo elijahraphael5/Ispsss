@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, Inject, Optional } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit-logs/audit.service';
