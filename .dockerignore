@@ -10,3 +10,19 @@ uploads
 .gitignore
 *.log
 /tmp
+# --- cut context / slow builds ---
+backups
+backups/**
+frontend
+frontend/**
+.turbo
+.opencode
+coverage
+.nyc_output
+.env
+.env.*
+!.env.example
+*.bak
+*.tmp
+docker-compose.dev.yml
+.github
