@@ -67,6 +67,7 @@ RUN pnpm --filter radius-service deploy --prod /deploy/radius
 
 # ---- init: one-shot migrator/seeder — needs full deps (prisma + tsx) ----
 FROM base AS runtime-init
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 ENV NODE_ENV=production
 WORKDIR /repo
 COPY --from=builder /app/node_modules ./node_modules
@@ -79,6 +80,7 @@ CMD ["sh", "-c", "cd apps/api && npx prisma migrate resolve --rolled-back \"2026
 
 # ---- backend: api (gateway) — needs radclient ----
 FROM base AS runtime-api
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 RUN apk add --no-cache freeradius freeradius-utils
 WORKDIR /repo
 COPY --from=deploy-api /deploy/api/node_modules ./node_modules
@@ -86,66 +88,78 @@ COPY --from=deploy-api /deploy/api/package.json ./package.json
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4000
-CMD ["node", "apps/api/dist/main.js"]
+CMD ["tsx", "apps/api/dist/main.js"]
 
 # ---- backend: auth ----
 FROM base AS runtime-auth
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 WORKDIR /repo
 COPY --from=deploy-auth /deploy/auth/node_modules ./node_modules
 COPY --from=deploy-auth /deploy/auth/package.json ./package.json
 COPY --from=builder /app/apps/auth-service/dist ./apps/auth-service/dist
 COPY --from=builder /app/apps/auth-service/package.json ./apps/auth-service/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4101
-CMD ["node", "apps/auth-service/dist/main.js"]
+CMD ["tsx", "apps/auth-service/dist/main.js"]
 
 # ---- backend: payments ----
 FROM base AS runtime-payments
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 WORKDIR /repo
 COPY --from=deploy-payments /deploy/payments/node_modules ./node_modules
 COPY --from=deploy-payments /deploy/payments/package.json ./package.json
 COPY --from=builder /app/apps/payments-service/dist ./apps/payments-service/dist
 COPY --from=builder /app/apps/payments-service/package.json ./apps/payments-service/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4102
-CMD ["node", "apps/payments-service/dist/main.js"]
+CMD ["tsx", "apps/payments-service/dist/main.js"]
 
 # ---- backend: billing ----
 FROM base AS runtime-billing
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 WORKDIR /repo
 COPY --from=deploy-billing /deploy/billing/node_modules ./node_modules
 COPY --from=deploy-billing /deploy/billing/package.json ./package.json
 COPY --from=builder /app/apps/billing-service/dist ./apps/billing-service/dist
 COPY --from=builder /app/apps/billing-service/package.json ./apps/billing-service/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4103
-CMD ["node", "apps/billing-service/dist/main.js"]
+CMD ["tsx", "apps/billing-service/dist/main.js"]
 
 # ---- backend: support ----
 FROM base AS runtime-support
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 WORKDIR /repo
 COPY --from=deploy-support /deploy/support/node_modules ./node_modules
 COPY --from=deploy-support /deploy/support/package.json ./package.json
 COPY --from=builder /app/apps/support-service/dist ./apps/support-service/dist
 COPY --from=builder /app/apps/support-service/package.json ./apps/support-service/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4104
-CMD ["node", "apps/support-service/dist/main.js"]
+CMD ["tsx", "apps/support-service/dist/main.js"]
 
 # ---- backend: customer-service ----
 FROM base AS runtime-customer-svc
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 WORKDIR /repo
 COPY --from=deploy-customer-svc /deploy/customer-svc/node_modules ./node_modules
 COPY --from=deploy-customer-svc /deploy/customer-svc/package.json ./package.json
 COPY --from=builder /app/apps/customer-service/dist ./apps/customer-service/dist
 COPY --from=builder /app/apps/customer-service/package.json ./apps/customer-service/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4105
-CMD ["node", "apps/customer-service/dist/main.js"]
+CMD ["tsx", "apps/customer-service/dist/main.js"]
 
 # ---- backend: radius ----
 FROM base AS runtime-radius
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 RUN apk add --no-cache freeradius freeradius-utils
 WORKDIR /repo
 COPY --from=deploy-radius /deploy/radius/node_modules ./node_modules
@@ -153,11 +167,13 @@ COPY --from=deploy-radius /deploy/radius/package.json ./package.json
 COPY --from=builder /app/apps/radius-service/dist ./apps/radius-service/dist
 COPY --from=builder /app/apps/radius-service/package.json ./apps/radius-service/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+RUN npx --yes prisma@5.22.0 generate --schema=./apps/api/prisma/schema.prisma
 EXPOSE 4106
-CMD ["node", "apps/radius-service/dist/main.js"]
+CMD ["tsx", "apps/radius-service/dist/main.js"]
 
 # ---- generic service fallback (for compose with ARG SERVICE) ----
 FROM base AS runtime-service
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 ARG SERVICE
 WORKDIR /repo
 COPY --from=pruned /app/node_modules ./node_modules
@@ -167,7 +183,7 @@ COPY --from=builder /app/apps/${SERVICE}/package.json ./apps/${SERVICE}/package.
 COPY --from=builder /app/apps/${SERVICE}/node_modules ./apps/${SERVICE}/node_modules
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
 EXPOSE 4101 4102 4103 4104 4105 4106
-CMD ["sh", "-c", "node apps/${SERVICE}/dist/main.js"]
+CMD ["sh", "-c", "tsx apps/${SERVICE}/dist/main.js"]
 
 # ---- frontend: admin (Next.js standalone) ----
 FROM base AS runtime-admin
@@ -193,6 +209,7 @@ CMD ["node", "server.js"]
 
 # ---- fallback: legacy monolith (not used) ----
 FROM base AS runtime
+RUN npm i -g tsx@4.23.1 --no-fund --no-audit
 RUN apk add --no-cache freeradius freeradius-utils
 WORKDIR /repo
 COPY --from=pruned /app/node_modules ./node_modules
@@ -205,4 +222,4 @@ COPY --from=builder /app/apps/support-service/dist ./apps/support-service/dist
 COPY --from=builder /app/apps/customer-service/dist ./apps/customer-service/dist
 COPY --from=builder /app/apps/radius-service/dist ./apps/radius-service/dist
 EXPOSE 4000 4101 4102 4103 4104 4105 4106 3000 3001
-CMD ["node", "apps/api/dist/main.js"]
+CMD ["tsx", "apps/api/dist/main.js"]
