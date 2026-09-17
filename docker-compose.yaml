@@ -79,7 +79,7 @@ services:
       target: runtime-init
     image: ghcr.io/elijahraphael5/ispsss/runtime-init:main
     pull_policy: missing
-    command: sh -c "cd apps/api && npx prisma migrate resolve --rolled-back \"20260916300000_batch7_perf\" || true && npx prisma migrate deploy && npx tsx prisma/seed-prod.ts"
+    command: sh -c "cd apps/api && npx prisma migrate resolve --rolled-back \"20260916300000_batch7_perf\" 2>/dev/null || true && npx prisma migrate deploy && npx tsx prisma/seed-prod.ts"
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://isp_user:${POSTGRES_PASSWORD}@postgres:5432/isp_platform

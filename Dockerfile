@@ -75,7 +75,7 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
-CMD ["sh", "-c", "cd apps/api && npx prisma migrate resolve --rolled-back \"20260916300000_batch7_perf\" || true && npx prisma migrate deploy && npx tsx prisma/seed-prod.ts"]
+CMD ["sh", "-c", "cd apps/api && npx prisma migrate resolve --rolled-back \"20260916300000_batch7_perf\" 2>/dev/null || true && npx prisma migrate deploy && npx tsx prisma/seed-prod.ts"]
 
 # ---- backend: api (gateway) — needs radclient ----
 FROM base AS runtime-api

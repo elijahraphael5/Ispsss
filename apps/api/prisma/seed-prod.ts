@@ -174,29 +174,19 @@ async function main() {
     customRoles[name] = await createCustomRole(tenant.id, name);
   }
 
-  await prisma.user.upsert({
-    where: { email: 'admin@isp.local' },
-    update: { isSuperAdmin: false, customRoleId: customRoles['SUPER_ADMIN'].id },
-    create: {
-      tenantId: tenant.id,
-      email: 'admin@isp.local',
-      passwordHash: adminHash,
-      isSuperAdmin: false,
-      customRoleId: customRoles['SUPER_ADMIN'].id,
-    },
-  });
-
-  await prisma.user.upsert({
-    where: { email: 'root@isp.local' },
-    update: { isSuperAdmin: true, customRoleId: customRoles['SUPER_ADMIN'].id },
-    create: {
-      tenantId: tenant.id,
-      email: 'root@isp.local',
-      passwordHash: rootHash,
-      isSuperAdmin: true,
-      customRoleId: customRoles['SUPER_ADMIN'].id,
-    },
-  });
+  // User.email is now partial unique WHERE deletedAt IS NULL (soft-delete), so Prisma no longer
+  // considers email a unique field for upsert. Use findFirst + update/create.
+  for (const [email, hash, isSuper] of [
+    ['admin@isp.local', adminHash, false] as const,
+    ['root@isp.local', rootHash, true] as const,
+  ]) {
+    const existing = await prisma.user.findFirst({ where: { email, deletedAt: null } });
+    if (existing) {
+      await prisma.user.update({ where: { id: existing.id }, data: { isSuperAdmin: isSuper, customRoleId: customRoles['SUPER_ADMIN'].id } });
+    } else {
+      await prisma.user.create({ data: { tenantId: tenant.id, email, passwordHash: hash, isSuperAdmin: isSuper, customRoleId: customRoles['SUPER_ADMIN'].id } });
+    }
+  }
 
   let created = 0;
   for (const plan of PLANS) {
