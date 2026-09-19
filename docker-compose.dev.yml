@@ -122,10 +122,6 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       WEBHOOK_SERVICE_TOKEN: ${WEBHOOK_SERVICE_TOKEN:-}
       CUSTOMER_URL: ${CUSTOMER_URL:-http://customer.example.com}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
       MAIL_FROM: ${MAIL_FROM:-"Hikonnect <noreply@hikonnectng.com>"}
     depends_on:
       postgres:

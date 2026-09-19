@@ -93,7 +93,8 @@ async function bootstrap() {
           .map((s) => s.trim())
           .filter(Boolean);
         const isProd = process.env.NODE_ENV === 'production';
-        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || allowed.includes(origin));
+        const isLocalhost = origin?.startsWith('http://localhost:') || origin?.startsWith('https://localhost:');
+        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || isLocalhost || allowed.includes(origin));
         cb(null, ok);
       },
       credentials: true,
@@ -119,9 +120,9 @@ async function bootstrap() {
   // JWT verifier for rate-limit keying — the same secret every backend verifies
   // against, so spoofed `sub` claims can't split buckets.
   const jwt = new JwtService({ secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })() });
-  const mutationTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_MUTATION_PER_MIN', 120), windowMs: 60_000 });
-  const readTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_READ_PER_MIN', 600), windowMs: 60_000 });
-  const globalTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_GLOBAL_PER_MIN', 1200), windowMs: 60_000 });
+  const mutationTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_MUTATION_PER_MIN', 300), windowMs: 60_000 });
+  const readTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_READ_PER_MIN', 1200), windowMs: 60_000 });
+  const globalTier = (): RateLimitRule => ({ limit: envLimit('RATE_LIMIT_GLOBAL_PER_MIN', 3000), windowMs: 60_000 });
   const tierFor = (req: Request): RateLimitRule => {
     if (req.method !== 'GET') return mutationTier();
     return readTier();
@@ -180,8 +181,8 @@ async function bootstrap() {
       ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
       : (req.ip ?? 'unknown')
     ).split(',')[0].trim();
-    const result = await limiter.consume(`${(await userKey(req)) ?? `ip:${ip}`}`, tierFor(req));
-    const globalResult = await limiter.consume(`ip:${ip}`, globalTier());
+    const result = await limiter.consume(`gw:${(await userKey(req)) ?? `ip:${ip}`}`, tierFor(req));
+    const globalResult = await limiter.consume(`gw:ip:${ip}`, globalTier());
     if (!result.allowed || !globalResult.allowed) {
       const retryAfterMs = Math.max(result.retryAfterMs, globalResult.retryAfterMs);
       res.setHeader('Retry-After', String(Math.ceil(retryAfterMs / 1000)));

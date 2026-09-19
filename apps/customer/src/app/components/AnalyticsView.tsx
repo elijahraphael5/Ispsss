@@ -76,8 +76,8 @@ export default function AnalyticsView() {
 
   useEffect(() => {
     if (!accessToken) return;
-    fetchAnalytics().then(() => setLoading(false)).catch(() => setLoading(false));
-    const interval = setInterval(fetchAnalytics, 6000);
+    fetchAnalytics().finally(() => setLoading(false));
+    const interval = setInterval(fetchAnalytics, 15000);
     return () => clearInterval(interval);
   }, [accessToken, fetchAnalytics]);
 

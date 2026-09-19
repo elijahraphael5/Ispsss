@@ -244,15 +244,32 @@ export class UsersService {
    * the DB index ignores `deletedAt`. A stale row's phone is released so the
    * new account can claim it; a live duplicate gets a 409 instead of the
    * Prisma unique-constraint 500.
+   *
+   * Stale holders that are auto-released:
+   * - Soft-deleted User (deletedAt != null)
+   * - User whose email was moved to `deleted-<id>@local` by a customer delete
+   * - User whose Subscriber is soft-deleted (customer deleted but User not soft-deleted)
    */
   private async assertPhoneAvailable(phone: string, excludeUserId?: string): Promise<void> {
-    const rows: Array<{ id: string; deletedAt: Date | null }> = excludeUserId
-      ? await this.prisma.$queryRaw`SELECT id, "deletedAt" FROM "User" WHERE phone = ${phone} AND id <> ${excludeUserId} LIMIT 1`
-      : await this.prisma.$queryRaw`SELECT id, "deletedAt" FROM "User" WHERE phone = ${phone} LIMIT 1`;
+    const rows: Array<{ id: string; deletedAt: Date | null; email: string; subDeletedAt: Date | null }> = excludeUserId
+      ? await this.prisma.$queryRaw`
+          SELECT u.id, u."deletedAt", u.email, s."deletedAt" as "subDeletedAt"
+          FROM "User" u LEFT JOIN "Subscriber" s ON s."userId" = u.id
+          WHERE u.phone = ${phone} AND u.id <> ${excludeUserId} LIMIT 1`
+      : await this.prisma.$queryRaw`
+          SELECT u.id, u."deletedAt", u.email, s."deletedAt" as "subDeletedAt"
+          FROM "User" u LEFT JOIN "Subscriber" s ON s."userId" = u.id
+          WHERE u.phone = ${phone} LIMIT 1`;
     const owner = rows[0];
     if (!owner) return;
-    if (!owner.deletedAt) throw new ConflictException('A user with this phone number already exists');
-    await this.prisma.$queryRaw`UPDATE "User" SET phone = NULL WHERE id = ${owner.id}`;
+    const isPlaceholderEmail = owner.email?.startsWith('deleted-') && owner.email?.endsWith('@local');
+    const isOrphanedCustomer = !!owner.subDeletedAt;
+    // Live active owner — phone is truly taken
+    if (!owner.deletedAt && !isPlaceholderEmail && !isOrphanedCustomer) {
+      throw new ConflictException('A user with this phone number already exists');
+    }
+    // Stale holder — release phone and secondaryPhone so new account can claim it
+    await this.prisma.$queryRaw`UPDATE "User" SET phone = NULL, "secondaryPhone" = NULL WHERE id = ${owner.id}`;
   }
 
   async create(data: { email: string; password: string; phone?: string; secondaryPhone?: string; name?: string; customRoleId?: string }, actorId: string) {
@@ -375,7 +392,7 @@ export class UsersService {
     const subs = await this.prisma.subscriber.findMany({
       where: { tenantId, deletedAt: null, status: 'PENDING_KYC' },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
+        user: { select: { id: true, name: true, email: true, phone: true, secondaryPhone: true } },
         subscriptions: {
           include: { plan: { select: planSelect } },
           orderBy: { startedAt: 'desc' },
@@ -395,15 +412,17 @@ export class UsersService {
     const staffMap = new Map(staff.map(u => [u.id, u]));
     const result = subs.map(s => {
       const plan = s.subscriptions?.[0]?.plan ?? null;
+      const sub = s.subscriptions?.[0] ?? null;
       const email: string | null = s.user?.email ?? null;
       const maker = s.kycSubmittedById ? staffMap.get(s.kycSubmittedById) : null;
-      const checker = s.kycApprovedById ? staffMap.get(s.kycApprovedById) : null;
+      const cpe = (s.devices ?? [])[0] as any;
       return {
         id: s.id,
         userId: s.userId,
         name: s.user?.name ?? null,
         email: email && !email.endsWith('@lan') ? email : null,
         phone: s.user?.phone ?? null,
+        secondaryPhone: (s.user as any)?.secondaryPhone ?? null,
         address: s.address ?? null,
         pppoeUsername: s.pppoeUsername ?? null,
         networkType: s.networkType ?? plan?.technology ?? null,
@@ -411,6 +430,21 @@ export class UsersService {
         plan: plan?.name ?? null,
         speedMbps: plan?.speedMbps ?? null,
         priceKobo: plan?.priceKobo ?? null,
+        // Full create-form capture for KYC review
+        legacyId: (s as any).legacyId ?? null,
+        hikonnectId: (s as any).hikonnectId ?? null,
+        id2: (s as any).id2 ?? null,
+        firstName: (s as any).firstName ?? null,
+        lastName: (s as any).lastName ?? null,
+        companyName: (s as any).companyName ?? null,
+        stationLabel: (s as any).stationLabel ?? null,
+        staticIpAddress: (s as any).staticIpAddress ?? cpe?.ipAddress ?? null,
+        ipAddress: cpe?.ipAddress ?? (s as any).staticIpAddress ?? null,
+        // Billing / dates from subscription
+        startedAt: sub?.startedAt ?? null,
+        expiresAt: sub?.expiresAt ?? null,
+        installationFeeKobo: (sub as any)?.installationFeeKobo ?? null,
+        planId: plan?.id ?? null,
         status: s.status,
         kycVerified: s.kycVerified,
         kycSubmittedById: s.kycSubmittedById,
@@ -655,7 +689,7 @@ export class UsersService {
     return view;
   }
 
-  async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; secondaryPhone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string; ipAddress?: string; staticIpAddress?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string }, actorId: string) {
+  async updateCustomer(id: string, data: { name?: string; email?: string; phone?: string; secondaryPhone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string; ipAddress?: string; staticIpAddress?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string; startedAt?: string; expiresAt?: string; installationFee?: string; installationFeeKobo?: number }, actorId: string) {
     const sub = await this.prisma.subscriber.findUniqueOrThrow({ where: { id, deletedAt: null }, include: { user: true } });
     if (data.email !== undefined) {
       const normalized = data.email.trim().toLowerCase();
@@ -680,6 +714,21 @@ export class UsersService {
       });
     }
     if (data.address !== undefined || data.networkType !== undefined || data.pppoeUsername !== undefined || data.legacyId !== undefined || data.id2 !== undefined || data.firstName !== undefined || data.lastName !== undefined || data.companyName !== undefined || data.stationLabel !== undefined) {
+      // Enforce unique Legacy ID (HIF/HIR) — free stale soft-deleted holders
+      if (data.legacyId !== undefined) {
+        const trimmed = data.legacyId?.trim() || '';
+        if (trimmed) {
+          const rows: Array<{ id: string; deletedAt: Date | null }> = await this.prisma.$queryRaw`SELECT id, "deletedAt" FROM "Subscriber" WHERE "legacyId" = ${trimmed} AND id <> ${id} LIMIT 1`;
+          const owner = rows[0];
+          if (owner) {
+            if (!owner.deletedAt) throw new ConflictException(`Legacy ID ${trimmed} is already in use`);
+            await this.prisma.$queryRaw`UPDATE "Subscriber" SET "legacyId" = NULL WHERE id = ${owner.id}`;
+          }
+          data.legacyId = trimmed;
+        } else {
+          (data as any).legacyId = null;
+        }
+      }
       try {
         await this.prisma.subscriber.update({
           where: { id },
@@ -687,7 +736,7 @@ export class UsersService {
             ...(data.address !== undefined ? { address: data.address || null } : {}),
             ...(data.networkType !== undefined ? { networkType: data.networkType || null } : {}),
             ...(data.pppoeUsername !== undefined ? { pppoeUsername: data.pppoeUsername.trim() || null } : {}),
-            ...(data.legacyId !== undefined ? { legacyId: data.legacyId?.trim() || null } : {}),
+            ...(data.legacyId !== undefined ? { legacyId: (data as any).legacyId } : {}),
             ...(data.id2 !== undefined ? { id2: data.id2?.trim() || null } : {}),
             ...(data.firstName !== undefined ? { firstName: data.firstName?.trim() || null } : {}),
             ...(data.lastName !== undefined ? { lastName: data.lastName?.trim() || null } : {}),
@@ -696,7 +745,11 @@ export class UsersService {
           } as any,
         });
       } catch (e: any) {
-        if (e?.code === 'P2002') throw new ConflictException('PPPoE username is already in use by another customer');
+        if (e?.code === 'P2002') {
+          const target = String(e?.meta?.target ?? '');
+          if (target.includes('legacyId')) throw new ConflictException('Legacy ID is already in use');
+          throw new ConflictException('PPPoE username is already in use by another customer');
+        }
         throw e;
       }
     }
@@ -781,6 +834,32 @@ export class UsersService {
         }
       }
     }
+    // Subscription dates & installation fee (from create-customer billing step) — update latest subscription
+    if ((data as any).startedAt !== undefined || (data as any).expiresAt !== undefined || (data as any).installationFee !== undefined || (data as any).installationFeeKobo !== undefined) {
+      const latest = await this.prisma.subscription.findFirst({ where: { subscriberId: id }, orderBy: { startedAt: 'desc' } });
+      if (latest) {
+        const upd: Record<string, unknown> = {};
+        if ((data as any).startedAt !== undefined) {
+          const d = new Date((data as any).startedAt);
+          if (!isNaN(d.getTime())) upd.startedAt = d;
+        }
+        if ((data as any).expiresAt !== undefined) {
+          const d = new Date((data as any).expiresAt);
+          if (!isNaN(d.getTime())) upd.expiresAt = d;
+        }
+        if ((data as any).installationFee !== undefined) {
+          const v = String((data as any).installationFee).trim();
+          if (v === '') upd.installationFeeKobo = null;
+          else {
+            const kobo = Math.round(parseFloat(v) * 100);
+            if (!isNaN(kobo)) upd.installationFeeKobo = kobo;
+          }
+        } else if ((data as any).installationFeeKobo !== undefined) {
+          upd.installationFeeKobo = (data as any).installationFeeKobo;
+        }
+        if (Object.keys(upd).length) await this.prisma.subscription.update({ where: { id: latest.id }, data: upd as any });
+      }
+    }
     await this.audit.log({ actorId, action: 'USER_UPDATED', entityType: 'User', entityId: sub.userId, beforeData: { name: sub.user.name, email: sub.user.email, phone: sub.user.phone } as any, afterData: data as any, metadata: { changes: Object.keys(data) } });
     await this.invalidateCustomerCache();
     return this.customerDetail(id);
@@ -796,7 +875,7 @@ export class UsersService {
     // placeholder) so the address can be registered as a brand-new account.
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.deleteMany({ where: { userId: id } });
-      await tx.user.update({ where: { id }, data: { deletedAt: new Date(), email: `deleted-${id}@local` } });
+      await tx.user.update({ where: { id }, data: { deletedAt: new Date(), email: `deleted-${id}@local`, phone: null, secondaryPhone: null } as any });
       return tx.user.findUnique({ where: { id }, select: userSelect });
     });
     await this.invalidateCustomerCache();
@@ -1004,6 +1083,7 @@ export class UsersService {
     // PHPRadius spec counters and tracking (§1, §5)
     let fiberSeq = 1, radioSeq = 1;
     const seenIps = new Map<string, number>(); // for duplicate IP flag (§5)
+    const seenLegacyIds = new Set<string>(); // for unique HIF/HIR enforcement
     const importDate = new Date();
 
     for (let i = 0; i < raw.length; i++) {
@@ -1025,7 +1105,30 @@ export class UsersService {
         }
         const isRadio = userTypeNorm === 'RADIO';
         const isFiber = userTypeNorm.includes('FIBER');
-        const legacyId = idCol ? (String(r[idCol] ?? '').trim() || null) : null;
+        let legacyId: string | null = idCol ? (String(r[idCol] ?? '').trim() || null) : null;
+        // Enforce unique HIF/HIR — auto-generate if empty or duplicate (HIF for Fiber, HIR for Radio)
+        if (!legacyId || seenLegacyIds.has(legacyId.toUpperCase())) {
+          const prefix = isRadio ? 'HIR-' : 'HIF-';
+          // find next free number for this prefix within this import
+          let n = 1;
+          // start from current max seen +1 for efficiency
+          const existingNums = Array.from(seenLegacyIds)
+            .filter(v => v.startsWith(prefix))
+            .map(v => parseInt(v.slice(prefix.length), 10))
+            .filter(v => !isNaN(v));
+          if (existingNums.length) n = Math.max(...existingNums) + 1;
+          let candidate: string;
+          do {
+            candidate = `${prefix}${String(n).padStart(4, '0')}`;
+            n++;
+          } while (seenLegacyIds.has(candidate));
+          // if original was duplicate, keep trace in reason
+          if (legacyId && seenLegacyIds.has(legacyId.toUpperCase())) {
+            // will be noted in creation
+          }
+          legacyId = candidate;
+        }
+        if (legacyId) seenLegacyIds.add(legacyId.toUpperCase());
         const rawPlan = planCol ? String(r[planCol] ?? '').trim() : '';
         // §2 Plan mapping
         let planName = '';
@@ -1344,7 +1447,22 @@ const name = String(r[nameCol ?? ''] ?? '').trim()
           const lastNameValFallback = lastNameCol ? String(r[lastNameCol] ?? '').trim() || null : null;
           const companyNameValFallback = companyCol ? String(r[companyCol] ?? '').trim() || null : null;
           const id2ValFallback = id2Col ? String(r[id2Col] ?? '').trim() || null : null;
-          const legacyIdFallback = idCol ? String(r[idCol] ?? '').trim() || null : null;
+          let legacyIdFallback: string | null = idCol ? String(r[idCol] ?? '').trim() || null : null;
+          // Enforce unique HIF/HIR — auto-generate if empty or duplicate
+          if (!legacyIdFallback || (legacyIdFallback && seenLegacyIds.has(legacyIdFallback.toUpperCase()))) {
+            const isRadioFallback = String(userType || technology || '').toUpperCase().includes('RADIO');
+            const prefix = isRadioFallback ? 'HIR-' : 'HIF-';
+            let n = 1;
+            const existingNums = Array.from(seenLegacyIds).filter(v => v.startsWith(prefix)).map(v => parseInt(v.slice(prefix.length), 10)).filter(v => !isNaN(v));
+            if (existingNums.length) n = Math.max(...existingNums) + 1;
+            let candidate: string;
+            do {
+              candidate = `${prefix}${String(n).padStart(4, '0')}`;
+              n++;
+            } while (seenLegacyIds.has(candidate));
+            legacyIdFallback = candidate;
+          }
+          if (legacyIdFallback) seenLegacyIds.add(legacyIdFallback.toUpperCase());
           const stationLabelFallback = stationCol ? String(r[stationCol] ?? '').trim() || null : null;
           const subscriber = await tx.subscriber.create({
             data: {

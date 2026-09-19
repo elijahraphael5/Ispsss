@@ -56,7 +56,7 @@ async function errorMessage(res: Response): Promise<string> {
 }
 
 export async function api<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  const { skipAuth, ...fetchOpts } = options;
+  const { skipAuth, _retried429, ...fetchOpts } = options as FetchOptions & { _retried429?: boolean };
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(fetchOpts.headers as Record<string, string>) };
 
   if (!skipAuth) {
@@ -65,7 +65,14 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
     if (h) headers['Authorization'] = h;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers, credentials: 'include' });
+  let res = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers, credentials: 'include' });
+
+  // Handle rate limiting with a single automatic retry respecting Retry-After
+  if (res.status === 429 && !_retried429) {
+    const retryAfterSec = Math.max(1, Math.min(Number(res.headers.get('Retry-After') || '2'), 5));
+    await new Promise(r => setTimeout(r, retryAfterSec * 1000));
+    return api<T>(path, { ...options, _retried429: true } as any);
+  }
 
   if (res.status === 401 && !skipAuth) {
     const newToken = await refreshAccessToken();
@@ -73,6 +80,11 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
     if (newHeader) {
       headers['Authorization'] = newHeader;
       const retryRes = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers, credentials: 'include' });
+      if (retryRes.status === 429 && !_retried429) {
+        const retryAfterSec = Math.max(1, Math.min(Number(retryRes.headers.get('Retry-After') || '2'), 5));
+        await new Promise(r => setTimeout(r, retryAfterSec * 1000));
+        return api<T>(path, { ...options, _retried429: true } as any);
+      }
       if (!retryRes.ok) throw new ApiError(retryRes.status, await errorMessage(retryRes));
       return retryRes.json();
     }
@@ -84,6 +96,7 @@ export async function api<T>(path: string, options: FetchOptions = {}): Promise<
   }
 
   if (!res.ok) {
+    if (res.status === 429) throw new ApiError(429, 'Too many requests — please wait a few seconds and retry');
     throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json();
@@ -100,10 +113,20 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   };
 
   let res = await send(getAccessToken());
+  if (res.status === 429) {
+    const retryAfterSec = Math.max(1, Math.min(Number(res.headers.get('Retry-After') || '2'), 5));
+    await new Promise(r => setTimeout(r, retryAfterSec * 1000));
+    res = await send(getAccessToken());
+  }
   if (res.status === 401) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       res = await send(newToken);
+      if (res.status === 429) {
+        const retryAfterSec = Math.max(1, Math.min(Number(res.headers.get('Retry-After') || '2'), 5));
+        await new Promise(r => setTimeout(r, retryAfterSec * 1000));
+        res = await send(newToken);
+      }
     } else {
       localStorage.removeItem('accessToken');
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
@@ -113,6 +136,7 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
     }
   }
   if (!res.ok) {
+    if (res.status === 429) throw new ApiError(429, 'Too many requests — please wait a few seconds and retry');
     throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json();

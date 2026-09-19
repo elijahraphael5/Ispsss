@@ -86,10 +86,10 @@ describe('SubscriptionsService', () => {
       const result = await service.create({ userId: 'u1', type: 'RESIDENTIAL', address: '2nd St' }, 'maker-1');
       expect(result).toBe(row);
       expect(prisma.subscriber.create).toHaveBeenCalledWith({
-        data: {
+        data: expect.objectContaining({
           tenantId: 'tenant-1', userId: 'u1', type: 'RESIDENTIAL', address: '2nd St',
           kycSubmittedById: 'maker-1', kycSubmittedAt: expect.any(Date),
-        },
+        }),
         include: expect.anything(),
       });
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SUBSCRIBER_CREATED' }));

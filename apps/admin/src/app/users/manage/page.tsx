@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api, apiUpload, timeAgo, onCustomersChanged, notifyCustomersChanged } from '@isp/shared';
 import { useRouter } from 'next/navigation';
 import { setCachedCustomer } from '../../../lib/customer-cache';
@@ -128,6 +128,15 @@ function cell(pad = '7px 12px') {
 const lbl = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 } as const;
 const inp = { width: '100%', padding: '8px 12px', borderRadius: 12, border: '1px solid var(--border-color)', fontSize: '0.85rem', boxSizing: 'border-box' as const };
 
+function FieldWrap({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
+  return (
+    <div style={{ position: 'relative', minWidth: 0, width: '100%' }}>
+      {icon && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', display: 'flex', pointerEvents: 'none', zIndex: 1 }}>{icon}</span>}
+      {children}
+    </div>
+  );
+}
+
 function snapshotRows(snapshots: SnapshotRow[]): RosSubscriber[] {
   return snapshots.map((s): RosSubscriber => ({
     id: s.id,
@@ -211,6 +220,7 @@ export default function CustomerPage() {
   const [deleting, setDeleting] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const lastFocusLoadRef = useRef(0);
   const [createForm, setCreateForm] = useState({
     // 16 sheet columns mapped
     legacyId: '', id2: '',
@@ -219,6 +229,19 @@ export default function CustomerPage() {
     planId: '', networkType: 'FIBER', pppoeUsername: '', ipAddress: '',
     startDate: '', expiry: '', fee: '50000', portalPassword: '', radiusPassword: '', sendWelcome: false, includeInstallation: true,
   });
+  const [legacyLoading, setLegacyLoading] = useState(false);
+
+  // Real-time HIF/HIR preview — fills the disabled Legacy ID field as soon as the drawer opens or network type changes
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    setLegacyLoading(true);
+    api<{ legacyId: string }>(`/subscriptions/next-legacy-id?networkType=${encodeURIComponent(createForm.networkType)}`)
+      .then(res => { if (!cancelled && res?.legacyId) setCreateForm(f => ({ ...f, legacyId: res.legacyId })); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLegacyLoading(false); });
+    return () => { cancelled = true; };
+  }, [showCreate, createForm.networkType]);
 
   async function handleCreateCustomer() {
     const f = createForm;
@@ -500,6 +523,7 @@ export default function CustomerPage() {
     setError('');
     setCreateSuccess('');
     let done = 0, failed = 0;
+    let lastError = '';
     for (const key of Array.from(selectedKeys)) {
       try {
         if (key.startsWith('sub:')) {
@@ -508,15 +532,19 @@ export default function CustomerPage() {
           await api(`/routeros/snapshots/${key.slice(5)}`, { method: 'DELETE' });
         }
         done++;
-      } catch {
+      } catch (e: any) {
         failed++;
+        lastError = e?.message ?? 'Delete failed';
       }
     }
     setSelectedKeys(new Set());
     setDeleteOpen(false);
-    setCreateSuccess(failed
-      ? `${done} deleted, ${failed} failed — refresh and retry the rest.`
-      : `${done} customer${done === 1 ? '' : 's'} deleted.`);
+    if (failed) {
+      setError(lastError || `${done} deleted, ${failed} failed — ${lastError}`);
+      setCreateSuccess(`${done} deleted, ${failed} failed — ${lastError || 'refresh and retry'}`);
+    } else {
+      setCreateSuccess(`${done} customer${done === 1 ? '' : 's'} deleted.`);
+    }
     notifyCustomersChanged();
     await load();
     setDeleting(false);
@@ -635,7 +663,12 @@ export default function CustomerPage() {
   useEffect(() => {
     // Silent reloads: never blank the page (the file picker fires `focus`).
     const off = onCustomersChanged(() => load(true));
-    const onFocus = () => load(true);
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusLoadRef.current < 15000) return;
+      lastFocusLoadRef.current = now;
+      load(true);
+    };
     window.addEventListener('focus', onFocus);
     return () => { off(); window.removeEventListener('focus', onFocus); };
   }, []);
@@ -1172,12 +1205,6 @@ export default function CustomerPage() {
                     <span style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', padding: '4px 8px', borderRadius: 999, background: bg, color, border: `1px solid ${color}18`, whiteSpace: 'nowrap', flexShrink: 0 }}>{title.split(' ')[0]}</span>
                   </div>
                 );
-                const FieldWrap: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; focusedColor?: string }> = ({ children, icon, focusedColor = '#F15925' }) => (
-                  <div style={{ position: 'relative', minWidth: 0, width: '100%' }}>
-                    {icon && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', display: 'flex', pointerEvents: 'none', zIndex: 1 }}>{icon}</span>}
-                    {children}
-                  </div>
-                );
                 return (
                   <>
                     {/* IDs & Names */}
@@ -1186,11 +1213,11 @@ export default function CustomerPage() {
                       {secHead('#F15925', '#FFF7ED', <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M8 10h4M8 14h6M16 10h.01M16 14h.01" /></svg>, 'IDs & Names', 'sheet: ID, ID2, FIRST / LAST / COMPANY')}
                       <div className="grid-2" style={{ gap: 12, position: 'relative' }}>
                         <div>
-                          <label style={fLbl}><svg width="12" height="12" fill="none" stroke="#F59E0B" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2H10a2 2 0 0 0-2 2v2" /></svg> Legacy ID <span style={{ fontWeight: 400, textTransform: 'none', color: '#94A3B8', letterSpacing: 0 }}>(HIF-0001)</span></label>
+                          <label style={fLbl}><svg width="12" height="12" fill="none" stroke="#F59E0B" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2H10a2 2 0 0 0-2 2v2" /></svg> Legacy ID <span style={{ fontWeight: 400, textTransform: 'none', color: '#16A34A', letterSpacing: 0, background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '1px 6px', borderRadius: 999 }}>Auto</span></label>
                           <FieldWrap icon={<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>}>
-                            <input value={createForm.legacyId} onChange={e => setCreateForm({ ...createForm, legacyId: e.target.value })} style={fInpIcon} placeholder="HIF-0001  ·  HIR-xxxx" onFocus={e => { e.currentTarget.style.borderColor = '#F15925'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(241,89,37,0.12)'; }} onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(15,23,42,0.02)'; }} />
+                            <input value={legacyLoading ? 'Generating…' : createForm.legacyId} disabled style={{ ...fInpIcon, background: '#F8FAFC', color: legacyLoading ? '#94A3B8' : '#0F172A', fontWeight: 700, cursor: 'not-allowed', opacity: legacyLoading ? 0.7 : 1, letterSpacing: 0.3 }} placeholder={legacyLoading ? 'Generating…' : `Auto • ${createForm.networkType?.includes('RADIO') ? 'HIR-' : 'HIF-'}xxxx`} />
                           </FieldWrap>
-                          <div style={hint}>Sheet column <b>ID</b> • used as RADIUS fallback</div>
+                          <div style={hint}>Auto-generated <b>{createForm.legacyId || `${createForm.networkType?.includes('RADIO') ? 'HIR-' : 'HIF-'}xxxx`}</b> for {createForm.networkType?.includes('RADIO') ? 'Radio' : 'Fiber'} • filled in real time, unique in DB • used as RADIUS fallback</div>
                         </div>
                         <div>
                           <label style={fLbl}><svg width="12" height="12" fill="none" stroke="#F59E0B" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" /></svg> ID2</label>

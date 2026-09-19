@@ -60,7 +60,9 @@ interface TenantSettings {
   profile: { logoUrl: string | null; email: string | null; phone: string | null; address: string | null };
   billing: { vatRate: number; invoicePrefix: string };
   installation: { fiberFeeKobo: number; radioFeeKobo: number };
+  paymentProvider: string;
   paystack: { enabled: boolean; publicKey: string | null; secretMasked: string | null; hasSecret: boolean };
+  flutterwave: { enabled: boolean; publicKey: string | null; secretMasked: string | null; hasSecret: boolean; webhookSecretMasked: string | null; hasWebhookSecret: boolean };
   email: { enabled: boolean; host: string | null; port: number | null; user: string | null; passMasked: string | null; hasPass: boolean; fromEmail: string | null; fromName: string | null };
   persistedFields: string[];
   pendingFields: string[];
@@ -106,8 +108,17 @@ export default function SettingsPage() {
   const [installationForm, setInstallationForm] = useState({ fiberFee: '50000', radioFee: '120000' });
   const [paystackForm, setPaystackForm] = useState({ enabled: false, publicKey: '', secretKey: '' });
   const [paystackSecretMasked, setPaystackSecretMasked] = useState<string | null>(null);
-  const [emailForm, setEmailForm] = useState({ enabled: false, host: '', port: '587', user: '', pass: '', fromEmail: '', fromName: '' });
+  const [paymentProvider, setPaymentProvider] = useState<'PAYSTACK' | 'FLUTTERWAVE' | 'OTHER'>('PAYSTACK');
+  const [flutterwaveForm, setFlutterwaveForm] = useState({ enabled: false, publicKey: '', secretKey: '', webhookSecret: '' });
+  const [flutterwaveSecretMasked, setFlutterwaveSecretMasked] = useState<string | null>(null);
+  const [flutterwaveWebhookMasked, setFlutterwaveWebhookMasked] = useState<string | null>(null);
+  const [emailForm, setEmailForm] = useState({ enabled: false, host: '', port: '465', user: '', pass: '', fromEmail: '', fromName: '' });
   const [emailPassMasked, setEmailPassMasked] = useState<string | null>(null);
+  const [testTo, setTestTo] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [snapshots, setSnapshots] = useState<{ id: string; file: string; sizeLabel: string; createdAt: string }[]>([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
@@ -138,10 +149,15 @@ export default function SettingsPage() {
       });
       setPaystackForm({ enabled: t.paystack?.enabled ?? false, publicKey: t.paystack?.publicKey ?? '', secretKey: '' });
       setPaystackSecretMasked(t.paystack?.secretMasked ?? null);
+      const prov = (t as any).paymentProvider ?? 'PAYSTACK';
+      setPaymentProvider(prov === 'FLUTTERWAVE' ? 'FLUTTERWAVE' : prov === 'OTHER' ? 'OTHER' : 'PAYSTACK');
+      setFlutterwaveForm({ enabled: (t as any).flutterwave?.enabled ?? false, publicKey: (t as any).flutterwave?.publicKey ?? '', secretKey: '', webhookSecret: '' });
+      setFlutterwaveSecretMasked((t as any).flutterwave?.secretMasked ?? null);
+      setFlutterwaveWebhookMasked((t as any).flutterwave?.webhookSecretMasked ?? null);
       setEmailForm({
         enabled: t.email?.enabled ?? false,
         host: t.email?.host ?? '',
-        port: t.email?.port != null ? String(t.email.port) : '587',
+        port: t.email?.port != null ? String(t.email.port) : '465',
         user: t.email?.user ?? '',
         pass: '',
         fromEmail: t.email?.fromEmail ?? '',
@@ -238,7 +254,7 @@ export default function SettingsPage() {
       setEmailForm({
         enabled: t.email.enabled,
         host: t.email.host ?? '',
-        port: t.email.port != null ? String(t.email.port) : '587',
+        port: t.email.port != null ? String(t.email.port) : '465',
         user: t.email.user ?? '',
         pass: '',
         fromEmail: t.email.fromEmail ?? '',
@@ -253,21 +269,66 @@ export default function SettingsPage() {
     }
   }
 
+  async function verifySmtp() {
+    setVerifying(true);
+    setVerifyResult(null);
+    try {
+      const res = await api<{ ok: boolean; message: string }>('/tenant/settings/smtp/verify');
+      setVerifyResult(res);
+      toast(res.message, res.ok ? 'success' : 'error', toasts, setToasts);
+    } catch (e: any) {
+      const msg = e?.message ?? 'Verification failed';
+      setVerifyResult({ ok: false, message: msg });
+      toast(msg, 'error', toasts, setToasts);
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function sendTestEmail() {
+    if (!testTo.trim() || !/.+@.+\..+/.test(testTo.trim())) { toast('Enter a valid email for the test', 'error', toasts, setToasts); return; }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api<{ ok: boolean; message: string }>('/tenant/settings/test-email', { method: 'POST', body: JSON.stringify({ to: testTo.trim() }) });
+      setTestResult(res);
+      toast(res.message, res.ok ? 'success' : 'error', toasts, setToasts);
+    } catch (e: any) {
+      const msg = e?.message ?? 'Test failed';
+      setTestResult({ ok: false, message: msg });
+      toast(msg, 'error', toasts, setToasts);
+    } finally {
+      setTesting(false);
+    }
+  }
+
   async function savePaystack() {
     setSavingSettings(true);
     try {
+      const body: any = { paymentProvider };
+      if (paymentProvider === 'PAYSTACK') {
+        body.paystackEnabled = paystackForm.enabled;
+        body.paystackPublicKey = paystackForm.publicKey.trim() || undefined;
+        if (paystackForm.secretKey.trim()) body.paystackSecretKey = paystackForm.secretKey.trim();
+      } else if (paymentProvider === 'FLUTTERWAVE') {
+        body.flutterwaveEnabled = flutterwaveForm.enabled;
+        body.flutterwavePublicKey = flutterwaveForm.publicKey.trim() || undefined;
+        if (flutterwaveForm.secretKey.trim()) body.flutterwaveSecretKey = flutterwaveForm.secretKey.trim();
+        if (flutterwaveForm.webhookSecret.trim()) body.flutterwaveWebhookSecret = flutterwaveForm.webhookSecret.trim();
+      }
       await api('/tenant/settings', {
         method: 'PATCH',
-        body: JSON.stringify({
-          paystackEnabled: paystackForm.enabled,
-          paystackPublicKey: paystackForm.publicKey.trim() || undefined,
-          paystackSecretKey: paystackForm.secretKey.trim() || undefined,
-        }),
+        body: JSON.stringify(body),
       });
       const t = await api<TenantSettings>('/tenant/settings');
       setTenant(t);
       setPaystackForm({ enabled: t.paystack.enabled, publicKey: t.paystack.publicKey ?? '', secretKey: '' });
       setPaystackSecretMasked(t.paystack.secretMasked);
+      const prov = (t as any).paymentProvider ?? 'PAYSTACK';
+      setPaymentProvider(prov === 'FLUTTERWAVE' ? 'FLUTTERWAVE' : prov === 'OTHER' ? 'OTHER' : 'PAYSTACK');
+      setFlutterwaveForm({ enabled: (t as any).flutterwave?.enabled ?? false, publicKey: (t as any).flutterwave?.publicKey ?? '', secretKey: '', webhookSecret: '' });
+      setFlutterwaveSecretMasked((t as any).flutterwave?.secretMasked ?? null);
+      setFlutterwaveWebhookMasked((t as any).flutterwave?.webhookSecretMasked ?? null);
       toast('Payment gateway settings saved', 'success', toasts, setToasts);
     } catch (e: any) {
       toast(e?.message ?? 'Failed to save payment gateway settings', 'error', toasts, setToasts);
@@ -741,7 +802,7 @@ export default function SettingsPage() {
             {[
               { key: 'Installation' as const, label: 'Installation', icon: Wrench },
               { key: 'Billing Defaults' as const, label: 'Billing', icon: FileText },
-              { key: 'Payment Gateway' as const, label: 'Paystack', icon: CreditCard },
+              { key: 'Payment Gateway' as const, label: 'Payment Gateway', icon: CreditCard },
               { key: 'Email' as const, label: 'Email', icon: Mail },
             ].map(s => {
               const Icon = s.icon;
@@ -819,35 +880,98 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16A34A' }}><CreditCard size={16} strokeWidth={2} /></div>
                   <div>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-dark)' }}>Paystack</div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-dark)' }}>Payment Gateway</div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>Payment service and customer checkout</div>
                   </div>
                 </div>
                 <button className="btn-primary" disabled={savingSettings} onClick={savePaystack}>{savingSettings ? 'Saving…' : 'Save'}</button>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
-                <input type="checkbox" checked={paystackForm.enabled} onChange={e => setPaystackForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
-                Enable Paystack payments
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div>
-                  <label style={fieldLabel}>Public key</label>
-                  <input value={paystackForm.publicKey} onChange={e => setPaystackForm(f => ({ ...f, publicKey: e.target.value }))} placeholder="pk_live_…" style={fieldInput} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>
-                    Secret key
-                    {paystackSecretMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {paystackSecretMasked}</span>}
-                  </label>
-                  <input type="password" value={paystackForm.secretKey} onChange={e => setPaystackForm(f => ({ ...f, secretKey: e.target.value }))}
-                    placeholder={paystackSecretMasked ? 'Leave blank to keep current' : 'sk_live_…'} autoComplete="new-password" style={fieldInput} />
-                  <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Write-only: stored encrypted and never shown again after saving.</p>
-                </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <label style={fieldLabel}>Active Provider</label>
+                <select value={paymentProvider} onChange={e => setPaymentProvider(e.target.value as any)} style={{ ...fieldInput, maxWidth: 320, cursor: 'pointer' }}>
+                  <option value="PAYSTACK">Paystack</option>
+                  <option value="FLUTTERWAVE">Flutterwave</option>
+                  <option value="OTHER">Other (Manual / Bank Transfer)</option>
+                </select>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Selected gateway is used for all customer checkouts. Configure its keys below.</div>
               </div>
-              <p style={{ marginTop: 16, fontSize: '0.78rem', color: '#1D4ED8', background: '#EFF6FF', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 }}>
-                When enabled, these keys replace the <code>PAYSTACK_*</code> environment variables at runtime for the payment service and customer checkout.
-                Production requires a <code>CREDENTIALS_ENCRYPTION_KEY</code> env var to encrypt/decrypt the secret.
-              </p>
+
+              {paymentProvider === 'PAYSTACK' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={paystackForm.enabled} onChange={e => setPaystackForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                    Enable Paystack payments
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div>
+                      <label style={fieldLabel}>Public key</label>
+                      <input value={paystackForm.publicKey} onChange={e => setPaystackForm(f => ({ ...f, publicKey: e.target.value }))} placeholder="pk_live_…" style={fieldInput} />
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>
+                        Secret key
+                        {paystackSecretMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {paystackSecretMasked}</span>}
+                      </label>
+                      <input type="password" value={paystackForm.secretKey} onChange={e => setPaystackForm(f => ({ ...f, secretKey: e.target.value }))}
+                        placeholder={paystackSecretMasked ? 'Leave blank to keep current' : 'sk_live_…'} autoComplete="new-password" style={fieldInput} />
+                      <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Write-only: stored encrypted and never shown again after saving.</p>
+                    </div>
+                  </div>
+                  <p style={{ marginTop: 16, fontSize: '0.78rem', color: '#1D4ED8', background: '#EFF6FF', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 }}>
+                    When enabled, these keys replace the <code>PAYSTACK_*</code> environment variables at runtime for the payment service and customer checkout.
+                    Production requires a <code>CREDENTIALS_ENCRYPTION_KEY</code> env var to encrypt/decrypt the secret.
+                  </p>
+                </>
+              )}
+
+              {paymentProvider === 'FLUTTERWAVE' && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={flutterwaveForm.enabled} onChange={e => setFlutterwaveForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                    Enable Flutterwave payments
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div>
+                      <label style={fieldLabel}>Public key</label>
+                      <input value={flutterwaveForm.publicKey} onChange={e => setFlutterwaveForm(f => ({ ...f, publicKey: e.target.value }))} placeholder="FLWPUBK-…" style={fieldInput} />
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>
+                        Secret key
+                        {flutterwaveSecretMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {flutterwaveSecretMasked}</span>}
+                      </label>
+                      <input type="password" value={flutterwaveForm.secretKey} onChange={e => setFlutterwaveForm(f => ({ ...f, secretKey: e.target.value }))}
+                        placeholder={flutterwaveSecretMasked ? 'Leave blank to keep current' : 'FLWSECK-…'} autoComplete="new-password" style={fieldInput} />
+                      <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Write-only: stored encrypted.</p>
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>
+                        Webhook secret (verif-hash)
+                        {flutterwaveWebhookMasked && <span style={{ ...pendingTag, background: '#F1F5F9', color: '#475569' }}>saved: {flutterwaveWebhookMasked}</span>}
+                      </label>
+                      <input type="password" value={flutterwaveForm.webhookSecret} onChange={e => setFlutterwaveForm(f => ({ ...f, webhookSecret: e.target.value }))}
+                        placeholder={flutterwaveWebhookMasked ? 'Leave blank to keep current' : 'Webhook hash'} autoComplete="new-password" style={fieldInput} />
+                      <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Set the same hash in Flutterwave dashboard → Webhooks. Used to verify <code>verif-hash</code> header.</p>
+                    </div>
+                  </div>
+                  <p style={{ marginTop: 16, fontSize: '0.78rem', color: '#1D4ED8', background: '#EFF6FF', padding: '10px 14px', borderRadius: 10, lineHeight: 1.55 }}>
+                    When enabled, Flutterwave keys replace <code>FLUTTERWAVE_*</code> env vars at runtime. Webhook: <code>api.hikonnectng.com/api/v1/payments/webhook/flutterwave</code>
+                  </p>
+                </>
+              )}
+
+              {paymentProvider === 'OTHER' && (
+                <div style={{ padding: '14px 16px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-dark)', marginBottom: 6 }}>Manual / Other gateway</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                    No external checkout is initialized. Invoices are created as <b>PENDING</b> and marked <b>PAID</b> manually via <code>BANK_TRANSFER</code> (e.g., after confirming bank alert or POS). Use the billing service to record offline payments.
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: '0.78rem', color: '#92400E', background: '#FEF3C7', padding: '8px 12px', borderRadius: 8 }}>
+                    Customers will see a bank-transfer instruction instead of a Paystack/Flutterwave popup.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -897,9 +1021,25 @@ export default function SettingsPage() {
                   <input value={emailForm.fromName} onChange={e => setEmailForm(f => ({ ...f, fromName: e.target.value }))} placeholder="Hi-Konnect Networks" style={fieldInput} />
                 </div>
               </div>
+              <div style={{ marginTop: 18, padding: '14px 16px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={verifySmtp} disabled={verifying} style={{ padding: '8px 14px', borderRadius: 999, border: '1px solid #E2E8F0', background: verifying ? '#F1F5F9' : '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: verifying ? 'not-allowed' : 'pointer', opacity: verifying ? 0.7 : 1 }}>
+                    {verifying ? 'Verifying…' : 'Verify Connection'}
+                  </button>
+                  {verifyResult && <span style={{ fontSize: '0.78rem', color: verifyResult.ok ? '#16A34A' : '#DC2626', fontWeight: 600 }}>{verifyResult.message}</span>}
+                </div>
+                <div style={{ height: 1, background: '#E2E8F0' }} />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input value={testTo} onChange={e => setTestTo(e.target.value)} placeholder="test@example.com — recipient for test email" style={{ flex: '1 1 220px', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border-color)', fontSize: '0.85rem', outline: 'none' }} />
+                  <button onClick={sendTestEmail} disabled={testing || !testTo.trim()} style={{ padding: '9px 16px', borderRadius: 999, border: 'none', background: testing || !testTo.trim() ? '#E2E8F0' : '#F15925', color: testing || !testTo.trim() ? '#94A3B8' : '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: testing || !testTo.trim() ? 'not-allowed' : 'pointer' }}>
+                    {testing ? 'Sending…' : 'Send Test Email'}
+                  </button>
+                </div>
+                {testResult && <div style={{ fontSize: '0.78rem', padding: '8px 12px', borderRadius: 8, background: testResult.ok ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${testResult.ok ? '#BBF7D0' : '#FECACA'}`, color: testResult.ok ? '#166534' : '#991B1B' }}>{testResult.message}</div>}
+                <div style={{ fontSize: '0.72rem', color: '#94A3B8' }}>Sends a real email via the dashboard SMTP — check inbox and server Mail logs if it fails. Save first if you just edited credentials.</div>
+              </div>
               <p style={{ marginTop: 16, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.55 }}>
-                Password is write-only and stored encrypted. When enabled, these settings override the <code>SMTP_*</code> environment variables for all outgoing mail.
-                Use port <strong>465</strong> (TLS) — port 587 is blocked on the server.
+                Password is write-only and stored encrypted. When enabled, these settings are the <strong>sole source</strong> for all outgoing mail — <code>SMTP_*</code> env vars are ignored. Use port <strong>465</strong> (TLS) — port 587 is blocked on the server.
               </p>
             </div>
           )}

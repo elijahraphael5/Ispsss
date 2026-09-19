@@ -131,6 +131,13 @@ model Tenant {
   paystackPublicKey   String?
   paystackSecretKeyEnc String?
   paystackSecretLast4 String?
+  // Payment gateway selection: PAYSTACK | FLUTTERWAVE | OTHER
+  paymentProvider String @default("PAYSTACK")
+  flutterwaveEnabled Boolean @default(false)
+  flutterwavePublicKey String?
+  flutterwaveSecretKeyEnc String?
+  flutterwaveSecretLast4 String?
+  flutterwaveWebhookSecretEnc String?
   smtpEnabled         Boolean       @default(false)
   smtpHost            String?
   smtpPort            Int?
@@ -265,7 +272,7 @@ model Subscriber {
   staticIpNetmask  String?           // optional Framed-IP-Netmask (defaults to /32 when omitted)
   address          String?
   networkType      String?           // RADIO, FIBER, DIA — display override, falls back to plan.technology
-  legacyId         String?           // PHPRadius source ID (HIF/HIR), kept for traceability, not PK, may repeat
+  legacyId         String?           @unique // auto-generated HIF-xxxx / HIR-xxxx sequence, unique per customer (DB enforces)
   hikonnectId      String?           @unique // generated Hikonnect Fiber-<seq>/Radio-<seq>
   stationLabel     String?           // free-text STATION label from source, not a FK
   companyName      String?           // COMPANY NAME from source (565/566 empty)

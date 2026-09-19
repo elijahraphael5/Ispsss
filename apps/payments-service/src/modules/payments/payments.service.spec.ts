@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { BillingService } from '../billing/billing.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { PaystackProvider } from './providers/paystack.provider';
+import { FlutterwaveProvider } from './providers/flutterwave.provider';
 import { GatewayConfigService } from './gateway-config.service';
 import { RadiusClientService } from '../radius/radius-client.service';
 import { MailService } from '../mail/mail.service';
@@ -40,9 +41,15 @@ describe('PaymentsService', () => {
   const billing = { markPaid: jest.fn() };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const paystack = { initializeTransaction: jest.fn(), verifyTransaction: jest.fn() };
+  const flutterwave = { initializeTransaction: jest.fn(), verifyTransaction: jest.fn() };
   const gatewayKeys = {
     getPaystackSecret: jest.fn().mockResolvedValue('test-secret'),
     getPaystackSecretForReference: jest.fn().mockResolvedValue('test-secret'),
+    getFlutterwaveSecret: jest.fn().mockResolvedValue('fw-test-secret'),
+    getFlutterwaveSecretForReference: jest.fn().mockResolvedValue('fw-test-secret'),
+    getFlutterwaveWebhookSecret: jest.fn().mockResolvedValue(''),
+    getActiveProvider: jest.fn().mockResolvedValue('PAYSTACK'),
+    getActiveProviderForReference: jest.fn().mockResolvedValue('PAYSTACK'),
   };
   const radius = { activate: jest.fn().mockResolvedValue(undefined), deactivate: jest.fn().mockResolvedValue(undefined) };
 
@@ -56,6 +63,7 @@ describe('PaymentsService', () => {
         { provide: BillingService, useValue: billing },
         { provide: AuditService, useValue: audit },
         { provide: PaystackProvider, useValue: paystack },
+        { provide: FlutterwaveProvider, useValue: flutterwave },
         { provide: GatewayConfigService, useValue: gatewayKeys },
         { provide: RadiusClientService, useValue: radius },
         { provide: MailService, useValue: { sendPaymentReceipt: jest.fn(), sendPaymentFailed: jest.fn() } },

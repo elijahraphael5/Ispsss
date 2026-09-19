@@ -59,11 +59,9 @@ export default function InternetView() {
 
   useEffect(() => {
     if (!accessToken) return;
-    fetchDashboard().then(() => {
-      setLoading(false);
-      const interval = setInterval(fetchDashboard, 5000);
-      return () => clearInterval(interval);
-    }).catch(() => setLoading(false));
+    fetchDashboard().finally(() => setLoading(false));
+    const interval = setInterval(fetchDashboard, 15000);
+    return () => clearInterval(interval);
   }, [accessToken, fetchDashboard]);
 
   useEffect(() => {

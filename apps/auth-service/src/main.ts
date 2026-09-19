@@ -30,7 +30,8 @@ async function bootstrap() {
           .map((s) => s.trim())
           .filter(Boolean);
         const isProd = process.env.NODE_ENV === 'production';
-        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || allowed.includes(origin));
+        const isLocalhost = origin?.startsWith('http://localhost:') || origin?.startsWith('https://localhost:');
+        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || isLocalhost || allowed.includes(origin));
         cb(null, ok);
       },
       credentials: true,
@@ -57,14 +58,14 @@ async function bootstrap() {
   const tierFor = (req: Request): RateLimitRule => {
     const path = req.path;
     if (path === '/api/v1/auth/login' || path === '/api/v1/auth/2fa/verify' || path === '/api/v1/auth/2fa/resend') {
-      // 10/min default: still thwarts brute force, but no longer trips when
+      // 20/min default: still thwarts brute force, but no longer trips when
       // several staff behind one NAT log in back-to-back.
-      return { limit: envLimit('AUTH_LOGIN_RATE_LIMIT_PER_MIN', 10), windowMs: 60_000 };
+      return { limit: envLimit('AUTH_LOGIN_RATE_LIMIT_PER_MIN', 20), windowMs: 60_000 };
     }
     if (path.includes('/auth/register') || path.includes('/auth/forgot-password') || path.includes('/auth/reset-password')) {
-      return { limit: envLimit('AUTH_ACCOUNT_RATE_LIMIT_PER_HOUR', 30), windowMs: 3_600_000 };
+      return { limit: envLimit('AUTH_ACCOUNT_RATE_LIMIT_PER_HOUR', 60), windowMs: 3_600_000 };
     }
-    return { limit: envLimit('AUTH_GLOBAL_RATE_LIMIT_PER_MIN', 600), windowMs: 60_000 };
+    return { limit: envLimit('AUTH_GLOBAL_RATE_LIMIT_PER_MIN', 1200), windowMs: 60_000 };
   };
 
   app.use(helmet());
@@ -91,7 +92,7 @@ async function bootstrap() {
       ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
       : (req.ip ?? 'unknown')
     ).split(',')[0].trim();
-    const result = await limiter.consume(`ip:${ip}`, tierFor(req));
+    const result = await limiter.consume(`auth:ip:${ip}`, tierFor(req));
     if (!result.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)));
       res.status(429).json({ statusCode: 429, message: 'Too many requests' });

@@ -59,24 +59,8 @@ export class MailService {
   private tenantFrom: string | null = null;
 
   constructor(private config: ConfigService, private prisma: PrismaService) {
-    const host = this.config.get<string>('SMTP_HOST');
-    const port = this.config.get<number>('SMTP_PORT', 587);
-    const user = this.config.get<string>('SMTP_USER');
-    const pass = this.config.get<string>('SMTP_PASS');
-
-    if (host && user && pass) {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure: Number(port) === 465,
-        auth: { user, pass },
-      });
-      this.logger.log(`SMTP configured: ${host}:${port} as ${user}`);
-    } else {
-      this.logger.warn('SMTP not configured — mail service disabled');
-    }
-
     this.loadLogo();
+    this.logger.log('Mail service initialized — SMTP will be resolved from dashboard Settings > Integrations > Email (port 465 for Brevo)');
   }
 
   private async resolveTransport(): Promise<nodemailer.Transporter | null> {
@@ -90,17 +74,30 @@ export class MailService {
             port: smtp.port,
             secure: Number(smtp.port) === 465,
             auth: { user: smtp.user, pass: smtp.pass },
+            tls: { rejectUnauthorized: false },
           });
           this.tenantTransportSig = sig;
           this.tenantFrom = smtp.fromEmail ? (smtp.fromName ? smtp.fromName + ' <' + smtp.fromEmail + '>' : smtp.fromEmail) : null;
-          this.logger.log('SMTP resolved from settings: ' + smtp.host + ':' + smtp.port);
+          this.logger.log('SMTP resolved from dashboard settings: ' + smtp.host + ':' + smtp.port + ' as ' + smtp.user);
         }
         return this.tenantTransporter;
       }
-    } catch {
-      // fall back to env
+      this.logger.warn('SMTP not configured in dashboard — please configure Email settings in Settings > Integrations > Email (use port 465 for Brevo) and enable it');
+    } catch (err) {
+      this.logger.error(`Failed to resolve SMTP from dashboard: ${(err as Error).message}`);
     }
-    return this.transporter;
+    return null;
+  }
+
+  async verifyConnection(): Promise<{ ok: boolean; message: string }> {
+    const transporter = await this.resolveTransport();
+    if (!transporter) return { ok: false, message: 'SMTP not configured in dashboard. Please save Email settings (host, port 465, user, password) and enable it.' };
+    try {
+      await transporter.verify();
+      return { ok: true, message: 'SMTP connection verified successfully' };
+    } catch (err) {
+      return { ok: false, message: `SMTP verification failed: ${(err as Error).message}` };
+    }
   }
 
   private loadLogo(): void {

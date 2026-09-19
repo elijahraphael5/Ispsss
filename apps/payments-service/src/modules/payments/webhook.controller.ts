@@ -17,4 +17,10 @@ export class WebhookController {
     const rawBody: Buffer = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
     return this.service.handlePaystackWebhook(rawBody, req.headers['x-paystack-signature']);
   }
+
+  @Post('webhook/flutterwave')
+  async flutterwaveWebhook(@Req() req: any) {
+    const rawBody: Buffer = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
+    return this.service.handleFlutterwaveWebhook(rawBody, req.headers['verif-hash']);
+  }
 }

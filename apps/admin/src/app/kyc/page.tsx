@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, timeAgo, notifyCustomersChanged } from '@isp/shared';
 import { useAuthStore } from '@isp/shared';
+import { formatNaira } from '@isp/shared';
 import { useToast, ToastContainer } from '../../components/Toast';
 import {
   ShieldCheck,
@@ -26,6 +27,8 @@ import {
   UserX,
   Eye,
   Edit3,
+  Building2,
+  CreditCard,
 } from 'lucide-react';
 import { SkeletonTable } from '../../components/Skeleton';
 
@@ -35,13 +38,27 @@ interface KycItem {
   name: string | null;
   email: string | null;
   phone: string | null;
+  secondaryPhone: string | null;
   address: string | null;
   pppoeUsername: string | null;
   networkType: string | null;
   type: string;
   plan: string | null;
+  planId: string | null;
   speedMbps: number | null;
   priceKobo: number | null;
+  legacyId: string | null;
+  hikonnectId: string | null;
+  id2: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+  stationLabel: string | null;
+  staticIpAddress: string | null;
+  ipAddress: string | null;
+  startedAt: string | null;
+  expiresAt: string | null;
+  installationFeeKobo: number | null;
   status: string;
   kycVerified: boolean;
   kycSubmittedById: string | null;
@@ -86,7 +103,12 @@ export default function KycPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [editing, setEditing] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', address: '', networkType: '', pppoeUsername: '', planName: '' });
+  const [form, setForm] = useState({
+    name: '', email: '', phone: '', secondaryPhone: '', address: '', stationLabel: '',
+    networkType: '', pppoeUsername: '', ipAddress: '', planName: '',
+    legacyId: '', id2: '', firstName: '', lastName: '', companyName: '',
+    startedAt: '', expiresAt: '', installationFee: '',
+  });
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
   const { toast } = useToast();
 
@@ -110,7 +132,7 @@ export default function KycPage() {
     const q = search.trim().toLowerCase();
     if (!q) return items;
     return items.filter(k =>
-      [k.name, k.email, k.phone, k.pppoeUsername, k.address, k.plan, k.kycSubmittedByName]
+      [k.name, k.email, k.phone, k.secondaryPhone, k.pppoeUsername, k.address, k.stationLabel, k.plan, k.kycSubmittedByName, k.legacyId, k.hikonnectId, k.id2, k.firstName, k.lastName, k.companyName, k.ipAddress, k.networkType]
         .filter(Boolean)
         .some(v => (v as string).toLowerCase().includes(q)),
     );
@@ -161,10 +183,21 @@ export default function KycPage() {
       name: k.name ?? '',
       email: k.email ?? '',
       phone: k.phone ?? '',
+      secondaryPhone: k.secondaryPhone ?? '',
       address: k.address ?? '',
+      stationLabel: k.stationLabel ?? '',
       networkType: k.networkType ?? '',
       pppoeUsername: k.pppoeUsername ?? '',
+      ipAddress: k.ipAddress ?? k.staticIpAddress ?? '',
       planName: k.plan ?? '',
+      legacyId: k.legacyId ?? '',
+      id2: k.id2 ?? '',
+      firstName: k.firstName ?? '',
+      lastName: k.lastName ?? '',
+      companyName: k.companyName ?? '',
+      startedAt: k.startedAt ? new Date(k.startedAt).toISOString().slice(0, 10) : '',
+      expiresAt: k.expiresAt ? new Date(k.expiresAt).toISOString().slice(0, 10) : '',
+      installationFee: k.installationFeeKobo != null ? String(Math.round(k.installationFeeKobo / 100)) : '',
     });
     setShowReject(false);
     setEditing(true);
@@ -178,13 +211,27 @@ export default function KycPage() {
       if (form.name.trim() !== (selected.name ?? '')) body.name = form.name.trim();
       if (form.email.trim() && form.email.trim() !== (selected.email ?? '')) body.email = form.email.trim();
       if (form.phone.trim() !== (selected.phone ?? '')) body.phone = form.phone.trim();
+      if (form.secondaryPhone.trim() !== (selected.secondaryPhone ?? '')) body.secondaryPhone = form.secondaryPhone.trim();
       if (form.address.trim() !== (selected.address ?? '')) body.address = form.address.trim();
+      if (form.stationLabel.trim() !== (selected.stationLabel ?? '')) body.stationLabel = form.stationLabel.trim();
       if (form.networkType.trim() !== (selected.networkType ?? '')) body.networkType = form.networkType.trim();
       if (form.pppoeUsername.trim() !== (selected.pppoeUsername ?? '')) body.pppoeUsername = form.pppoeUsername.trim();
+      if (form.ipAddress.trim() !== (selected.ipAddress ?? selected.staticIpAddress ?? '')) body.ipAddress = form.ipAddress.trim();
+      if (form.legacyId.trim() !== (selected.legacyId ?? '')) body.legacyId = form.legacyId.trim();
+      if (form.id2.trim() !== (selected.id2 ?? '')) body.id2 = form.id2.trim();
+      if (form.firstName.trim() !== (selected.firstName ?? '')) body.firstName = form.firstName.trim();
+      if (form.lastName.trim() !== (selected.lastName ?? '')) body.lastName = form.lastName.trim();
+      if (form.companyName.trim() !== (selected.companyName ?? '')) body.companyName = form.companyName.trim();
       if (form.planName !== (selected.plan ?? '')) body.planName = form.planName;
+      const selStarted = selected.startedAt ? new Date(selected.startedAt).toISOString().slice(0, 10) : '';
+      const selExpires = selected.expiresAt ? new Date(selected.expiresAt).toISOString().slice(0, 10) : '';
+      const selFee = selected.installationFeeKobo != null ? String(Math.round(selected.installationFeeKobo / 100)) : '';
+      if (form.startedAt !== selStarted) (body as any).startedAt = form.startedAt;
+      if (form.expiresAt !== selExpires) { (body as any).expiresAt = form.expiresAt; (body as any).dueAt = form.expiresAt; }
+      if (form.installationFee.trim() !== selFee) (body as any).installationFee = form.installationFee.trim();
       if (Object.keys(body).length) {
         await api(`/users/customers/${selected.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-        toast('Details updated.', 'success', toasts, setToasts);
+        toast('Details updated — all 16 sheet columns synced.', 'success', toasts, setToasts);
         await load();
       }
       setEditing(false);
@@ -384,37 +431,83 @@ export default function KycPage() {
               {editing ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#FFF7ED', border: '1px solid #FFE7D6', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, color: '#92400E' }}><Edit3 size={13} strokeWidth={2} /> Editing details</div>
-                  <div>
-                    <label style={lbl}>Full name</label>
-                    <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={inp} placeholder="Customer name" />
-                  </div>
-                  <div>
-                    <label style={lbl}>Email</label>
-                    <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inp} placeholder="email@example.com" />
-                  </div>
-                  <div>
-                    <label style={lbl}>Phone</label>
-                    <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={inp} placeholder="+234..." />
-                  </div>
-                  <div>
-                    <label style={lbl}>Address</label>
-                    <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} style={inp} placeholder="Address" />
-                  </div>
-                  <div>
-                    <label style={lbl}>Network type</label>
-                    <input value={form.networkType} onChange={e => setForm({ ...form, networkType: e.target.value })} placeholder="FIBER / RADIO / DIA" style={inp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>PPPoE / RADIUS username</label>
-                    <input value={form.pppoeUsername} onChange={e => setForm({ ...form, pppoeUsername: e.target.value })} style={inp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Plan</label>
-                    <select value={form.planName} onChange={e => setForm({ ...form, planName: e.target.value })} style={{ ...inp, background: '#fff' }}>
-                      <option value="">— No plan —</option>
-                      {plans.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                      {form.planName && !plans.some(p => p.name === form.planName) && <option value={form.planName}>{form.planName}</option>}
-                    </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={lbl}>Legacy ID (HIF/HIR) <span style={{ color: '#16A34A', fontWeight: 500, textTransform: 'none' }}>• auto, unique</span></label>
+                      <input value={form.legacyId} onChange={e => setForm({ ...form, legacyId: e.target.value })} style={inp} placeholder="HIF-0001 / HIR-0001" />
+                    </div>
+                    <div>
+                      <label style={lbl}>ID2</label>
+                      <input value={form.id2} onChange={e => setForm({ ...form, id2: e.target.value })} style={inp} placeholder="Secondary ID" />
+                    </div>
+                    <div>
+                      <label style={lbl}>First Name</label>
+                      <input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} style={inp} placeholder="First" />
+                    </div>
+                    <div>
+                      <label style={lbl}>Last Name</label>
+                      <input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} style={inp} placeholder="Last" />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={lbl}>Company</label>
+                      <input value={form.companyName} onChange={e => setForm({ ...form, companyName: e.target.value })} style={inp} placeholder="Company / Estate" />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={lbl}>Full name (display)</label>
+                      <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={inp} placeholder="Customer display name" />
+                    </div>
+                    <div>
+                      <label style={lbl}>Email</label>
+                      <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inp} placeholder="email@example.com" />
+                    </div>
+                    <div>
+                      <label style={lbl}>Phone</label>
+                      <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={inp} placeholder="+234..." />
+                    </div>
+                    <div>
+                      <label style={lbl}>Secondary Phone</label>
+                      <input value={form.secondaryPhone} onChange={e => setForm({ ...form, secondaryPhone: e.target.value })} style={inp} placeholder="+234..." />
+                    </div>
+                    <div>
+                      <label style={lbl}>Station</label>
+                      <input value={form.stationLabel} onChange={e => setForm({ ...form, stationLabel: e.target.value })} style={inp} placeholder="HOME / FIBER / ITA-ELEWA" />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={lbl}>Address</label>
+                      <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} style={inp} placeholder="Street, city" />
+                    </div>
+                    <div>
+                      <label style={lbl}>Network type</label>
+                      <input value={form.networkType} onChange={e => setForm({ ...form, networkType: e.target.value })} placeholder="FIBER / RADIO / DIA" style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>PPPoE / RADIUS username</label>
+                      <input value={form.pppoeUsername} onChange={e => setForm({ ...form, pppoeUsername: e.target.value })} style={inp} placeholder="HIF-0001 / username" />
+                    </div>
+                    <div>
+                      <label style={lbl}>IP Address</label>
+                      <input value={form.ipAddress} onChange={e => setForm({ ...form, ipAddress: e.target.value })} style={inp} placeholder="192.168.1.10" />
+                    </div>
+                    <div>
+                      <label style={lbl}>Plan</label>
+                      <select value={form.planName} onChange={e => setForm({ ...form, planName: e.target.value })} style={{ ...inp, background: '#fff' }}>
+                        <option value="">— No plan —</option>
+                        {plans.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        {form.planName && !plans.some(p => p.name === form.planName) && <option value={form.planName}>{form.planName}</option>}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={lbl}>Start Date</label>
+                      <input type="date" value={form.startedAt} onChange={e => setForm({ ...form, startedAt: e.target.value })} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Expiry / Due Date</label>
+                      <input type="date" value={form.expiresAt} onChange={e => setForm({ ...form, expiresAt: e.target.value })} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Install Fee (₦)</label>
+                      <input value={form.installationFee} onChange={e => setForm({ ...form, installationFee: e.target.value })} style={inp} placeholder="50000" />
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
                     <button className="btn-outline" onClick={() => setEditing(false)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><X size={13} strokeWidth={2} /> Cancel</button>
@@ -425,19 +518,31 @@ export default function KycPage() {
                 </div>
               ) : (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     {[
+                      { icon: ShieldCheck, label: 'Legacy ID', value: selected.legacyId || '—', mono: true, hint: 'HIF/HIR auto' },
+                      { icon: Layers, label: 'Hikonnect ID', value: selected.hikonnectId || '—', mono: true },
+                      { icon: Users, label: 'ID2', value: selected.id2 || '—', mono: true },
+                      { icon: Users, label: 'First Name', value: selected.firstName || '—' },
+                      { icon: Users, label: 'Last Name', value: selected.lastName || '—' },
+                      { icon: Building2, label: 'Company', value: selected.companyName || '—', full: true },
                       { icon: Mail, label: 'Email', value: selected.email || '—' },
                       { icon: Phone, label: 'Phone', value: selected.phone || '—' },
+                      { icon: Phone, label: 'Secondary Phone', value: selected.secondaryPhone || '—' },
                       { icon: MapPin, label: 'Address', value: selected.address || '—', full: true },
+                      { icon: MapPin, label: 'Station', value: selected.stationLabel || '—' },
                       { icon: Wifi, label: 'Network', value: selected.networkType || '—' },
-                      { icon: Layers, label: 'Plan', value: `${selected.plan || '—'}${selected.speedMbps ? ` • ${selected.speedMbps} Mbps` : ''}` },
-                      { icon: UserCheck, label: 'Username', value: selected.pppoeUsername || '—', mono: true },
+                      { icon: UserCheck, label: 'PPPoE Username', value: selected.pppoeUsername || '—', mono: true },
+                      { icon: Globe, label: 'IP Address', value: selected.ipAddress || selected.staticIpAddress || '—', mono: true },
+                      { icon: Layers, label: 'Plan', value: `${selected.plan || '—'}${selected.speedMbps ? ` • ${selected.speedMbps} Mbps` : ''}${selected.priceKobo ? ` • ${formatNaira(selected.priceKobo)}` : ''}` },
+                      { icon: Calendar, label: 'Started', value: selected.startedAt ? new Date(selected.startedAt).toLocaleDateString('en-GB') : '—' },
+                      { icon: Calendar, label: 'Expires', value: selected.expiresAt ? new Date(selected.expiresAt).toLocaleDateString('en-GB') : '—' },
+                      { icon: CreditCard, label: 'Install Fee', value: selected.installationFeeKobo != null ? formatNaira(selected.installationFeeKobo) : '—' },
                     ].map(item => {
                       const Icon = item.icon as any;
                       return (
                         <div key={item.label} style={{ background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 12, padding: '10px 12px', gridColumn: (item as any).full ? '1 / -1' : undefined }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: '#94A3B8' }}><Icon size={11} strokeWidth={2} />{item.label}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: '#94A3B8' }}><Icon size={11} strokeWidth={2} />{item.label} {(item as any).hint && <span style={{ fontWeight: 500, textTransform: 'none', color: '#64748B', letterSpacing: 0 }}>• {(item as any).hint}</span>}</div>
                           <div style={{ fontSize: '0.84rem', fontWeight: 600, marginTop: 2, color: 'var(--text-dark)', wordBreak: 'break-word', fontFamily: (item as any).mono ? 'ui-monospace, monospace' : undefined }}>{item.value}</div>
                         </div>
                       );

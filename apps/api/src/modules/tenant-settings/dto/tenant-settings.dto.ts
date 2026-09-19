@@ -54,6 +54,31 @@ export class UpdateTenantSettingsDto {
   paystackSecretKey?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  paymentProvider?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  flutterwaveEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  flutterwavePublicKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(200)
+  flutterwaveSecretKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  flutterwaveWebhookSecret?: string;
+
+  @IsOptional()
   @IsBoolean()
   smtpEnabled?: boolean;
 

@@ -163,12 +163,12 @@ export class SlidingWindowRateLimiter {
 
 /** Shared tier presets — every service imports these rather than inventing its own numbers. */
 export const DEFAULT_TIERS = {
-  auth: { limit: 5, windowMs: 60_000 },
-  authDaily: { limit: 20, windowMs: 3_600_000 },
-  webhook: { limit: 100, windowMs: 60_000 },
-  mutation: { limit: 60, windowMs: 60_000 },
-  read: { limit: 300, windowMs: 60_000 },
-  globalPerIp: { limit: 600, windowMs: 60_000 },
+  auth: { limit: 10, windowMs: 60_000 },
+  authDaily: { limit: 40, windowMs: 3_600_000 },
+  webhook: { limit: 200, windowMs: 60_000 },
+  mutation: { limit: 200, windowMs: 60_000 },
+  read: { limit: 800, windowMs: 60_000 },
+  globalPerIp: { limit: 2000, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

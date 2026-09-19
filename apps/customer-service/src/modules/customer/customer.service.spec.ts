@@ -20,6 +20,8 @@ describe('CustomerService', () => {
     invoiceLine: { create: jest.fn() },
     ticket: { findMany: jest.fn(), findUnique: jest.fn() },
     ticketComment: { create: jest.fn() },
+    user: { findUnique: jest.fn().mockResolvedValue({ email: 'a@b.co', phone: '08000000000', secondaryPhone: null, name: 'Test User' }) },
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
 
   beforeEach(async () => {

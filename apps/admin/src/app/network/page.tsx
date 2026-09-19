@@ -141,7 +141,7 @@ export default function NetworkPage() {
       } catch {}
     };
     poll();
-    bwInterval.current = setInterval(poll, 3000);
+    bwInterval.current = setInterval(poll, 10000);
     return () => { if (bwInterval.current) clearInterval(bwInterval.current); };
   }, [rosDeviceId]);
 

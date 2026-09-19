@@ -38,8 +38,8 @@ export class UsersController {
 
   @Patch('customers/:id')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER', 'CEO', 'FIELD_ENGINEER')
-  updateCustomer(@Param('id') id: string, @Body() body: { name?: string; email?: string; phone?: string; secondaryPhone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string; ipAddress?: string; staticIpAddress?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string }, @CurrentUser('id') actorId: string) {
-    return this.service.updateCustomer(id, body, actorId);
+  updateCustomer(@Param('id') id: string, @Body() body: { name?: string; email?: string; phone?: string; secondaryPhone?: string; address?: string; installerName?: string; networkType?: string; pppoeUsername?: string; planName?: string; dueAt?: string; ipAddress?: string; staticIpAddress?: string; legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string; startedAt?: string; expiresAt?: string; installationFee?: string; installationFeeKobo?: number }, @CurrentUser('id') actorId: string) {
+    return this.service.updateCustomer(id, body as any, actorId);
   }
 
   @Get('kyc')

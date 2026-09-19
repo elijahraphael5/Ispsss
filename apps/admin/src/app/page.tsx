@@ -167,7 +167,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchBandwidth(bandwidthRange);
-    const interval = setInterval(() => fetchBandwidth(bandwidthRange), 15000);
+    const interval = setInterval(() => fetchBandwidth(bandwidthRange), 30000);
     return () => clearInterval(interval);
   }, [bandwidthRange, fetchBandwidth]);
 
@@ -205,7 +205,7 @@ export default function Dashboard() {
       } catch {}
     };
     refresh();
-    const interval = setInterval(refresh, 5000);
+    const interval = setInterval(refresh, 15000);
     return () => clearInterval(interval);
   }, [rosDevice]);
 

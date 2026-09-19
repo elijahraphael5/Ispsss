@@ -29,6 +29,8 @@ export class TenantSettingsService {
   async get() {
     const tenant = await this.getTenant();
     const secret = tenant.paystackEnabled ? decryptSecret(tenant.paystackSecretKeyEnc) : null;
+    const fwSecret = (tenant as any).flutterwaveEnabled ? decryptSecret((tenant as any).flutterwaveSecretKeyEnc) : null;
+    const provider = (tenant as any).paymentProvider ?? 'PAYSTACK';
     return {
       name: tenant.name,
       slug: tenant.slug,
@@ -47,11 +49,20 @@ export class TenantSettingsService {
         fiberFeeKobo: (tenant as any).fiberInstallationFeeKobo ?? 5000000,
         radioFeeKobo: (tenant as any).radioInstallationFeeKobo ?? 12000000,
       },
+      paymentProvider: provider,
       paystack: {
         enabled: tenant.paystackEnabled,
         publicKey: tenant.paystackPublicKey ?? null,
         secretMasked: maskSecret(secret),
         hasSecret: !!tenant.paystackSecretKeyEnc,
+      },
+      flutterwave: {
+        enabled: (tenant as any).flutterwaveEnabled ?? false,
+        publicKey: (tenant as any).flutterwavePublicKey ?? null,
+        secretMasked: maskSecret(fwSecret),
+        hasSecret: !!(tenant as any).flutterwaveSecretKeyEnc,
+        webhookSecretMasked: maskSecret((tenant as any).flutterwaveWebhookSecretEnc ? decryptSecret((tenant as any).flutterwaveWebhookSecretEnc) : null),
+        hasWebhookSecret: !!(tenant as any).flutterwaveWebhookSecretEnc,
       },
       email: {
         enabled: tenant.smtpEnabled,
@@ -63,7 +74,7 @@ export class TenantSettingsService {
         fromEmail: tenant.smtpFromEmail ?? null,
         fromName: tenant.smtpFromName ?? null,
       },
-      persistedFields: ['name', 'paystackEnabled', 'paystackPublicKey', 'paystackSecretKey', 'smtpEnabled', 'smtpHost', 'smtpPort', 'smtpUser', 'smtpPass', 'smtpFromEmail', 'smtpFromName', 'fiberInstallationFeeKobo', 'radioInstallationFeeKobo'],
+      persistedFields: ['name', 'paymentProvider', 'paystackEnabled', 'paystackPublicKey', 'paystackSecretKey', 'flutterwaveEnabled', 'flutterwavePublicKey', 'flutterwaveSecretKey', 'flutterwaveWebhookSecret', 'smtpEnabled', 'smtpHost', 'smtpPort', 'smtpUser', 'smtpPass', 'smtpFromEmail', 'smtpFromName', 'fiberInstallationFeeKobo', 'radioInstallationFeeKobo'],
       pendingFields: [...PENDING_TENANT_FIELDS],
     };
   }
@@ -109,6 +120,45 @@ export class TenantSettingsService {
       before.paystackSecretLast4 = tenant.paystackSecretLast4;
       after.paystackSecretLast4 = secret.slice(-4);
       persisted.push('paystackSecretKey');
+    }
+
+    if ((dto as any).paymentProvider !== undefined) {
+      const raw = String((dto as any).paymentProvider).trim().toUpperCase();
+      const allowed = ['PAYSTACK', 'FLUTTERWAVE', 'OTHER', 'BANK_TRANSFER', 'MONNIFY', 'REMITA'];
+      const next = allowed.includes(raw) ? raw : raw || 'PAYSTACK';
+      data.paymentProvider = next;
+      before.paymentProvider = (tenant as any).paymentProvider;
+      after.paymentProvider = next;
+      persisted.push('paymentProvider');
+    }
+
+    if ((dto as any).flutterwaveEnabled !== undefined) {
+      data.flutterwaveEnabled = (dto as any).flutterwaveEnabled;
+      before.flutterwaveEnabled = (tenant as any).flutterwaveEnabled;
+      after.flutterwaveEnabled = (dto as any).flutterwaveEnabled;
+      persisted.push('flutterwaveEnabled');
+    }
+    if ((dto as any).flutterwavePublicKey !== undefined) {
+      const key = String((dto as any).flutterwavePublicKey).trim() || null;
+      data.flutterwavePublicKey = key;
+      before.flutterwavePublicKey = (tenant as any).flutterwavePublicKey;
+      after.flutterwavePublicKey = key;
+      persisted.push('flutterwavePublicKey');
+    }
+    if ((dto as any).flutterwaveSecretKey) {
+      const secret = String((dto as any).flutterwaveSecretKey).trim();
+      data.flutterwaveSecretKeyEnc = encryptSecret(secret);
+      data.flutterwaveSecretLast4 = secret.slice(-4);
+      before.flutterwaveSecretLast4 = (tenant as any).flutterwaveSecretLast4;
+      after.flutterwaveSecretLast4 = secret.slice(-4);
+      persisted.push('flutterwaveSecretKey');
+    }
+    if ((dto as any).flutterwaveWebhookSecret) {
+      const secret = String((dto as any).flutterwaveWebhookSecret).trim();
+      data.flutterwaveWebhookSecretEnc = encryptSecret(secret);
+      before.flutterwaveWebhookSecretEnc = (tenant as any).flutterwaveWebhookSecretEnc ? '[REDACTED]' : null;
+      after.flutterwaveWebhookSecretEnc = '[REDACTED]';
+      persisted.push('flutterwaveWebhookSecret');
     }
 
     if (dto.smtpEnabled !== undefined) {
@@ -201,9 +251,16 @@ export class TenantSettingsService {
   /** Public client config — any authenticated user (customers need the public key). */
   async publicConfig() {
     const tenant = await this.getTenant();
+    const provider = (tenant as any).paymentProvider ?? 'PAYSTACK';
     return {
+      paymentProvider: provider,
       paystackEnabled: tenant.paystackEnabled,
       paystackPublicKey: tenant.paystackPublicKey ?? null,
+      flutterwaveEnabled: (tenant as any).flutterwaveEnabled ?? false,
+      flutterwavePublicKey: (tenant as any).flutterwavePublicKey ?? null,
+      // Backward compat: expose generic active key
+      activeProvider: provider,
+      activePublicKey: provider === 'FLUTTERWAVE' ? ((tenant as any).flutterwavePublicKey ?? null) : (tenant.paystackPublicKey ?? null),
     };
   }
 }

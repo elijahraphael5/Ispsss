@@ -6,12 +6,13 @@ import { PaymentsController } from './payments.controller';
 import { WebhookController } from './webhook.controller';
 import { PaymentsService } from './payments.service';
 import { PaystackProvider } from './providers/paystack.provider';
+import { FlutterwaveProvider } from './providers/flutterwave.provider';
 import { GatewayConfigService } from './gateway-config.service';
 
 @Module({
   imports: [BillingModule, MailModule],
   controllers: [PaymentsController, WebhookController],
-  providers: [PaymentsService, PaystackProvider, GatewayConfigService, RadiusClientService],
+  providers: [PaymentsService, PaystackProvider, FlutterwaveProvider, GatewayConfigService, RadiusClientService],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}

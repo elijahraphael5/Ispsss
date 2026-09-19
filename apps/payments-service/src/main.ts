@@ -9,8 +9,9 @@ import { PrismaService } from './common/prisma/prisma.service';
 import { createLogger, withRequestId, assertProdEnv } from '@isp/logger';
 import { makeMetricsMiddleware, recordHttpRequest } from '@isp/metrics';
 import { HealthService, makeLivenessHandler, makeReadinessHandler } from '@isp/health';
-import { SlidingWindowRateLimiter, MemoryRateLimitStore, RedisRateLimitStore, DEFAULT_TIERS, RateLimitRule } from '@isp/rate-limit';
+import { SlidingWindowRateLimiter, MemoryRateLimitStore, RedisRateLimitStore, DEFAULT_TIERS, RateLimitRule, envLimit } from '@isp/rate-limit';
 import { CacheService, NoopCacheClient, RedisCacheClient } from '@isp/cache';
+import { JwtService } from '@nestjs/jwt';
 import Redis from 'ioredis';
 
 async function bootstrap() {
@@ -31,7 +32,8 @@ async function bootstrap() {
           .map((s) => s.trim())
           .filter(Boolean);
         const isProd = process.env.NODE_ENV === 'production';
-        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || allowed.includes(origin));
+        const isLocalhost = origin?.startsWith('http://localhost:') || origin?.startsWith('https://localhost:');
+        const ok = isProd ? (!!origin && allowed.includes(origin)) : (!origin || isLocalhost || allowed.includes(origin));
         cb(null, ok);
       },
       credentials: true,
@@ -55,11 +57,22 @@ async function bootstrap() {
 
   const _limiterRedis = redisUrl === 'none' ? null : new Redis(redisUrl);
   const limiter = new SlidingWindowRateLimiter(_limiterRedis ? new RedisRateLimitStore(_limiterRedis as any) : new MemoryRateLimitStore());
+  const jwt = new JwtService({ secret: (() => { const v = process.env.JWT_ACCESS_SECRET; if (!v || v === 'change-me') throw new Error('JWT_ACCESS_SECRET is required'); return v; })() });
   const tierFor = (req: Request): RateLimitRule => {
     const path = req.path;
-    if (path.includes('/webhook')) return DEFAULT_TIERS.webhook;
-    if (req.method !== 'GET') return DEFAULT_TIERS.mutation;
-    return DEFAULT_TIERS.read;
+    if (path.includes('/webhook')) return { limit: envLimit('RATE_LIMIT_WEBHOOK_PER_MIN', DEFAULT_TIERS.webhook.limit), windowMs: 60_000 };
+    if (req.method !== 'GET') return { limit: envLimit('RATE_LIMIT_MUTATION_PER_MIN', DEFAULT_TIERS.mutation.limit), windowMs: 60_000 };
+    return { limit: envLimit('RATE_LIMIT_READ_PER_MIN', DEFAULT_TIERS.read.limit), windowMs: 60_000 };
+  };
+  const userKey = async (req: Request): Promise<string | null> => {
+    const auth = req.headers['authorization'];
+    if (!auth || !auth.startsWith('Bearer ')) return null;
+    try {
+      const payload: any = await jwt.verifyAsync(auth.slice(7));
+      return payload?.sub ? `user:${payload.sub}` : null;
+    } catch {
+      return null;
+    }
   };
 
   app.use(helmet());
@@ -85,7 +98,7 @@ async function bootstrap() {
       ? ((req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown')
       : (req.ip ?? 'unknown')
     ).split(',')[0].trim();
-    const result = await limiter.consume(`ip:${ip}`, tierFor(req));
+    const result = await limiter.consume(`payments:${(await userKey(req)) ?? `ip:${ip}`}`, tierFor(req));
     if (!result.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)));
       res.status(429).json({ statusCode: 429, message: 'Too many requests' });

@@ -60,6 +60,46 @@ export class SubscriptionsService {
     await this.prisma.$queryRaw`UPDATE "Subscriber" SET "pppoeUsername" = NULL WHERE id = ${owner.id}`;
   }
 
+  private async assertLegacyIdAvailable(legacyId: string): Promise<void> {
+    const rows: Array<{ id: string; deletedAt: Date | null }> = await this.prisma.$queryRaw`
+      SELECT id, "deletedAt" FROM "Subscriber" WHERE "legacyId" = ${legacyId} LIMIT 1
+    `;
+    const owner = rows[0];
+    if (!owner) return;
+    if (!owner.deletedAt) throw new ConflictException(`Legacy ID ${legacyId} is already in use`);
+    // stale soft-deleted holder — free it
+    await this.prisma.$queryRaw`UPDATE "Subscriber" SET "legacyId" = NULL WHERE id = ${owner.id}`;
+  }
+
+  private async generateLegacyId(networkType?: string | null): Promise<string> {
+    const isRadio = String(networkType ?? '').toUpperCase().includes('RADIO');
+    const prefix = isRadio ? 'HIR-' : 'HIF-';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const rows: Array<{ legacyId: string }> = await this.prisma.$queryRaw`
+        SELECT "legacyId" FROM "Subscriber" WHERE "legacyId" LIKE ${prefix + '%'} ORDER BY "legacyId" DESC LIMIT 1
+      `;
+      let maxNum = 0;
+      if (rows[0]?.legacyId) {
+        const m = rows[0].legacyId.match(/(\d+)$/);
+        if (m) maxNum = parseInt(m[1], 10);
+      }
+      const next = maxNum + 1 + attempt;
+      const candidate = `${prefix}${String(next).padStart(4, '0')}`;
+      const exists: Array<{ id: string }> = await this.prisma.$queryRaw`
+        SELECT id FROM "Subscriber" WHERE "legacyId" = ${candidate} LIMIT 1
+      `;
+      if (!exists.length) return candidate;
+    }
+    // Fallback to timestamp suffix if sequential fails
+    const suffix = String(Date.now()).slice(-4);
+    return `${isRadio ? 'HIR-' : 'HIF-'}${suffix}`;
+  }
+
+  async getNextLegacyId(networkType?: string | null): Promise<{ legacyId: string }> {
+    const legacyId = await this.generateLegacyId(networkType);
+    return { legacyId };
+  }
+
   async create(data: {
     userId: string; type: string; address?: string; pppoeUsername?: string; networkType?: string;
     legacyId?: string; id2?: string; firstName?: string; lastName?: string; companyName?: string; stationLabel?: string;
@@ -67,6 +107,19 @@ export class SubscriptionsService {
   }, actorId?: string) {
     const tenantId = (await this.prisma.tenant?.findFirst())?.id;
     if (data.pppoeUsername) await this.assertPppoeAvailable(data.pppoeUsername);
+    // Validate or auto-generate Legacy ID (HIF/HIR sequence, unique) — real-time preview may race, so on live duplicate generate next
+    let legacyId: string | null = data.legacyId?.trim() || null;
+    if (legacyId) {
+      try {
+        await this.assertLegacyIdAvailable(legacyId);
+      } catch (e) {
+        if (e instanceof ConflictException) {
+          legacyId = await this.generateLegacyId(data.networkType);
+        } else throw e;
+      }
+    } else {
+      legacyId = await this.generateLegacyId(data.networkType);
+    }
     // Auto-generate Hikonnect ID if not supplied — matches import sheet logic (Fiber/Radio seq)
     let hikonnectId: string | null = data.hikonnectId?.trim() || null;
     if (!hikonnectId && data.networkType) {
@@ -76,7 +129,7 @@ export class SubscriptionsService {
       hikonnectId = `Hikonnect ${isRadio ? 'Radio' : 'Fiber'}-${seq}`;
     }
     const subscriberFields: Record<string, unknown> = {
-      legacyId: data.legacyId?.trim() || null,
+      legacyId,
       id2: data.id2?.trim() || null,
       firstName: data.firstName?.trim() || null,
       lastName: data.lastName?.trim() || null,
@@ -116,27 +169,40 @@ export class SubscriptionsService {
       return sub;
     }
     let sub;
-    try {
-      sub = await this.prisma.subscriber.create({
-        data: {
-          tenantId,
-          userId: data.userId,
-          type: data.type as any,
-          address: data.address,
-          pppoeUsername: data.pppoeUsername,
-          networkType: data.networkType,
-          ...(subscriberFields as any),
-          // Maker–checker KYC: record which admin created the account so the
-          // KYC approver (checker) can never be the same person.
-          kycSubmittedById: actorId ?? null,
-          kycSubmittedAt: actorId ? new Date() : undefined,
-        } as any,
-        include: { user: { select: { id: true, name: true, email: true, phone: true } } },
-      });
-    } catch (e: any) {
-      if (e?.code === 'P2002') throw new ConflictException('PPPoE username is already in use by another customer');
-      throw e;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        sub = await this.prisma.subscriber.create({
+          data: {
+            tenantId,
+            userId: data.userId,
+            type: data.type as any,
+            address: data.address,
+            pppoeUsername: data.pppoeUsername,
+            networkType: data.networkType,
+            ...(subscriberFields as any),
+            // Maker–checker KYC: record which admin created the account so the
+            // KYC approver (checker) can never be the same person.
+            kycSubmittedById: actorId ?? null,
+            kycSubmittedAt: actorId ? new Date() : undefined,
+          } as any,
+          include: { user: { select: { id: true, name: true, email: true, phone: true } } },
+        });
+        break;
+      } catch (e: any) {
+        if (e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('legacyId') && attempt < 2) {
+          legacyId = await this.generateLegacyId(data.networkType);
+          (subscriberFields as any).legacyId = legacyId;
+          continue;
+        }
+        if (e?.code === 'P2002') {
+          const target = String(e?.meta?.target ?? '');
+          if (target.includes('legacyId')) throw new ConflictException('Legacy ID is already in use');
+          throw new ConflictException('PPPoE username is already in use by another customer');
+        }
+        throw e;
+      }
     }
+    if (!sub!) throw new ConflictException('Failed to create subscriber after retries');
     await this.audit.log({ action: 'SUBSCRIBER_CREATED', entityType: 'Subscriber', entityId: sub.id, metadata: { userId: data.userId, type: data.type } });
     await this.notifications.create({ title: 'New Account Created', message: `Customer ${sub.user?.email ?? '—'} signed up`, type: 'INFO', subscriberId: sub.id, link: '/subscriptions/subscribers' });
     return sub;
@@ -171,7 +237,7 @@ export class SubscriptionsService {
     return this.prisma.$transaction(async (tx) => {
       if (userId) {
         await tx.refreshToken.deleteMany({ where: { userId } });
-        await tx.user.update({ where: { id: userId }, data: { email: `deleted-${userId}@local` } });
+        await tx.user.update({ where: { id: userId }, data: { email: `deleted-${userId}@local`, phone: null, secondaryPhone: null } as any });
       }
       const invoices = await tx.invoice.findMany({ where: { subscriberId: id }, select: { id: true } });
       const invoiceIds = invoices.map((i) => i.id);
@@ -385,11 +451,12 @@ export class SubscriptionsService {
     const year = new Date().getFullYear();
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const last = await this.prisma.invoice.findFirst({
-          where: { invoiceNumber: { startsWith: `INV-INS-${year}` } },
-          orderBy: { createdAt: 'desc' },
-        });
-        const seq = last ? parseInt(last.invoiceNumber.split('-').pop()!, 10) + 1 : 1;
+        // Use raw query to include soft-deleted rows (unique index covers all rows, soft-delete filter hides them from findFirst)
+        const rows: Array<{ invoiceNumber: string }> = await this.prisma.$queryRaw`
+          SELECT "invoiceNumber" FROM "Invoice" WHERE "invoiceNumber" LIKE ${`INV-INS-${year}%`} ORDER BY "invoiceNumber" DESC LIMIT 1
+        `;
+        const last = rows[0];
+        const seq = last ? parseInt(last.invoiceNumber.split('-').pop()!, 10) + 1 + attempt : 1 + attempt;
         const invoiceNumber = `INV-INS-${year}-${String(seq).padStart(6, '0')}`;
         return await this.prisma.invoice.create({
           data: {

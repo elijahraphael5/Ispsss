@@ -30,6 +30,12 @@ export class SubscriptionsController {
     return this.service.listPlans({ skip: skip ? parseInt(skip, 10) : undefined, take: take ? parseInt(take, 10) : undefined });
   }
 
+  @Get('next-legacy-id')
+  @Roles('SUPER_ADMIN', 'SALES_AGENT', 'OPERATIONS_MANAGER', 'CEO')
+  async nextLegacyId(@Query('networkType') networkType?: string) {
+    return this.service.getNextLegacyId(networkType);
+  }
+
   @Post('plans')
   @Roles('SUPER_ADMIN', 'OPERATIONS_MANAGER')
   createPlan(@Body() body: CreatePlanDto) {

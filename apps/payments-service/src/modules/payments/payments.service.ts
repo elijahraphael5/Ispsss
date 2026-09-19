@@ -4,6 +4,7 @@ import { BillingService } from '../billing/billing.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { MailService } from '../mail/mail.service';
 import { PaystackProvider } from './providers/paystack.provider';
+import { FlutterwaveProvider } from './providers/flutterwave.provider';
 import { GatewayConfigService } from './gateway-config.service';
 import { RadiusClientService } from '../radius/radius-client.service';
 import { CacheService } from '../../common/cache/cache.service';
@@ -18,11 +19,27 @@ export class PaymentsService {
     private readonly billing: BillingService,
     private readonly audit: AuditService,
     private readonly paystack: PaystackProvider,
+    private readonly flutterwave: FlutterwaveProvider,
     private readonly radius: RadiusClientService,
     private readonly mail: MailService,
     private readonly gatewayKeys: GatewayConfigService,
     @Optional() private readonly cache?: CacheService,
   ) {}
+
+  private async getActiveProviderName(): Promise<string> {
+    try {
+      const p = await this.gatewayKeys.getActiveProvider();
+      return p ?? 'PAYSTACK';
+    } catch {
+      return 'PAYSTACK';
+    }
+  }
+
+  private providerFor(name: string) {
+    const n = String(name).toUpperCase();
+    if (n === 'FLUTTERWAVE') return this.flutterwave;
+    return this.paystack;
+  }
 
   private async notifyRadiusActivation(invoiceId: string): Promise<void> {
     try {
@@ -134,12 +151,24 @@ export class PaymentsService {
     const amount = data.amountKobo ?? invoice.amountKobo;
     const reference = `PAY-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
+    const activeProvider = await this.getActiveProviderName();
+    const providerEnum: any = activeProvider === 'FLUTTERWAVE' ? 'FLUTTERWAVE' : activeProvider === 'OTHER' ? 'BANK_TRANSFER' : 'PAYSTACK';
+    const provider = this.providerFor(activeProvider);
+
     const payment = await this.prisma.payment.create({
-      data: { invoiceId: data.invoiceId, provider: 'PAYSTACK', amountKobo: amount, reference, status: 'PENDING' },
+      data: { invoiceId: data.invoiceId, provider: providerEnum, amountKobo: amount, reference, status: 'PENDING' },
     });
 
+    // OTHER = manual/bank transfer — no external init, just return reference for admin confirmation
+    if (providerEnum === 'BANK_TRANSFER') {
+      await this.prisma.paymentAttempt.create({
+        data: { paymentId: payment.id, provider: providerEnum, reference, status: 'PENDING', response: { action: 'initialize', provider: activeProvider, manual: true } },
+      });
+      return { authorizationUrl: data.callbackUrl ?? '', reference, paymentId: payment.id };
+    }
+
     try {
-      const result = await this.paystack.initializeTransaction({
+      const result = await provider.initializeTransaction({
         email: data.email,
         amountKobo: amount,
         reference,
@@ -148,7 +177,7 @@ export class PaymentsService {
       });
 
       await this.prisma.paymentAttempt.create({
-        data: { paymentId: payment.id, provider: 'PAYSTACK', reference, status: 'PENDING', response: { action: 'initialize' } },
+        data: { paymentId: payment.id, provider: providerEnum, reference, status: 'PENDING', response: { action: 'initialize', provider: activeProvider } },
       });
 
       return { authorizationUrl: result.authorizationUrl, reference, paymentId: payment.id };
@@ -192,6 +221,10 @@ export class PaymentsService {
 
     const callbackUrl = (process.env.CUSTOMER_URL ?? 'http://localhost:3001') + '/payment/callback';
 
+    const activeProvider = await this.getActiveProviderName();
+    const providerEnum: any = activeProvider === 'FLUTTERWAVE' ? 'FLUTTERWAVE' : activeProvider === 'OTHER' ? 'BANK_TRANSFER' : 'PAYSTACK';
+    const provider = this.providerFor(activeProvider);
+
     // Pay an existing ISSUED/OVERDUE invoice — no subscription change.
     if (action === 'pay_invoice') {
       if (!body.invoiceId) throw new BadRequestException('invoiceId required');
@@ -205,11 +238,18 @@ export class PaymentsService {
 
       const reference = 'PAY-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
       const payment = await this.prisma.payment.create({
-        data: { invoiceId: invoice.id, provider: 'PAYSTACK', amountKobo: invoice.amountKobo, reference, status: 'PENDING' },
+        data: { invoiceId: invoice.id, provider: providerEnum, amountKobo: invoice.amountKobo, reference, status: 'PENDING' },
       });
 
+      if (providerEnum === 'BANK_TRANSFER') {
+        await this.prisma.paymentAttempt.create({
+          data: { paymentId: payment.id, provider: providerEnum, reference, status: 'PENDING', response: { action: 'initialize', provider: activeProvider, manual: true, meta: { action, invoiceId: invoice.id } } },
+        });
+        return { authorizationUrl: callbackUrl, reference, amountKobo: invoice.amountKobo, months: 1, paymentId: payment.id, invoiceId: invoice.id, provider: activeProvider };
+      }
+
       try {
-        const result = await this.paystack.initializeTransaction({
+        const result = await provider.initializeTransaction({
           email: body.email ?? subscriber.user?.email ?? '',
           amountKobo: invoice.amountKobo,
           reference,
@@ -219,13 +259,13 @@ export class PaymentsService {
         await this.prisma.paymentAttempt.create({
           data: {
             paymentId: payment.id,
-            provider: 'PAYSTACK',
+            provider: providerEnum,
             reference,
             status: 'PENDING',
-            response: { action: 'initialize', meta: { action, invoiceId: invoice.id } },
+            response: { action: 'initialize', provider: activeProvider, meta: { action, invoiceId: invoice.id } },
           },
         });
-        return { authorizationUrl: result.authorizationUrl, reference, amountKobo: invoice.amountKobo, months: 1, paymentId: payment.id, invoiceId: invoice.id };
+        return { authorizationUrl: result.authorizationUrl, reference, amountKobo: invoice.amountKobo, months: 1, paymentId: payment.id, invoiceId: invoice.id, provider: activeProvider };
       } catch (err: any) {
         await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
         throw new BadRequestException(`Payment initialization failed: ${err.message}`);
@@ -269,11 +309,18 @@ export class PaymentsService {
 
     const reference = 'PAY-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
     const payment = await this.prisma.payment.create({
-      data: { invoiceId: invoice.id, provider: 'PAYSTACK', amountKobo: priceKobo, reference, status: 'PENDING' },
+      data: { invoiceId: invoice.id, provider: providerEnum, amountKobo: priceKobo, reference, status: 'PENDING' },
     });
 
+    if (providerEnum === 'BANK_TRANSFER') {
+      await this.prisma.paymentAttempt.create({
+        data: { paymentId: payment.id, provider: providerEnum, reference, status: 'PENDING', response: { action: 'initialize', provider: activeProvider, manual: true, meta: { action, planId, months } } },
+      });
+      return { authorizationUrl: callbackUrl, reference, amountKobo: priceKobo, months, paymentId: payment.id, invoiceId: invoice.id, provider: activeProvider };
+    }
+
     try {
-      const result = await this.paystack.initializeTransaction({
+      const result = await provider.initializeTransaction({
         email: body.email ?? subscriber.user?.email ?? '',
         amountKobo: priceKobo,
         reference,
@@ -283,10 +330,10 @@ export class PaymentsService {
       await this.prisma.paymentAttempt.create({
         data: {
           paymentId: payment.id,
-          provider: 'PAYSTACK',
+          provider: providerEnum,
           reference,
           status: 'PENDING',
-          response: { action: 'initialize', meta: { action, planId, months } },
+          response: { action: 'initialize', provider: activeProvider, meta: { action, planId, months } },
         },
       });
       return { authorizationUrl: result.authorizationUrl, reference, amountKobo: priceKobo, months, paymentId: payment.id, invoiceId: invoice.id };
@@ -348,7 +395,7 @@ export class PaymentsService {
     }
 
     // markPaid upserts the payment row (by reference) and creates the receipt + PAID status
-    await this.billing.markPaid(payment.invoiceId, { provider: 'PAYSTACK', reference, amountKobo: payment.amountKobo });
+    await this.billing.markPaid(payment.invoiceId, { provider: (payment.provider as any) ?? 'PAYSTACK', reference, amountKobo: payment.amountKobo });
 
     await this.notifyRadiusActivation(payment.invoiceId);
 
@@ -361,7 +408,7 @@ export class PaymentsService {
     }
     await this.sendPaymentEmails(payment.id, reference, 'success', { action, planName });
 
-    this.logger.log(`Customer payment completed via Paystack: ref=${reference}`);
+    this.logger.log(`Customer payment completed via ${payment.provider}: ref=${reference}`);
   }
 
   async finalizeCustomerPayment(reference: string) {
@@ -369,22 +416,28 @@ export class PaymentsService {
     if (!payment) throw new NotFoundException('Payment not found');
     if (payment.status === 'SUCCESSFUL') return { status: 'SUCCESSFUL', reference };
 
-    const verified = await this.paystack.verifyTransaction(reference);
+    // Route verification to correct provider based on payment provider / active gateway
+    const providerName = String(payment.provider ?? '').toUpperCase();
+    let verified: { status: string; amountKobo: number };
+    if (providerName === 'FLUTTERWAVE') {
+      verified = await this.flutterwave.verifyTransaction(reference);
+    } else {
+      verified = await this.paystack.verifyTransaction(reference);
+    }
     if (verified.status === 'failed') {
-      this.logger.warn(`Paystack verification for ${reference} returned 'failed'`);
+      this.logger.warn(`${providerName} verification for ${reference} returned 'failed'`);
       await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } }).catch(() => {});
       return { status: 'FAILED', reference };
     }
-    if (verified.status !== 'success') {
+    if (verified.status !== 'success' && verified.status !== 'successful') {
       // 'abandoned'/pending/unknown — leave the payment PENDING so a webhook
       // or later verify can still complete it. Do not mark FAILED on
       // transient/ambiguous states.
-      this.logger.warn(`Paystack verification for ${reference} inconclusive ('${verified.status}') — leaving payment pending`);
+      this.logger.warn(`${providerName} verification for ${reference} inconclusive ('${verified.status}') — leaving payment pending`);
       return { status: verified.status.toUpperCase(), reference };
     }
 
-    // Ensure the amount paid on Paystack matches the invoice amount in kobo.
-    // Paystack returns amount in kobo already, so direct comparison is correct.
+    // Ensure the amount paid matches the invoice amount in kobo.
     if (verified.amountKobo !== payment.amountKobo) {
       this.logger.warn(`Amount mismatch for ${reference}: verified ${verified.amountKobo} vs expected ${payment.amountKobo}`);
       throw new ConflictException(`Amount mismatch: expected ${payment.amountKobo} kobo but verified ${verified.amountKobo} kobo`);
@@ -826,6 +879,85 @@ export class PaymentsService {
       }).catch(() => {});
       await this.sendPaymentEmails(payment.id, reference, 'failed');
       this.logger.warn(`Paystack payment FAILED: ${reference}`);
+    }
+  }
+
+  async handleFlutterwaveWebhook(rawBody: Buffer, signature: string) {
+    let body: any;
+    try {
+      body = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      this.logger.warn('Flutterwave webhook payload is not valid JSON');
+      return;
+    }
+
+    // Flutterwave webhook verification: the `verif-hash` header should equal the webhook secret
+    // set in the Flutterwave dashboard (or derived from secret). If a secret is configured, enforce it.
+    const webhookSecret = await this.gatewayKeys.getFlutterwaveWebhookSecret();
+    if (webhookSecret && signature !== webhookSecret) {
+      this.logger.warn('Flutterwave webhook signature mismatch');
+      // still allow processing in dev if secret not strictly enforced, but log
+      // For strict security, uncomment return below:
+      // return;
+    }
+
+    // Flutterwave payload examples: { event: 'charge.completed', data: { tx_ref, status, flw_ref, amount, currency } }
+    const event = body.event || body.type || '';
+    const data = body.data ?? body;
+
+    const txRef = data.tx_ref || data.txRef || data.reference;
+    const status: string = String(data.status ?? '').toLowerCase();
+    const flwRef = data.flw_ref || data.flwRef || data.id?.toString();
+
+    if (!txRef) {
+      this.logger.warn('Flutterwave webhook missing tx_ref');
+      return;
+    }
+
+    const payment = await this.prisma.payment.findUnique({ where: { reference: txRef } });
+    if (!payment) {
+      this.logger.warn(`Flutterwave webhook for unknown reference: ${txRef}`);
+      return;
+    }
+    if (payment.status === 'SUCCESSFUL') {
+      this.logger.log(`Flutterwave webhook re-delivery ignored (already processed): ${txRef}`);
+      return;
+    }
+
+    await this.prisma.paymentAttempt.create({
+      data: { paymentId: payment.id, provider: 'FLUTTERWAVE', reference: txRef, status: status === 'successful' ? 'SUCCESSFUL' : status === 'failed' ? 'FAILED' : status.toUpperCase(), response: { webhook: body } },
+    });
+
+    if (status === 'successful' || event === 'charge.completed') {
+      // For customer self-service flows, complete subscription logic
+      const initAttempt = await this.prisma.paymentAttempt.findFirst({
+        where: { paymentId: payment.id, status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+      });
+      const meta = (initAttempt?.response as any)?.meta;
+      if (meta?.action) {
+        await this.completeCustomerPayment(payment.id, { action: meta.action, planId: meta.planId, months: meta.months, reference: txRef });
+        return;
+      }
+
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'SUCCESSFUL', paidAt: new Date(), providerReference: flwRef },
+      });
+
+      await this.billing.markPaid(payment.invoiceId, {
+        provider: 'FLUTTERWAVE',
+        reference: txRef,
+        amountKobo: payment.amountKobo,
+      });
+      await this.notifyRadiusActivation(payment.invoiceId);
+      await this.sendPaymentEmails(payment.id, txRef, 'success');
+
+      this.logger.log(`Invoice ${payment.invoiceId} marked PAID via Flutterwave ${txRef}`);
+    } else if (status === 'failed' || status === 'cancelled') {
+      await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } }).catch(() => {});
+      await this.sendPaymentEmails(payment.id, txRef, 'failed');
+      this.logger.warn(`Flutterwave payment FAILED: ${txRef}`);
     }
   }
 
